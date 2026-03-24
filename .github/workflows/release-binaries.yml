@@ -1,0 +1,214 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate release notes from commits
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          prev_tag="$(git tag --sort=-version:refname | grep -v "^${tag}$" | head -n1 || true)"
+
+          {
+            echo "## Release ${tag}"
+            echo
+            if [ -n "${prev_tag}" ]; then
+              echo "Changes since \`${prev_tag}\`:"
+              echo
+              git log --pretty='- %s (%h)' "${prev_tag}..${tag}" || true
+            else
+              echo "Changes in this release:"
+              echo
+              git log --pretty='- %s (%h)' "${tag}" || true
+            fi
+          } > release-notes.md
+
+          if ! grep -q '^- ' release-notes.md; then
+            echo "- No commit messages found for this tag range." >> release-notes.md
+          fi
+
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "$tag" \
+              --notes-file release-notes.md
+          else
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes-file release-notes.md
+          fi
+
+  build-and-upload:
+    name: Build and upload (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: create-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_ext: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin_ext: ""
+          - os: macos-13
+            target: x86_64-apple-darwin
+            bin_ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_ext: ".exe"
+
+    steps:
+      - name: Set temp directory on Windows
+        if: ${{ runner.os == 'Windows' }}
+        run: |
+          mkdir -p "D:\a\_temp"
+          echo "TEMP=D:\a\_temp" >> $GITHUB_ENV
+          echo "TMP=D:\a\_temp" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust 1.94
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build release binaries
+        run: cargo build --release --locked --target ${{ matrix.target }} --bins
+
+      - name: Verify built binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="target/${{ matrix.target }}/release"
+          test -f "${bin_dir}/acari${{ matrix.bin_ext }}"
+          test -f "${bin_dir}/headless_cleaner${{ matrix.bin_ext }}"
+
+      - name: Verify built binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binDir = "target/${{ matrix.target }}/release"
+          if (!(Test-Path "$binDir/acari${{ matrix.bin_ext }}")) { throw "Missing acari binary" }
+          if (!(Test-Path "$binDir/headless_cleaner${{ matrix.bin_ext }}")) { throw "Missing headless_cleaner binary" }
+
+      - name: Package binary (Unix)
+        if: runner.os != 'Windows'
+        id: package_unix
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          base="acari-${tag}-${{ matrix.target }}"
+          bin_dir="target/${{ matrix.target }}/release"
+          bin_main="${bin_dir}/acari${{ matrix.bin_ext }}"
+          bin_headless="${bin_dir}/headless_cleaner${{ matrix.bin_ext }}"
+          out="${base}.tar.gz"
+
+          chmod +x "$bin_main" "$bin_headless"
+          tar -czf "$out" -C "$bin_dir" \
+            "$(basename "$bin_main")" \
+            "$(basename "$bin_headless")"
+
+          echo "asset=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Package binary (Windows)
+        if: runner.os == 'Windows'
+        id: package_windows
+        shell: pwsh
+        run: |
+          $tag = "${env:GITHUB_REF_NAME}"
+          $base = "acari-$tag-${{ matrix.target }}"
+          $binMain = "target/${{ matrix.target }}/release/acari${{ matrix.bin_ext }}"
+          $binHeadless = "target/${{ matrix.target }}/release/headless_cleaner${{ matrix.bin_ext }}"
+          $out = "$base.zip"
+
+          Compress-Archive -Path @($binMain, $binHeadless) -DestinationPath $out -Force
+
+          "asset=$out" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Generate SHA256 checksum (Unix)
+        if: runner.os != 'Windows'
+        id: checksum_unix
+        shell: bash
+        env:
+          ASSET_UNIX: ${{ steps.package_unix.outputs.asset }}
+        run: |
+          set -euo pipefail
+          asset="${ASSET_UNIX}"
+          checksum_file="${asset}.sha256"
+          sha256sum "$asset" > "$checksum_file"
+          echo "checksum=$checksum_file" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SHA256 checksum (Windows)
+        if: runner.os == 'Windows'
+        id: checksum_windows
+        shell: pwsh
+        env:
+          ASSET_WINDOWS: ${{ steps.package_windows.outputs.asset }}
+        run: |
+          $asset = "${env:ASSET_WINDOWS}"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $asset).Hash.ToLower()
+          $checksumFile = "$asset.sha256"
+          "$hash  $asset" | Out-File -FilePath $checksumFile -Encoding utf8
+          "checksum=$checksumFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload asset to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_UNIX: ${{ steps.package_unix.outputs.asset }}
+          ASSET_WINDOWS: ${{ steps.package_windows.outputs.asset }}
+          CHECKSUM_UNIX: ${{ steps.checksum_unix.outputs.checksum }}
+          CHECKSUM_WINDOWS: ${{ steps.checksum_windows.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="${ASSET_UNIX:-${ASSET_WINDOWS}}"
+          checksum="${CHECKSUM_UNIX:-${CHECKSUM_WINDOWS}}"
+          gh release upload "$GITHUB_REF_NAME" "$asset" "$checksum" --clobber
