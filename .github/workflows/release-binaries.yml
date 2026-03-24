@@ -35,10 +35,18 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
+          repo="${GITHUB_REPOSITORY}"
           prev_tag="$(git tag --sort=-version:refname | grep -v "^${tag}$" | head -n1 || true)"
 
           {
             echo "## Release ${tag}"
+            echo
+            echo "### Install"
+            echo
+            echo '```bash'
+            echo "curl -fsSL https://raw.githubusercontent.com/${repo}/main/scripts/install.sh | \\"
+            echo "  sh -s -- --repo ${repo} --tag ${tag}"
+            echo '```'
             echo
             if [ -n "${prev_tag}" ]; then
               echo "Changes since \`${prev_tag}\`:"

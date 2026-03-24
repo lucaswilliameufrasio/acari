@@ -26,7 +26,21 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
 
 ### Installation
 
-Clone the repository and run it directly:
+Quick install from GitHub Releases (curl | sh):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install.sh | \
+  sh -s -- --repo <owner>/<repo>
+```
+
+Install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install.sh | \
+  sh -s -- --repo <owner>/<repo> --tag v0.1.0
+```
+
+Build from source:
 
 ```bash
 git clone [https://github.com/your-username/acari.git](https://github.com/your-username/acari.git)

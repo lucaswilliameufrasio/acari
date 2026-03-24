@@ -23,7 +23,12 @@ git push origin vX.Y.Z
 - generate `.sha256` files,
 - upload artifacts and checksums to the GitHub Release.
 
+5. Ensure installer script remains valid:
+- `scripts/install.sh` should support latest release and specific tags.
+- Keep README install command aligned with the current repository path.
+
 ## Post-release
 
 - Move completed entries from `[Unreleased]` into a new version section in `CHANGELOG.md`.
 - Keep checksum validation instructions in `README.md` up to date.
+- Validate installer docs snippet and release asset names (`acari-<tag>-<target>.*`) remain in sync.
