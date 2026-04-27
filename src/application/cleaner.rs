@@ -11,7 +11,7 @@ pub enum CleanMode {
 
 pub fn start_background_clean(
     tx: UnboundedSender<AppEvent>,
-    targets: Vec<(CleanTarget, u64)>,
+    targets: Vec<(CleanTarget, u64, u64)>,
     mode: CleanMode,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
@@ -19,8 +19,9 @@ pub fn start_background_clean(
         let mut reclaimed_bytes = 0_u64;
         let mut errors = 0_u64;
 
-        for (target, estimated_bytes) in targets {
-            let result = infra_cleaner::clean_target(&target, estimated_bytes, mode);
+        for (target, estimated_bytes, estimated_entries) in targets {
+            let result =
+                infra_cleaner::clean_target(&target, estimated_bytes, estimated_entries, mode);
             cleaned_targets = cleaned_targets.saturating_add(1);
             reclaimed_bytes = reclaimed_bytes.saturating_add(result.reclaimed_bytes);
             errors = errors.saturating_add(result.errors);

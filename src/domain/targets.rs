@@ -1,83 +1,85 @@
+use std::borrow::Cow;
+
 use crate::domain::CleanTarget;
 
 pub const DEV_CACHES: &[CleanTarget] = &[
     CleanTarget {
-        name: "Cargo Registry",
-        path: "~/.cargo/registry",
-        description: "Rust package cache",
+        name: Cow::Borrowed("Cargo Registry"),
+        path: Cow::Borrowed("~/.cargo/registry"),
+        description: Cow::Borrowed("Rust package cache"),
     },
     CleanTarget {
-        name: "Go Module Cache",
-        path: "~/go/pkg/mod",
-        description: "Go dependencies",
+        name: Cow::Borrowed("Go Module Cache"),
+        path: Cow::Borrowed("~/go/pkg/mod"),
+        description: Cow::Borrowed("Go dependencies"),
     },
     CleanTarget {
-        name: "NPM Cache",
-        path: "~/.npm",
-        description: "Node.js package cache",
+        name: Cow::Borrowed("NPM Cache"),
+        path: Cow::Borrowed("~/.npm"),
+        description: Cow::Borrowed("Node.js package cache"),
     },
     CleanTarget {
-        name: "Yarn Cache",
-        path: "~/.cache/yarn",
-        description: "Yarn package cache",
+        name: Cow::Borrowed("Yarn Cache"),
+        path: Cow::Borrowed("~/.cache/yarn"),
+        description: Cow::Borrowed("Yarn package cache"),
     },
 ];
 
 #[cfg(target_os = "macos")]
 pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
-        name: "Xcode DerivedData",
-        path: "~/Library/Developer/Xcode/DerivedData",
-        description: "Xcode build artifacts",
+        name: Cow::Borrowed("Xcode DerivedData"),
+        path: Cow::Borrowed("~/Library/Developer/Xcode/DerivedData"),
+        description: Cow::Borrowed("Xcode build artifacts"),
     },
     CleanTarget {
-        name: "iOS Simulators",
-        path: "~/Library/Developer/CoreSimulator/Caches",
-        description: "Simulator app caches",
+        name: Cow::Borrowed("iOS Simulators"),
+        path: Cow::Borrowed("~/Library/Developer/CoreSimulator/Caches"),
+        description: Cow::Borrowed("Simulator app caches"),
     },
     CleanTarget {
-        name: "User Caches",
-        path: "~/Library/Caches",
-        description: "General application caches",
+        name: Cow::Borrowed("User Caches"),
+        path: Cow::Borrowed("~/Library/Caches"),
+        description: Cow::Borrowed("General application caches"),
     },
     CleanTarget {
-        name: "User Logs",
-        path: "~/Library/Logs",
-        description: "Application crash logs and telemetry",
+        name: Cow::Borrowed("User Logs"),
+        path: Cow::Borrowed("~/Library/Logs"),
+        description: Cow::Borrowed("Application crash logs and telemetry"),
     },
     CleanTarget {
-        name: "Trash",
-        path: "~/.Trash",
-        description: "User trash bin",
+        name: Cow::Borrowed("Trash"),
+        path: Cow::Borrowed("~/.Trash"),
+        description: Cow::Borrowed("User trash bin"),
     },
 ];
 
 #[cfg(target_os = "linux")]
 pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
-        name: "User Caches",
-        path: "~/.cache",
-        description: "Standard XDG cache directory",
+        name: Cow::Borrowed("User Caches"),
+        path: Cow::Borrowed("~/.cache"),
+        description: Cow::Borrowed("Standard XDG cache directory"),
     },
     CleanTarget {
-        name: "Thumbnail Cache",
-        path: "~/.cache/thumbnails",
-        description: "Image explorer thumbnails",
+        name: Cow::Borrowed("Thumbnail Cache"),
+        path: Cow::Borrowed("~/.cache/thumbnails"),
+        description: Cow::Borrowed("Image explorer thumbnails"),
     },
     CleanTarget {
-        name: "Systemd Journal Logs",
-        path: "/var/log/journal",
-        description: "Systemd binary logs (Requires sudo)",
+        name: Cow::Borrowed("Systemd Journal Logs"),
+        path: Cow::Borrowed("/var/log/journal"),
+        description: Cow::Borrowed("Systemd binary logs (Requires sudo)"),
     },
     CleanTarget {
-        name: "Apt Cache",
-        path: "/var/cache/apt/archives",
-        description: "Debian/Ubuntu package cache (Requires sudo)",
+        name: Cow::Borrowed("Apt Cache"),
+        path: Cow::Borrowed("/var/cache/apt/archives"),
+        description: Cow::Borrowed("Debian/Ubuntu package cache (Requires sudo)"),
     },
     CleanTarget {
-        name: "Trash",
-        path: "~/.local/share/Trash",
-        description: "XDG trash bin",
+        name: Cow::Borrowed("Trash"),
+        path: Cow::Borrowed("~/.local/share/Trash"),
+        description: Cow::Borrowed("XDG trash bin"),
     },
 ];
 

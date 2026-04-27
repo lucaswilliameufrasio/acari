@@ -1,16 +1,16 @@
 use std::fs;
 use std::time::Duration;
+use std::{borrow::Cow, path::Path};
 
 use acari::application::cleaner::{CleanMode, start_background_clean};
 use acari::application::scanner::start_background_scan;
 use acari::domain::{AppEvent, CleanTarget};
 
-fn test_target(name: &'static str, path: &std::path::Path) -> CleanTarget {
-    let leaked_path: &'static str = Box::leak(path.to_string_lossy().into_owned().into_boxed_str());
+fn test_target(name: &'static str, path: &Path) -> CleanTarget {
     CleanTarget {
-        name,
-        path: leaked_path,
-        description: "test",
+        name: Cow::Borrowed(name),
+        path: Cow::Owned(path.to_string_lossy().into_owned()),
+        description: Cow::Borrowed("test"),
     }
 }
 
@@ -61,7 +61,7 @@ async fn cleaner_emits_cleaning_finished_and_removes_entries() {
     let target = test_target("Clean Flow", &root);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_clean(tx, vec![(target, 64)], CleanMode::Execute);
+    let handle = start_background_clean(tx, vec![(target, 64, 1)], CleanMode::Execute);
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let mut saw_target_cleaned = false;
@@ -100,7 +100,7 @@ async fn cleaner_dry_run_keeps_entries() {
     let target = test_target("Dry Run Flow", &root);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_clean(tx, vec![(target, 32)], CleanMode::DryRun);
+    let handle = start_background_clean(tx, vec![(target, 32, 1)], CleanMode::DryRun);
 
     let mut saw_finished = false;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);

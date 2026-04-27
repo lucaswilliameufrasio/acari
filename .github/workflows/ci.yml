@@ -34,16 +34,16 @@ jobs:
         shell: bash
 
       - name: Checkout
-        uses: actions/checkout@v6.0.1 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust 1.94 with lint components
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: 1.94.0
           components: rustfmt, clippy
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.8.1 # v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Lint (rustfmt)
         run: cargo fmt --all --check
@@ -74,15 +74,15 @@ jobs:
         shell: bash
 
       - name: Checkout
-        uses: actions/checkout@v6.0.1 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust 1.94
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: 1.94.0
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.8.1 # v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Build
         run: cargo build --locked --all-targets
@@ -98,15 +98,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.1 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust 1.94
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: 1.94.0
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.8.1 # v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Build rustdoc
         run: cargo doc --locked --no-deps

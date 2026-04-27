@@ -1,15 +1,16 @@
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct CleanTarget {
-    pub name: &'static str,
-    pub path: &'static str,
-    pub description: &'static str,
+    pub name: Cow<'static, str>,
+    pub path: Cow<'static, str>,
+    pub description: Cow<'static, str>,
 }
 
 impl CleanTarget {
     pub fn resolved_path(&self) -> PathBuf {
-        expand_tilde(self.path)
+        expand_tilde(self.path.as_ref())
     }
 }
 

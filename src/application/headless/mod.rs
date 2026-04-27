@@ -20,7 +20,7 @@ pub async fn run_headless(
     clean_mode: CleanMode,
 ) -> Result<()> {
     let mut total_bytes = 0_u64;
-    let mut completed: HashMap<String, (CleanTarget, u64)> = HashMap::new();
+    let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
     let mut waiting_clean_finish = false;
     let target_lookup: HashMap<String, CleanTarget> = targets
         .iter()
@@ -46,14 +46,15 @@ pub async fn run_headless(
                 print_target_done(&target_name, bytes, files_scanned);
 
                 if let Some(target) = target_lookup.get(&target_name) {
-                    completed.insert(target_name, (target.clone(), bytes));
+                    completed.insert(target_name, (target.clone(), bytes, files_scanned));
                 }
             }
             AppEvent::ScanFinished => {
                 print_scan_finished(total_bytes);
 
                 if clean_after_scan {
-                    let selected: Vec<(CleanTarget, u64)> = completed.values().cloned().collect();
+                    let selected: Vec<(CleanTarget, u64, u64)> =
+                        completed.values().cloned().collect();
                     if selected.is_empty() {
                         break;
                     }

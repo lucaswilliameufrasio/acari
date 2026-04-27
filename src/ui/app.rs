@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{self, Stdout};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -41,7 +42,7 @@ enum Phase {
 enum UiCommand {
     None,
     Quit,
-    StartCleaning(Vec<(CleanTarget, u64)>),
+    StartCleaning(Vec<(CleanTarget, u64, u64)>),
 }
 
 pub fn run_tui(
@@ -132,7 +133,7 @@ fn run_loop(
 
         let elapsed = last_tick.elapsed();
         if elapsed < frame_time {
-            std::thread::sleep(frame_time - elapsed);
+            thread::sleep(frame_time - elapsed);
         }
         last_tick = Instant::now();
     }
@@ -246,10 +247,10 @@ fn handle_key(
             UiCommand::None
         }
         KeyCode::Enter if *phase == Phase::ReadyToClean => {
-            let selected: Vec<(CleanTarget, u64)> = rows
+            let selected: Vec<(CleanTarget, u64, u64)> = rows
                 .iter()
                 .filter(|(_, s)| s.selected)
-                .map(|(target, s)| (target.clone(), s.bytes))
+                .map(|(target, s)| (target.clone(), s.bytes, s.files))
                 .collect();
 
             if selected.is_empty() {
@@ -404,6 +405,8 @@ fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::{Phase, TargetState, UiCommand, handle_event, handle_key};
     use crate::domain::{AppEvent, CleanTarget};
     use crossterm::event::KeyCode;
@@ -413,17 +416,17 @@ mod tests {
         vec![
             (
                 CleanTarget {
-                    name: "A",
-                    path: "/tmp/a",
-                    description: "a",
+                    name: Cow::Borrowed("A"),
+                    path: Cow::Borrowed("/tmp/a"),
+                    description: Cow::Borrowed("a"),
                 },
                 TargetState::default(),
             ),
             (
                 CleanTarget {
-                    name: "B",
-                    path: "/tmp/b",
-                    description: "b",
+                    name: Cow::Borrowed("B"),
+                    path: Cow::Borrowed("/tmp/b"),
+                    description: Cow::Borrowed("b"),
                 },
                 TargetState::default(),
             ),
@@ -477,6 +480,7 @@ mod tests {
         let mut rows = build_rows();
         rows[0].1.selected = true;
         rows[0].1.bytes = 42;
+        rows[0].1.files = 7;
 
         let mut idx = 0_usize;
         let mut phase = Phase::ReadyToClean;
@@ -491,6 +495,7 @@ mod tests {
                 assert_eq!(selected.len(), 1);
                 assert_eq!(selected[0].0.name, "A");
                 assert_eq!(selected[0].1, 42);
+                assert_eq!(selected[0].2, 7);
             }
             _ => panic!("expected StartCleaning"),
         }

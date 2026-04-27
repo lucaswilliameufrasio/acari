@@ -1,14 +1,13 @@
+use std::borrow::Cow;
+
 use crate::domain::CleanTarget;
 
 pub fn append_custom_scan_paths(targets: &mut Vec<CleanTarget>, scan_paths: &[String]) {
     for (idx, path) in scan_paths.iter().enumerate() {
-        let name: &'static str = Box::leak(format!("Custom Path {}", idx + 1).into_boxed_str());
-        let leaked_path: &'static str = Box::leak(path.clone().into_boxed_str());
-
         targets.push(CleanTarget {
-            name,
-            path: leaked_path,
-            description: "User provided path",
+            name: Cow::Owned(format!("Custom Path {}", idx + 1)),
+            path: Cow::Owned(path.clone()),
+            description: Cow::Borrowed("User provided path"),
         });
     }
 }

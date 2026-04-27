@@ -1,12 +1,15 @@
 use std::fs;
 use std::path::Path;
 
-use jwalk::WalkDir;
-
 use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
 
-pub fn clean_target(target: &CleanTarget, estimated_bytes: u64, mode: CleanMode) -> CleanResult {
+pub fn clean_target(
+    target: &CleanTarget,
+    estimated_bytes: u64,
+    estimated_entries: u64,
+    mode: CleanMode,
+) -> CleanResult {
     let path = target.resolved_path();
 
     if !path.exists() {
@@ -22,7 +25,7 @@ pub fn clean_target(target: &CleanTarget, estimated_bytes: u64, mode: CleanMode)
         return CleanResult {
             target: target.clone(),
             reclaimed_bytes: estimated_bytes,
-            removed_entries: count_entries_recursive(&path),
+            removed_entries: estimated_entries,
             errors: 0,
         };
     }
@@ -78,17 +81,9 @@ fn remove_entry(path: &Path) -> bool {
     }
 }
 
-fn count_entries_recursive(path: &Path) -> u64 {
-    WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(Result::ok)
-        .skip(1)
-        .count() as u64
-}
-
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::fs;
 
     use crate::domain::CleanTarget;
@@ -105,15 +100,13 @@ mod tests {
         fs::write(root.join("a.txt"), b"abc").expect("write file 1");
         fs::write(nested.join("b.txt"), b"defgh").expect("write file 2");
 
-        let leaked_path: &'static str =
-            Box::leak(root.to_string_lossy().into_owned().into_boxed_str());
         let target = CleanTarget {
-            name: "Temp Cache",
-            path: leaked_path,
-            description: "test",
+            name: Cow::Borrowed("Temp Cache"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
         };
 
-        let result = clean_target(&target, 8, CleanMode::Execute);
+        let result = clean_target(&target, 8, 2, CleanMode::Execute);
         assert_eq!(result.errors, 0);
         assert!(result.removed_entries >= 1);
         assert_eq!(result.reclaimed_bytes, 8);
@@ -129,18 +122,16 @@ mod tests {
         fs::create_dir_all(&root).expect("create root");
         fs::write(root.join("a.txt"), b"abc").expect("write file");
 
-        let leaked_path: &'static str =
-            Box::leak(root.to_string_lossy().into_owned().into_boxed_str());
         let target = CleanTarget {
-            name: "Temp Cache",
-            path: leaked_path,
-            description: "test",
+            name: Cow::Borrowed("Temp Cache"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
         };
 
-        let result = clean_target(&target, 3, CleanMode::DryRun);
+        let result = clean_target(&target, 3, 1, CleanMode::DryRun);
         assert_eq!(result.errors, 0);
         assert_eq!(result.reclaimed_bytes, 3);
-        assert!(result.removed_entries >= 1);
+        assert_eq!(result.removed_entries, 1);
 
         let remaining = fs::read_dir(&root).expect("read root").count();
         assert_eq!(remaining, 1);
@@ -160,15 +151,13 @@ mod tests {
         perms.set_mode(0o555);
         fs::set_permissions(&root, perms).expect("set readonly perms");
 
-        let leaked_path: &'static str =
-            Box::leak(root.to_string_lossy().into_owned().into_boxed_str());
         let target = CleanTarget {
-            name: "Readonly Cache",
-            path: leaked_path,
-            description: "test",
+            name: Cow::Borrowed("Readonly Cache"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
         };
 
-        let result = clean_target(&target, 3, CleanMode::Execute);
+        let result = clean_target(&target, 3, 1, CleanMode::Execute);
         assert!(result.errors > 0);
 
         let mut perms = fs::metadata(&root).expect("metadata").permissions();

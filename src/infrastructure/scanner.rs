@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::ErrorKind;
 
 use jwalk::WalkDir;
@@ -34,10 +33,7 @@ pub fn scan_target(target: &CleanTarget, tx: &UnboundedSender<AppEvent>) -> Scan
         };
 
         if entry.file_type().is_file() {
-            let file_size = match fs::metadata(entry.path()) {
-                Ok(meta) => meta.len(),
-                Err(_) => 0,
-            };
+            let file_size = entry.metadata().map_or(0, |meta| meta.len());
 
             total_bytes = total_bytes.saturating_add(file_size);
             files_scanned = files_scanned.saturating_add(1);
@@ -61,6 +57,7 @@ pub fn scan_target(target: &CleanTarget, tx: &UnboundedSender<AppEvent>) -> Scan
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::fs;
 
     use tokio::sync::mpsc;
@@ -78,12 +75,10 @@ mod tests {
         fs::write(&p1, b"abcd").expect("write file 1");
         fs::write(&p2, b"123456").expect("write file 2");
 
-        let leaked_path: &'static str =
-            Box::leak(temp.path().to_string_lossy().into_owned().into_boxed_str());
         let target = CleanTarget {
-            name: "Temp Target",
-            path: leaked_path,
-            description: "test",
+            name: Cow::Borrowed("Temp Target"),
+            path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
