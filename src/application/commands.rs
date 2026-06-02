@@ -90,7 +90,8 @@ mod tests {
 
     #[test]
     fn safety_requires_yes_for_destructive_headless_clean() {
-        let result = enforce_headless_clean_safety_l10n(true, true, false, false, Language::English);
+        let result =
+            enforce_headless_clean_safety_l10n(true, true, false, false, Language::English);
         assert!(result.is_err());
     }
 

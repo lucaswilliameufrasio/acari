@@ -228,9 +228,8 @@ pub fn build_targets(
         })
         .collect();
 
-    let mut all = Vec::with_capacity(
-        DEV_CACHES.len() + OS_CACHES.len() + EXTRA_CACHES.len() + custom.len(),
-    );
+    let mut all =
+        Vec::with_capacity(DEV_CACHES.len() + OS_CACHES.len() + EXTRA_CACHES.len() + custom.len());
     all.extend_from_slice(DEV_CACHES);
     all.extend(
         OS_CACHES

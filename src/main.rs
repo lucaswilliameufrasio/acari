@@ -15,7 +15,10 @@ fn print_all_targets(lang: Language) {
     let cfg = target_config::load_config();
     let targets = prepare_targets(&[], &[], &cfg.custom_targets);
     let dinfo = distro::detect();
-    println!("{}", msg::distro_info(lang).replace("{os}", &dinfo.pretty_name));
+    println!(
+        "{}",
+        msg::distro_info(lang).replace("{os}", &dinfo.pretty_name)
+    );
     println!();
     for target in &targets {
         let origin = if target.description == "User provided path" {
@@ -29,7 +32,10 @@ fn print_all_targets(lang: Language) {
         println!();
     }
     if let Some(time) = format_modified_time() {
-        println!("{}", msg::config_last_modified(lang).replace("{time}", &time));
+        println!(
+            "{}",
+            msg::config_last_modified(lang).replace("{time}", &time)
+        );
     }
 }
 
@@ -51,15 +57,8 @@ async fn main() -> Result<()> {
                     if cfg.add(name, path, desc).context("Failed to add target")? {
                         target_config::save_config(&cfg)?;
                         let time = format_modified_time().unwrap_or_default();
-                        println!(
-                            "{}",
-                            msg::target_added(lang)
-                                .replace("{name}", name)
-                        );
-                        println!(
-                            "{}",
-                            msg::config_updated_at(lang).replace("{time}", &time)
-                        );
+                        println!("{}", msg::target_added(lang).replace("{name}", name));
+                        println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
                     } else {
                         println!(
                             "{}",
@@ -72,19 +71,10 @@ async fn main() -> Result<()> {
                     if cfg.remove(name) {
                         target_config::save_config(&cfg)?;
                         let time = format_modified_time().unwrap_or_default();
-                        println!(
-                            "{}",
-                            msg::target_removed(lang).replace("{name}", name)
-                        );
-                        println!(
-                            "{}",
-                            msg::config_updated_at(lang).replace("{time}", &time)
-                        );
+                        println!("{}", msg::target_removed(lang).replace("{name}", name));
+                        println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
                     } else {
-                        println!(
-                            "{}",
-                            msg::target_not_found(lang).replace("{name}", name)
-                        );
+                        println!("{}", msg::target_not_found(lang).replace("{name}", name));
                     }
                 }
                 TargetAction::List => {
@@ -97,7 +87,10 @@ async fn main() -> Result<()> {
                             println!("  {} (path: {})", t.name, t.path);
                         }
                         if let Some(time) = format_modified_time() {
-                            println!("\n{}", msg::config_last_modified(lang).replace("{time}", &time));
+                            println!(
+                                "\n{}",
+                                msg::config_last_modified(lang).replace("{time}", &time)
+                            );
                         }
                     }
                 }

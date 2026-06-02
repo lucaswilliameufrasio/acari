@@ -3,7 +3,12 @@ use crate::domain::format_bytes;
 use crate::i18n::Language;
 use crate::i18n::msg;
 
-pub fn print_scan_progress(target_name: &str, bytes_found: u64, files_scanned: u64, lang: Language) {
+pub fn print_scan_progress(
+    target_name: &str,
+    bytes_found: u64,
+    files_scanned: u64,
+    lang: Language,
+) {
     let fmt = msg::scan_progress(lang)
         .replace("{name}", target_name)
         .replace("{size}", &format_bytes(bytes_found))
@@ -20,8 +25,7 @@ pub fn print_target_done(target_name: &str, bytes: u64, files_scanned: u64, lang
 }
 
 pub fn print_scan_finished(total_bytes: u64, lang: Language) {
-    let fmt = msg::scan_finished(lang)
-        .replace("{total}", &format_bytes(total_bytes));
+    let fmt = msg::scan_finished(lang).replace("{total}", &format_bytes(total_bytes));
     println!("{fmt}");
 }
 

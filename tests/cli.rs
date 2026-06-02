@@ -61,7 +61,9 @@ fn headless_scan_path_scans_custom_directory() {
         .success()
         .stdout(predicate::str::contains("[done] Custom Path 1"))
         .stdout(predicate::str::contains("8 B"))
-        .stdout(predicate::str::contains("Scan finished. Total reclaimable bytes"));
+        .stdout(predicate::str::contains(
+            "Scan finished. Total reclaimable bytes",
+        ));
 }
 
 #[test]
@@ -154,10 +156,17 @@ fn target_add_persists_to_config() {
 
     let mut c = cmd();
     c.env("XDG_CONFIG_HOME", temp.path());
-    c.args(["target", "add", "My Drive", "/mnt/drive", "-d", "External disk"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Target 'My Drive' added."));
+    c.args([
+        "target",
+        "add",
+        "My Drive",
+        "/mnt/drive",
+        "-d",
+        "External disk",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Target 'My Drive' added."));
 
     let config_path = temp.path().join("acari").join("config.toml");
     let content = fs::read_to_string(&config_path).expect("read config");

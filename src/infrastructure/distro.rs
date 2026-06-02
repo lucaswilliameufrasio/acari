@@ -27,7 +27,7 @@ fn cfg_if_detect() -> DistroInfo {
             return DistroInfo {
                 id: String::from("linux"),
                 pretty_name: String::from("Linux"),
-            }
+            };
         }
     };
 
@@ -44,7 +44,10 @@ fn cfg_if_detect() -> DistroInfo {
     }
 
     DistroInfo {
-        id: fields.get("ID").cloned().unwrap_or_else(|| String::from("linux")),
+        id: fields
+            .get("ID")
+            .cloned()
+            .unwrap_or_else(|| String::from("linux")),
         pretty_name: fields
             .get("PRETTY_NAME")
             .cloned()

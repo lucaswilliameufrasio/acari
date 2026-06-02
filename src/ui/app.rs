@@ -18,10 +18,10 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::cleaner::{CleanMode, start_background_clean};
 use crate::application::commands::start_scan;
-use crate::domain::{format_bytes, AppEvent, CleanTarget};
+use crate::domain::{AppEvent, CleanTarget, format_bytes};
 use crate::i18n::{Language, msg};
-use crate::infrastructure::history;
 use crate::infrastructure::distro;
+use crate::infrastructure::history;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct TargetState {
@@ -198,8 +198,7 @@ fn run_loop(
                         } else {
                             CleanMode::Execute
                         };
-                        let _clean_handle =
-                            start_background_clean(res.tx.clone(), selected, mode);
+                        let _clean_handle = start_background_clean(res.tx.clone(), selected, mode);
                     }
                 }
             }
@@ -416,7 +415,11 @@ fn draw_ui(
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         )
-        .block(Block::default().borders(Borders::ALL).title(msg::panel_status(lang)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(msg::panel_status(lang)),
+        );
     frame.render_widget(title, vertical[0]);
 
     let ratio = if total_targets == 0 {
@@ -429,16 +432,22 @@ fn draw_ui(
         Phase::Scanning => msg::scanning_progress(lang)
             .replace("{n}", &finished_targets.to_string())
             .replace("{total}", &total_targets.to_string()),
-        Phase::ReadyToClean => msg::scan_done_progress(lang)
-            .replace("{size}", &format_bytes(total_scanned_bytes)),
-        Phase::Confirming(_) => msg::scan_done_progress(lang)
-            .replace("{size}", &format_bytes(total_scanned_bytes)),
+        Phase::ReadyToClean => {
+            msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
+        }
+        Phase::Confirming(_) => {
+            msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
+        }
         Phase::Cleaning => msg::cleaning_progress(lang).to_string(),
         Phase::Finished => msg::cleaning_finished_progress(lang).to_string(),
     };
 
     let progress = Gauge::default()
-        .block(Block::default().borders(Borders::ALL).title(msg::panel_progress(lang)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(msg::panel_progress(lang)),
+        )
         .gauge_style(Style::default().fg(Color::Yellow).bg(Color::Black))
         .ratio(ratio)
         .label(progress_label);
@@ -497,13 +506,26 @@ fn draw_ui(
     if *phase == Phase::Scanning {
         footer_text = format!("{} | {}", msg::tui_cancel_hint(lang), footer_text);
     } else if *phase == Phase::ReadyToClean || *phase == Phase::Finished {
-        let mode = if dry_run { msg::mode_dry_run(lang) } else { msg::mode_execute(lang) };
-        footer_text = format!("[{}] {} | {}", mode, msg::tui_rescan_hint(lang), footer_text);
+        let mode = if dry_run {
+            msg::mode_dry_run(lang)
+        } else {
+            msg::mode_execute(lang)
+        };
+        footer_text = format!(
+            "[{}] {} | {}",
+            mode,
+            msg::tui_rescan_hint(lang),
+            footer_text
+        );
     }
 
     let footer = Paragraph::new(footer_text)
         .style(Style::default().fg(Color::Green))
-        .block(Block::default().borders(Borders::ALL).title(msg::panel_footer(lang)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(msg::panel_footer(lang)),
+        );
     frame.render_widget(footer, vertical[3]);
 }
 

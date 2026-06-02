@@ -92,7 +92,13 @@ pub async fn run_headless(
                 errors,
             } => {
                 if waiting_clean_finish {
-                    print_cleaning_finished(cleaned_targets, reclaimed_bytes, errors, clean_mode, lang);
+                    print_cleaning_finished(
+                        cleaned_targets,
+                        reclaimed_bytes,
+                        errors,
+                        clean_mode,
+                        lang,
+                    );
                     if clean_mode == CleanMode::Execute {
                         let time = history::format_local_time();
                         history::append_entry(&format!(

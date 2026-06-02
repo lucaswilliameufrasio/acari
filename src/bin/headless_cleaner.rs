@@ -1,8 +1,10 @@
 use acari::application::cleaner::CleanMode;
-use acari::application::commands::{enforce_headless_clean_safety_l10n, merge_excludes, prepare_targets, start_scan};
+use acari::application::commands::{
+    enforce_headless_clean_safety_l10n, merge_excludes, prepare_targets, start_scan,
+};
 use acari::application::headless::run_headless;
-use acari::config::target_config;
 use acari::config::Cli;
+use acari::config::target_config;
 use acari::i18n::{detect_language, msg};
 use anyhow::Result;
 use clap::Parser;

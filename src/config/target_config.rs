@@ -33,7 +33,11 @@ fn default_description() -> String {
 
 impl TargetConfig {
     pub fn add(&mut self, name: &str, path: &str, description: &str) -> Result<bool> {
-        if self.custom_targets.iter().any(|t| t.name.eq_ignore_ascii_case(name)) {
+        if self
+            .custom_targets
+            .iter()
+            .any(|t| t.name.eq_ignore_ascii_case(name))
+        {
             return Ok(false);
         }
         self.custom_targets.push(CustomTargetEntry {
@@ -50,7 +54,8 @@ impl TargetConfig {
 
     pub fn remove(&mut self, name: &str) -> bool {
         let len = self.custom_targets.len();
-        self.custom_targets.retain(|t| !t.name.eq_ignore_ascii_case(name));
+        self.custom_targets
+            .retain(|t| !t.name.eq_ignore_ascii_case(name));
         self.custom_targets.len() < len
     }
 }
@@ -92,7 +97,9 @@ pub fn config_modified_time() -> Option<std::time::SystemTime> {
 
 pub fn config_modified_secs() -> Option<u64> {
     config_modified_time().and_then(|t| {
-        t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+        t.duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
     })
 }
 
@@ -123,9 +130,15 @@ pub fn unix_secs_to_local(secs: u64) -> String {
     y = if month <= 2 { y + 1 } else { y };
 
     if (0..=9999).contains(&y) {
-        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, month, day, hour, min, sec)
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            y, month, day, hour, min, sec
+        )
     } else {
-        format!("{:05}-{:02}-{:02} {:02}:{:02}:{:02}", y, month, day, hour, min, sec)
+        format!(
+            "{:05}-{:02}-{:02} {:02}:{:02}:{:02}",
+            y, month, day, hour, min, sec
+        )
     }
 }
 
@@ -136,8 +149,6 @@ pub fn format_modified_time() -> Option<String> {
             .map(|d| unix_secs_to_local(d.as_secs()))
     })
 }
-
-
 
 #[cfg(test)]
 mod tests {
