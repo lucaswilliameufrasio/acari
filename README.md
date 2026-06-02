@@ -26,7 +26,7 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
 ## 🚀 Getting Started
 
 ### Prerequisites
-* [Rust toolchain](https://rustup.rs/) (1.94+)
+* [Rust toolchain](https://rustup.rs/) (1.96+)
 
 ### Installation
 
