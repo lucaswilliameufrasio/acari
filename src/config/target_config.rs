@@ -67,8 +67,14 @@ impl TargetConfig {
         }
         if trimmed.starts_with('/') {
             let sensitive = ["/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/usr"];
-            if sensitive.iter().any(|s| trimmed.starts_with(s) || trimmed == "/") {
-                anyhow::bail!("path '{}' is a system directory and cannot be added as a target", trimmed);
+            if sensitive
+                .iter()
+                .any(|s| trimmed.starts_with(s) || trimmed == "/")
+            {
+                anyhow::bail!(
+                    "path '{}' is a system directory and cannot be added as a target",
+                    trimmed
+                );
             }
         }
 
@@ -111,7 +117,11 @@ pub fn load_config() -> TargetConfig {
     let content = match fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("warning: could not read config at {}: {}", path.display(), e);
+            eprintln!(
+                "warning: could not read config at {}: {}",
+                path.display(),
+                e
+            );
             return TargetConfig::default();
         }
     };

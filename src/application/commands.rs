@@ -7,17 +7,21 @@ use crate::domain::{AppEvent, CleanTarget, append_custom_scan_paths, build_targe
 use crate::i18n::{Language, msg};
 
 pub fn is_safe_path(path: &str) -> bool {
-    if path.trim().is_empty() {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
         return false;
     }
-    if path.contains("..") {
+    if trimmed.contains("..") {
         return false;
     }
-    if path.starts_with('/') {
-        let sensitive = ["/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/usr", "/bin", "/sbin", "/lib", "/lib64"];
-        if sensitive.iter().any(|s| path.starts_with(s) || path == "/") {
-            return false;
-        }
+    if trimmed == "/" {
+        return false;
+    }
+    let sensitive = [
+        "/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64",
+    ];
+    if sensitive.contains(&trimmed) {
+        return false;
     }
     true
 }
@@ -31,7 +35,10 @@ pub fn prepare_targets(
         .iter()
         .filter(|ct| {
             if !is_safe_path(&ct.path) {
-                eprintln!("warning: skipping unsafe custom target '{}' (path: {})", ct.name, ct.path);
+                eprintln!(
+                    "warning: skipping unsafe custom target '{}' (path: {})",
+                    ct.name, ct.path
+                );
                 false
             } else {
                 true
@@ -93,7 +100,9 @@ pub fn merge_excludes(cli_excludes: &[String], config_excludes: &[String]) -> Ve
             continue;
         }
         if e.len() > MAX_EXCLUDE_LEN {
-            eprintln!("warning: exclude pattern too long (max {MAX_EXCLUDE_LEN} chars), ignored: {e}");
+            eprintln!(
+                "warning: exclude pattern too long (max {MAX_EXCLUDE_LEN} chars), ignored: {e}"
+            );
             continue;
         }
         if !merged.contains(e) {
@@ -106,7 +115,9 @@ pub fn merge_excludes(cli_excludes: &[String], config_excludes: &[String]) -> Ve
             continue;
         }
         if e.len() > MAX_EXCLUDE_LEN {
-            eprintln!("warning: exclude pattern too long (max {MAX_EXCLUDE_LEN} chars), ignored: {e}");
+            eprintln!(
+                "warning: exclude pattern too long (max {MAX_EXCLUDE_LEN} chars), ignored: {e}"
+            );
             continue;
         }
         if !merged.contains(e) {
