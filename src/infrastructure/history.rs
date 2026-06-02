@@ -3,7 +3,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn history_path() -> PathBuf {
-    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("~/.local/share"));
+    if let Ok(dir) = std::env::var("ACARI_DATA_HOME") {
+        return PathBuf::from(dir).join("history.log");
+    }
+    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     base.join("acari").join("history.log")
 }
 

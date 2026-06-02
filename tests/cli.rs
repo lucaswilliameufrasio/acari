@@ -155,7 +155,7 @@ fn target_add_persists_to_config() {
     fs::create_dir_all(temp.path().join("acari")).expect("create acari dir");
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args([
         "target",
         "add",
@@ -180,13 +180,13 @@ fn target_add_duplicate_rejected() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "add", "My Drive", "/mnt/drive"])
         .assert()
         .success();
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "add", "my drive", "/mnt/other"])
         .assert()
         .success()
@@ -198,13 +198,13 @@ fn target_remove_removes_from_config() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "add", "My Drive", "/mnt/drive"])
         .assert()
         .success();
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "remove", "my drive"])
         .assert()
         .success()
@@ -220,7 +220,7 @@ fn target_remove_missing_shows_not_found() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "remove", "nonexistent"])
         .assert()
         .success()
@@ -232,13 +232,13 @@ fn target_list_shows_custom_targets() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "add", "My Drive", "/mnt/drive"])
         .assert()
         .success();
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "list"])
         .assert()
         .success()
@@ -252,7 +252,7 @@ fn target_list_empty_shows_hint() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     let mut c = cmd();
-    c.env("XDG_CONFIG_HOME", temp.path());
+    c.env("ACARI_CONFIG_HOME", temp.path());
     c.args(["target", "list"])
         .assert()
         .success()

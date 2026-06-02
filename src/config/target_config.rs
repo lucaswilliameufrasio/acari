@@ -61,7 +61,13 @@ impl TargetConfig {
 }
 
 pub fn config_path() -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("~/.config"));
+    if let Ok(dir) = std::env::var("ACARI_CONFIG_HOME") {
+        return PathBuf::from(dir).join("acari").join("config.toml");
+    }
+    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
+        return PathBuf::from(dir).join("acari").join("config.toml");
+    }
+    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     base.join("acari").join("config.toml")
 }
 
