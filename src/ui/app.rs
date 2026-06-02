@@ -17,7 +17,11 @@ use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::cleaner::{CleanMode, start_background_clean};
-use crate::domain::{AppEvent, CleanTarget};
+use crate::application::commands::start_scan;
+use crate::domain::{format_bytes, AppEvent, CleanTarget};
+use crate::i18n::{Language, msg};
+use crate::infrastructure::history;
+use crate::infrastructure::distro;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct TargetState {
@@ -31,10 +35,11 @@ struct TargetState {
     reclaimed_bytes: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Phase {
     Scanning,
     ReadyToClean,
+    Confirming(Vec<(CleanTarget, u64, u64)>),
     Cleaning,
     Finished,
 }
@@ -42,59 +47,73 @@ enum Phase {
 enum UiCommand {
     None,
     Quit,
-    StartCleaning(Vec<(CleanTarget, u64, u64)>),
+    CancelScan,
+    Rescan,
+    ToggleDryRun,
+    SortBySize,
+    Confirm(Vec<(CleanTarget, u64, u64)>),
+    Clean(Vec<(CleanTarget, u64, u64)>),
 }
 
-pub fn run_tui(
+struct ScanResources {
     tx: UnboundedSender<AppEvent>,
     rx: UnboundedReceiver<AppEvent>,
-    targets: &[CleanTarget],
-) -> Result<()> {
+    handle: tokio::task::JoinHandle<()>,
+}
+
+pub fn run_tui(targets: &[CleanTarget], excludes: Vec<String>, lang: Language) -> Result<()> {
     let mut terminal = setup_terminal()?;
-    let result = run_loop(&mut terminal, tx, rx, targets);
+    let result = run_loop(&mut terminal, targets, excludes, lang);
     restore_terminal(&mut terminal)?;
     result
 }
 
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    tx: UnboundedSender<AppEvent>,
-    mut rx: UnboundedReceiver<AppEvent>,
     targets: &[CleanTarget],
+    excludes: Vec<String>,
+    lang: Language,
 ) -> Result<()> {
-    let mut rows: Vec<(CleanTarget, TargetState)> = targets
+    let targets_owned = targets.to_vec();
+    let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
         .iter()
         .cloned()
         .map(|t| (t, TargetState::default()))
         .collect();
 
-    let by_name: HashMap<String, usize> = rows
+    let mut by_name: HashMap<String, usize> = rows
         .iter()
         .enumerate()
         .map(|(idx, (t, _))| (t.name.to_string(), idx))
         .collect();
 
     let total_targets = rows.len() as u64;
+    let mut scan_res: Option<ScanResources> = Some(start_new_scan(&targets_owned, &excludes));
     let mut finished_targets = 0_u64;
     let mut total_scanned_bytes = 0_u64;
     let mut phase = Phase::Scanning;
     let mut selected_idx = 0_usize;
-    let mut status_line = String::from("Scanning in background...");
+    let mut status_line = String::from(msg::tui_scanning_status(lang));
+    let mut dry_run = false;
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
 
     loop {
-        while let Ok(msg) = rx.try_recv() {
-            handle_event(
-                &mut rows,
-                &by_name,
-                &mut finished_targets,
-                &mut total_scanned_bytes,
-                &mut phase,
-                &mut status_line,
-                msg,
-            );
+        if let Some(ref mut res) = scan_res {
+            while let Ok(event) = res.rx.try_recv() {
+                handle_event(
+                    &mut rows,
+                    &by_name,
+                    &mut finished_targets,
+                    &mut total_scanned_bytes,
+                    &mut phase,
+                    &mut status_line,
+                    event,
+                    dry_run,
+                    lang,
+                );
+            }
         }
 
         terminal.draw(|frame| {
@@ -106,8 +125,10 @@ fn run_loop(
                 finished_targets,
                 total_targets,
                 total_scanned_bytes,
-                phase,
+                &phase,
                 &status_line,
+                dry_run,
+                lang,
             )
         })?;
 
@@ -121,12 +142,65 @@ fn run_loop(
                 &mut phase,
                 &mut status_line,
                 key.code,
+                lang,
+                scan_res.is_some(),
             ) {
                 UiCommand::None => {}
                 UiCommand::Quit => break,
-                UiCommand::StartCleaning(selected) => {
-                    let _clean_handle =
-                        start_background_clean(tx.clone(), selected, CleanMode::Execute);
+                UiCommand::CancelScan => {
+                    if let Some(res) = scan_res.take() {
+                        res.handle.abort();
+                    }
+                    phase = Phase::ReadyToClean;
+                    status_line = String::from(msg::tui_cancelled_status(lang));
+                }
+                UiCommand::Rescan => {
+                    if let Some(ref res) = scan_res {
+                        res.handle.abort();
+                    }
+                    scan_res = Some(start_new_scan(&targets_owned, &excludes));
+                    for (_, state) in &mut rows {
+                        *state = TargetState::default();
+                    }
+                    finished_targets = 0;
+                    total_scanned_bytes = 0;
+                    phase = Phase::Scanning;
+                    status_line = String::from(msg::tui_scanning_status(lang));
+                }
+                UiCommand::ToggleDryRun => {
+                    dry_run = !dry_run;
+                    status_line = if dry_run {
+                        msg::mode_dry_run(lang).to_string()
+                    } else {
+                        msg::mode_execute(lang).to_string()
+                    };
+                }
+                UiCommand::SortBySize => {
+                    rows.sort_by_key(|b| std::cmp::Reverse(b.1.bytes));
+                    for (i, (t, _)) in rows.iter().enumerate() {
+                        by_name.insert(t.name.to_string(), i);
+                    }
+                    selected_idx = 0;
+                    status_line = msg::sorted_by_size(lang).to_string();
+                }
+                UiCommand::Confirm(selected) => {
+                    let total_bytes: u64 = selected.iter().map(|(_, b, _)| *b).sum();
+                    let count = selected.len();
+                    status_line = msg::confirm_clean(lang)
+                        .replace("{n}", &count.to_string())
+                        .replace("{size}", &format_bytes(total_bytes));
+                    phase = Phase::Confirming(selected);
+                }
+                UiCommand::Clean(selected) => {
+                    if let Some(ref res) = scan_res {
+                        let mode = if dry_run {
+                            CleanMode::DryRun
+                        } else {
+                            CleanMode::Execute
+                        };
+                        let _clean_handle =
+                            start_background_clean(res.tx.clone(), selected, mode);
+                    }
                 }
             }
         }
@@ -138,9 +212,19 @@ fn run_loop(
         last_tick = Instant::now();
     }
 
+    if let Some(res) = scan_res {
+        res.handle.abort();
+    }
+
     Ok(())
 }
 
+fn start_new_scan(targets: &[CleanTarget], excludes: &[String]) -> ScanResources {
+    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec());
+    ScanResources { tx, rx, handle }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_event(
     rows: &mut [(CleanTarget, TargetState)],
     by_name: &HashMap<String, usize>,
@@ -148,9 +232,11 @@ fn handle_event(
     total_scanned_bytes: &mut u64,
     phase: &mut Phase,
     status_line: &mut String,
-    msg: AppEvent,
+    event: AppEvent,
+    is_dry_run: bool,
+    lang: Language,
 ) {
-    match msg {
+    match event {
         AppEvent::ScanProgress {
             target_name,
             bytes_found,
@@ -180,8 +266,7 @@ fn handle_event(
         }
         AppEvent::ScanFinished => {
             *phase = Phase::ReadyToClean;
-            *status_line =
-                String::from("Scan finalizado. Use ↑/↓, espaço para marcar e Enter para limpar.");
+            *status_line = String::from(msg::tui_ready_status(lang));
         }
         AppEvent::TargetCleaned {
             target_name,
@@ -203,26 +288,60 @@ fn handle_event(
             errors,
         } => {
             *phase = Phase::Finished;
-            *status_line = format!(
-                "Limpeza concluída: {} alvos, {} recuperados, {} erros.",
-                done,
-                format_bytes(reclaimed_bytes),
-                errors
-            );
+            let tmpl = msg::tui_finished_status(lang);
+            *status_line = tmpl
+                .replace("{done}", &done.to_string())
+                .replace("{reclaimed}", &format_bytes(reclaimed_bytes))
+                .replace("{errors}", &errors.to_string());
+            if !is_dry_run {
+                let time = history::format_local_time();
+                history::append_entry(&format!(
+                    "{time} | Clean completed | targets={done} reclaimed={reclaimed_bytes} errors={errors}"
+                ));
+            }
         }
         AppEvent::Tick => {}
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_key(
     rows: &mut [(CleanTarget, TargetState)],
     selected_idx: &mut usize,
     phase: &mut Phase,
     status_line: &mut String,
     key_code: KeyCode,
+    lang: Language,
+    has_active_scan: bool,
 ) -> UiCommand {
     match key_code {
-        KeyCode::Char('q') | KeyCode::Esc => UiCommand::Quit,
+        KeyCode::Char('n') | KeyCode::Esc if matches!(phase, Phase::Confirming(_)) => {
+            *phase = Phase::ReadyToClean;
+            *status_line = String::from(msg::tui_ready_status(lang));
+            UiCommand::None
+        }
+        KeyCode::Char('y') if matches!(phase, Phase::Confirming(_)) => {
+            if let Phase::Confirming(selected) = phase {
+                let sel = std::mem::take(selected);
+                *phase = Phase::Cleaning;
+                *status_line = String::from(msg::tui_cleaning_status(lang));
+                return UiCommand::Clean(sel);
+            }
+            UiCommand::None
+        }
+        KeyCode::Char('q') => {
+            if *phase == Phase::Scanning && has_active_scan {
+                UiCommand::CancelScan
+            } else {
+                UiCommand::Quit
+            }
+        }
+        KeyCode::Esc => UiCommand::Quit,
+        KeyCode::Char('d') if *phase == Phase::ReadyToClean => UiCommand::ToggleDryRun,
+        KeyCode::Char('s') if *phase == Phase::ReadyToClean => UiCommand::SortBySize,
+        KeyCode::Char('r') if *phase != Phase::Scanning && *phase != Phase::Cleaning => {
+            UiCommand::Rescan
+        }
         KeyCode::Up if *phase == Phase::ReadyToClean => {
             *selected_idx = selected_idx.saturating_sub(1);
             UiCommand::None
@@ -254,12 +373,11 @@ fn handle_key(
                 .collect();
 
             if selected.is_empty() {
-                *status_line = String::from("Nenhum alvo selecionado para limpeza.");
+                *status_line = String::from(msg::tui_no_selection(lang));
                 UiCommand::None
             } else {
-                *phase = Phase::Cleaning;
-                *status_line = String::from("Limpando alvos selecionados...");
-                UiCommand::StartCleaning(selected)
+                *status_line = String::from(msg::confirm_prompt(lang));
+                UiCommand::Confirm(selected)
             }
         }
         _ => UiCommand::None,
@@ -275,8 +393,10 @@ fn draw_ui(
     finished_targets: u64,
     total_targets: u64,
     total_scanned_bytes: u64,
-    phase: Phase,
+    phase: &Phase,
     status_line: &str,
+    dry_run: bool,
+    lang: Language,
 ) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -288,13 +408,15 @@ fn draw_ui(
         ])
         .split(area);
 
-    let title = Paragraph::new("Acari Cleaner | macOS/Linux cache scanner")
+    let dinfo = distro::detect();
+    let title_text = format!("{} | {}", msg::tui_title(lang), dinfo.pretty_name);
+    let title = Paragraph::new(title_text)
         .style(
             Style::default()
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         )
-        .block(Block::default().borders(Borders::ALL).title("Status"));
+        .block(Block::default().borders(Borders::ALL).title(msg::panel_status(lang)));
     frame.render_widget(title, vertical[0]);
 
     let ratio = if total_targets == 0 {
@@ -304,14 +426,19 @@ fn draw_ui(
     };
 
     let progress_label = match phase {
-        Phase::Scanning => format!("Scanning {finished_targets}/{total_targets}"),
-        Phase::ReadyToClean => format!("Scan done: {}", format_bytes(total_scanned_bytes)),
-        Phase::Cleaning => String::from("Cleaning selected targets"),
-        Phase::Finished => String::from("Cleaning finished"),
+        Phase::Scanning => msg::scanning_progress(lang)
+            .replace("{n}", &finished_targets.to_string())
+            .replace("{total}", &total_targets.to_string()),
+        Phase::ReadyToClean => msg::scan_done_progress(lang)
+            .replace("{size}", &format_bytes(total_scanned_bytes)),
+        Phase::Confirming(_) => msg::scan_done_progress(lang)
+            .replace("{size}", &format_bytes(total_scanned_bytes)),
+        Phase::Cleaning => msg::cleaning_progress(lang).to_string(),
+        Phase::Finished => msg::cleaning_finished_progress(lang).to_string(),
     };
 
     let progress = Gauge::default()
-        .block(Block::default().borders(Borders::ALL).title("Progress"))
+        .block(Block::default().borders(Borders::ALL).title(msg::panel_progress(lang)))
         .gauge_style(Style::default().fg(Color::Yellow).bg(Color::Black))
         .ratio(ratio)
         .label(progress_label);
@@ -321,7 +448,7 @@ fn draw_ui(
         .iter()
         .enumerate()
         .map(|(idx, (target, state))| {
-            let cursor = if phase == Phase::ReadyToClean && idx == selected_idx {
+            let cursor = if *phase == Phase::ReadyToClean && idx == selected_idx {
                 ">"
             } else {
                 " "
@@ -349,7 +476,7 @@ fn draw_ui(
                 state.files,
             );
 
-            let style = if phase == Phase::ReadyToClean && idx == selected_idx {
+            let style = if *phase == Phase::ReadyToClean && idx == selected_idx {
                 Style::default().fg(Color::Black).bg(Color::Yellow)
             } else {
                 Style::default()
@@ -362,13 +489,21 @@ fn draw_ui(
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Targets (space: toggle, a: all, enter: clean)"),
+            .title(msg::panel_targets(lang)),
     );
     frame.render_widget(list, vertical[2]);
 
-    let footer = Paragraph::new(status_line)
+    let mut footer_text = status_line.to_string();
+    if *phase == Phase::Scanning {
+        footer_text = format!("{} | {}", msg::tui_cancel_hint(lang), footer_text);
+    } else if *phase == Phase::ReadyToClean || *phase == Phase::Finished {
+        let mode = if dry_run { msg::mode_dry_run(lang) } else { msg::mode_execute(lang) };
+        footer_text = format!("[{}] {} | {}", mode, msg::tui_rescan_hint(lang), footer_text);
+    }
+
+    let footer = Paragraph::new(footer_text)
         .style(Style::default().fg(Color::Green))
-        .block(Block::default().borders(Borders::ALL).title("Footer"));
+        .block(Block::default().borders(Borders::ALL).title(msg::panel_footer(lang)));
     frame.render_widget(footer, vertical[3]);
 }
 
@@ -388,29 +523,17 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     Ok(())
 }
 
-fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
-    let mut unit = 0_usize;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{} {}", bytes, UNITS[unit])
-    } else {
-        format!("{value:.2} {}", UNITS[unit])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::collections::HashMap;
+
+    use crossterm::event::KeyCode;
+
+    use crate::domain::{AppEvent, CleanTarget};
+    use crate::i18n::Language;
 
     use super::{Phase, TargetState, UiCommand, handle_event, handle_key};
-    use crate::domain::{AppEvent, CleanTarget};
-    use crossterm::event::KeyCode;
-    use std::collections::HashMap;
 
     fn build_rows() -> Vec<(CleanTarget, TargetState)> {
         vec![
@@ -450,10 +573,12 @@ mod tests {
             &mut phase,
             &mut status,
             AppEvent::ScanFinished,
+            false,
+            Language::English,
         );
 
         assert_eq!(phase, Phase::ReadyToClean);
-        assert!(status.contains("Enter"));
+        assert!(status.contains("arrows") || status.contains("↑/↓"));
     }
 
     #[test]
@@ -469,6 +594,8 @@ mod tests {
             &mut phase,
             &mut status,
             KeyCode::Char(' '),
+            Language::English,
+            false,
         );
 
         assert!(matches!(cmd, UiCommand::None));
@@ -486,18 +613,106 @@ mod tests {
         let mut phase = Phase::ReadyToClean;
         let mut status = String::new();
 
-        let cmd = handle_key(&mut rows, &mut idx, &mut phase, &mut status, KeyCode::Enter);
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Enter,
+            Language::English,
+            false,
+        );
 
-        assert_eq!(phase, Phase::Cleaning);
-        assert!(status.contains("Limpando"));
+        assert_eq!(phase, Phase::ReadyToClean);
+        assert!(status.contains("confirmar") || status.contains("y"));
         match cmd {
-            UiCommand::StartCleaning(selected) => {
+            UiCommand::Confirm(selected) => {
                 assert_eq!(selected.len(), 1);
                 assert_eq!(selected[0].0.name, "A");
                 assert_eq!(selected[0].1, 42);
                 assert_eq!(selected[0].2, 7);
             }
-            _ => panic!("expected StartCleaning"),
+            _ => panic!("expected Confirm"),
         }
+    }
+
+    #[test]
+    fn q_during_scanning_returns_cancel() {
+        let mut rows = build_rows();
+        let mut idx = 0_usize;
+        let mut phase = Phase::Scanning;
+        let mut status = String::new();
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('q'),
+            Language::English,
+            true,
+        );
+
+        assert!(matches!(cmd, UiCommand::CancelScan));
+    }
+
+    #[test]
+    fn q_when_scan_done_returns_quit() {
+        let mut rows = build_rows();
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('q'),
+            Language::English,
+            false,
+        );
+
+        assert!(matches!(cmd, UiCommand::Quit));
+    }
+
+    #[test]
+    fn r_in_ready_returns_rescan() {
+        let mut rows = build_rows();
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('r'),
+            Language::English,
+            false,
+        );
+
+        assert!(matches!(cmd, UiCommand::Rescan));
+    }
+
+    #[test]
+    fn r_during_scanning_is_ignored() {
+        let mut rows = build_rows();
+        let mut idx = 0_usize;
+        let mut phase = Phase::Scanning;
+        let mut status = String::new();
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('r'),
+            Language::English,
+            true,
+        );
+
+        assert!(matches!(cmd, UiCommand::None));
     }
 }

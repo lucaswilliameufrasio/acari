@@ -1,4 +1,6 @@
 pub mod cleaner;
+pub mod distro;
+pub mod history;
 pub mod scanner;
 
 #[cfg(target_os = "linux")]

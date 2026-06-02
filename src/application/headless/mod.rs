@@ -9,6 +9,8 @@ use crate::application::headless::output::{
     print_target_cleaned, print_target_done,
 };
 use crate::domain::{AppEvent, CleanTarget};
+use crate::i18n::Language;
+use crate::infrastructure::history;
 
 pub mod output;
 
@@ -18,6 +20,7 @@ pub async fn run_headless(
     targets: Vec<CleanTarget>,
     clean_after_scan: bool,
     clean_mode: CleanMode,
+    lang: Language,
 ) -> Result<()> {
     let mut total_bytes = 0_u64;
     let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
@@ -35,7 +38,7 @@ pub async fn run_headless(
                 bytes_found,
                 files_scanned,
             } => {
-                print_scan_progress(&target_name, bytes_found, files_scanned);
+                print_scan_progress(&target_name, bytes_found, files_scanned, lang);
             }
             AppEvent::TargetCompleted {
                 target_name,
@@ -43,14 +46,14 @@ pub async fn run_headless(
                 files_scanned,
             } => {
                 total_bytes = total_bytes.saturating_add(bytes);
-                print_target_done(&target_name, bytes, files_scanned);
+                print_target_done(&target_name, bytes, files_scanned, lang);
 
                 if let Some(target) = target_lookup.get(&target_name) {
                     completed.insert(target_name, (target.clone(), bytes, files_scanned));
                 }
             }
             AppEvent::ScanFinished => {
-                print_scan_finished(total_bytes);
+                print_scan_finished(total_bytes, lang);
 
                 if clean_after_scan {
                     let selected: Vec<(CleanTarget, u64, u64)> =
@@ -59,7 +62,7 @@ pub async fn run_headless(
                         break;
                     }
 
-                    print_start_cleaning(selected.len(), clean_mode);
+                    print_start_cleaning(selected.len(), clean_mode, lang);
                     let _clean_handle = start_background_clean(tx.clone(), selected, clean_mode);
                     waiting_clean_finish = true;
                 } else {
@@ -79,6 +82,7 @@ pub async fn run_headless(
                         removed_entries,
                         errors,
                         clean_mode,
+                        lang,
                     );
                 }
             }
@@ -88,7 +92,13 @@ pub async fn run_headless(
                 errors,
             } => {
                 if waiting_clean_finish {
-                    print_cleaning_finished(cleaned_targets, reclaimed_bytes, errors, clean_mode);
+                    print_cleaning_finished(cleaned_targets, reclaimed_bytes, errors, clean_mode, lang);
+                    if clean_mode == CleanMode::Execute {
+                        let time = history::format_local_time();
+                        history::append_entry(&format!(
+                            "{time} | Clean completed | targets={cleaned_targets} reclaimed={reclaimed_bytes} errors={errors}"
+                        ));
+                    }
                 }
                 break;
             }

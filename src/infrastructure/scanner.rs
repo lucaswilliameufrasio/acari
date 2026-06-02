@@ -5,7 +5,15 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::domain::{AppEvent, CleanTarget, ScanResult};
 
-pub fn scan_target(target: &CleanTarget, tx: &UnboundedSender<AppEvent>) -> ScanResult {
+fn is_excluded(name: &str, excludes: &[String]) -> bool {
+    excludes.iter().any(|pat| name == pat || name.contains(pat))
+}
+
+pub fn scan_target(
+    target: &CleanTarget,
+    tx: &UnboundedSender<AppEvent>,
+    excludes: &[String],
+) -> ScanResult {
     let path = target.resolved_path();
 
     if !path.exists() {
@@ -19,7 +27,25 @@ pub fn scan_target(target: &CleanTarget, tx: &UnboundedSender<AppEvent>) -> Scan
     let mut total_bytes = 0_u64;
     let mut files_scanned = 0_u64;
 
-    for entry in WalkDir::new(&path).follow_links(false) {
+    let walker = if excludes.is_empty() {
+        WalkDir::new(&path).follow_links(false)
+    } else {
+        let ex = excludes.to_vec();
+        WalkDir::new(&path).follow_links(false).process_read_dir(
+            move |_depth, _parent_path, _state, children: &mut Vec<_>| {
+                children.retain(|entry| {
+                    if let Ok(entry) = entry {
+                        let name = entry.file_name.to_string_lossy();
+                        !is_excluded(&name, &ex)
+                    } else {
+                        true
+                    }
+                });
+            },
+        )
+    };
+
+    for entry in walker {
         let entry = match entry {
             Ok(value) => value,
             Err(err) => {
@@ -82,9 +108,30 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
-        let result = scan_target(&target, &tx);
+        let result = scan_target(&target, &tx, &[]);
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.bytes, 10);
+    }
+
+    #[test]
+    fn excludes_filter_out_entries() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let nested = temp.path().join("node_modules");
+        fs::create_dir_all(&nested).expect("create node_modules");
+        fs::write(nested.join("dep.js"), b"xxx").expect("write dep");
+        fs::write(temp.path().join("main.js"), b"main").expect("write main");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("With Node"),
+            path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+        };
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let result = scan_target(&target, &tx, &["node_modules".to_string()]);
+
+        assert_eq!(result.files_scanned, 1);
+        assert_eq!(result.bytes, 4); // "main" = 4 bytes
     }
 }

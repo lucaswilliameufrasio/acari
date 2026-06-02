@@ -1,22 +1,37 @@
 use crate::application::cleaner::CleanMode;
+use crate::domain::format_bytes;
+use crate::i18n::Language;
+use crate::i18n::msg;
 
-pub fn print_scan_progress(target_name: &str, bytes_found: u64, files_scanned: u64) {
-    println!("[progress] {target_name}: {bytes_found} bytes, {files_scanned} files");
+pub fn print_scan_progress(target_name: &str, bytes_found: u64, files_scanned: u64, lang: Language) {
+    let fmt = msg::scan_progress(lang)
+        .replace("{name}", target_name)
+        .replace("{size}", &format_bytes(bytes_found))
+        .replace("{files}", &files_scanned.to_string());
+    println!("{fmt}");
 }
 
-pub fn print_target_done(target_name: &str, bytes: u64, files_scanned: u64) {
-    println!("[done] {target_name}: {bytes} bytes across {files_scanned} files");
+pub fn print_target_done(target_name: &str, bytes: u64, files_scanned: u64, lang: Language) {
+    let fmt = msg::target_done(lang)
+        .replace("{name}", target_name)
+        .replace("{size}", &format_bytes(bytes))
+        .replace("{files}", &files_scanned.to_string());
+    println!("{fmt}");
 }
 
-pub fn print_scan_finished(total_bytes: u64) {
-    println!("\nScan finished. Total reclaimable bytes: {total_bytes}");
+pub fn print_scan_finished(total_bytes: u64, lang: Language) {
+    let fmt = msg::scan_finished(lang)
+        .replace("{total}", &format_bytes(total_bytes));
+    println!("{fmt}");
 }
 
-pub fn print_start_cleaning(num_targets: usize, mode: CleanMode) {
-    match mode {
-        CleanMode::Execute => println!("Starting clean for {num_targets} target(s)..."),
-        CleanMode::DryRun => println!("Starting dry-run clean for {num_targets} target(s)..."),
-    }
+pub fn print_start_cleaning(num_targets: usize, mode: CleanMode, lang: Language) {
+    let tmpl = match mode {
+        CleanMode::Execute => msg::start_cleaning(lang),
+        CleanMode::DryRun => msg::start_dry_run(lang),
+    };
+    let fmt = tmpl.replace("{n}", &num_targets.to_string());
+    println!("{fmt}");
 }
 
 pub fn print_target_cleaned(
@@ -25,21 +40,26 @@ pub fn print_target_cleaned(
     removed_entries: u64,
     errors: u64,
     mode: CleanMode,
+    lang: Language,
 ) {
     let mode_label = match mode {
-        CleanMode::Execute => "cleaned",
-        CleanMode::DryRun => "dry-run",
+        CleanMode::Execute => msg::clean_execute_label(lang),
+        CleanMode::DryRun => msg::clean_dry_run_label(lang),
     };
 
-    if errors > 0 {
-        println!(
-            "[{mode_label}] {target_name}: reclaimed={reclaimed_bytes} removed={removed_entries} errors={errors} (permission or deletion failures detected)"
-        );
+    let tmpl = if errors > 0 {
+        msg::target_cleaned_with_errors(lang)
     } else {
-        println!(
-            "[{mode_label}] {target_name}: reclaimed={reclaimed_bytes} removed={removed_entries} errors={errors}"
-        );
-    }
+        msg::target_cleaned(lang)
+    };
+
+    let fmt = tmpl
+        .replace("{mode}", mode_label)
+        .replace("{name}", target_name)
+        .replace("{reclaimed}", &format_bytes(reclaimed_bytes))
+        .replace("{removed}", &removed_entries.to_string())
+        .replace("{errors}", &errors.to_string());
+    println!("{fmt}");
 }
 
 pub fn print_cleaning_finished(
@@ -47,12 +67,15 @@ pub fn print_cleaning_finished(
     reclaimed_bytes: u64,
     errors: u64,
     mode: CleanMode,
+    lang: Language,
 ) {
-    let label = match mode {
-        CleanMode::Execute => "Cleaning",
-        CleanMode::DryRun => "Dry-run cleaning",
+    let tmpl = match mode {
+        CleanMode::Execute => msg::cleaning_finished(lang),
+        CleanMode::DryRun => msg::dry_run_finished(lang),
     };
-    println!(
-        "{label} finished. Targets: {cleaned_targets}, reclaimed bytes: {reclaimed_bytes}, errors: {errors}"
-    );
+    let fmt = tmpl
+        .replace("{n}", &cleaned_targets.to_string())
+        .replace("{size}", &format_bytes(reclaimed_bytes))
+        .replace("{errors}", &errors.to_string());
+    println!("{fmt}");
 }
