@@ -6,17 +6,17 @@
 - Use tags in the format `vX.Y.Z`.
 - Update `CHANGELOG.md` before creating a release tag.
 
-## Pré-requisitos (cargo-dist)
+## Prerequisites (cargo-dist)
 
-Já está tudo configurado. O [cargo-dist](https://github.com/axodotdev/cargo-dist) gerencia:
+Everything is already configured. [cargo-dist](https://github.com/axodotdev/cargo-dist) handles:
 
-- Build cross-platform (Linux x86_64/arm64, macOS x86_64/arm64, Windows x86_64)
-- Geração de tarballs/zip com checksums SHA256
-- Scripts de instalação (shell + powershell)
-- Homebrew formula (se habilitado)
-- Criação da GitHub Release com changelog
+- Cross-platform builds (Linux x86_64/arm64, macOS x86_64/arm64, Windows x86_64)
+- Tarballs/zips with SHA256 checksums
+- Install scripts (shell + powershell)
+- Homebrew formula (if enabled)
+- GitHub Release creation with auto-generated changelog
 
-**Nada precisa ser configurado no GitHub.** O workflow usa `GITHUB_TOKEN` automático.
+**No GitHub configuration needed.** The workflow uses automatic `GITHUB_TOKEN`.
 
 ## Release Steps
 
@@ -29,51 +29,51 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-4. O workflow `Release` no GitHub Actions vai:
-   - `plan`: calcular quais artifacts construir
-   - `build-local-artifacts`: compilar para cada target, gerar tarballs/zip + checksums
-   - `build-global-artifacts`: gerar installers (shell + powershell)
-   - `host`: criar a GitHub Release, fazer upload dos artifacts, criar o changelog automaticamente
-   - `announce`: notificar (placeholder)
+4. The `Release` workflow in GitHub Actions will:
+   - `plan`: calculate which artifacts to build
+   - `build-local-artifacts`: compile for each target, generate tarballs/zips + checksums
+   - `build-global-artifacts`: generate installers (shell + powershell)
+   - `host`: create GitHub Release, upload artifacts, generate changelog
+   - `announce`: placeholder for notifications
 
-### Artefatos gerados
+### Generated artifacts
 
-Para cada tag, o cargo-dist gera:
+For each tag, cargo-dist generates:
 
-| Arquivo | Descrição |
-|---------|-----------|
-| `acari-{tag}-{target}.tar.gz` | Binários compactados (Unix) |
-| `acari-{tag}-{target}.zip` | Binários compactados (Windows) |
+| File | Description |
+|------|-------------|
+| `acari-{tag}-{target}.tar.gz` | Packaged binaries (Unix) |
+| `acari-{tag}-{target}.zip` | Packaged binaries (Windows) |
 | `acari-{tag}-{target}.tar.gz.sha256` | Checksum |
-| `acari-installer.sh` | Script de instalação via shell |
-| `acari-installer.ps1` | Script de instalação via PowerShell |
+| `acari-installer.sh` | Shell install script |
+| `acari-installer.ps1` | PowerShell install script |
 
-### Instalação via cargo-dist
+### Install via cargo-dist
 
 ```bash
-# Última release (shell)
+# Latest release (shell)
 curl -fsSL https://github.com/lucaswilliameufrasio/acari/releases/latest/download/acari-installer.sh | sh
 
-# Versão específica
+# Specific version
 curl -fsSL https://github.com/lucaswilliameufrasio/acari/releases/download/v0.2.0/acari-installer.sh | sh
 ```
 
-## Documentação do cargo-dist
+## cargo-dist documentation
 
-- Repositório: https://github.com/axodotdev/cargo-dist
-- Documentação: https://opensource.axo.dev/cargo-dist/
-- Config atual: `dist-workspace.toml`
-- Versão instalada: 0.32.0
+- Repository: https://github.com/axodotdev/cargo-dist
+- Documentation: https://opensource.axo.dev/cargo-dist/
+- Current config: `dist-workspace.toml`
+- Installed version: 0.32.0
 
-## Customização
+## Customization
 
-Para alterar targets, installers ou outras configs:
+To change targets, installers or other settings:
 
 ```bash
 cargo dist init
 ```
 
-Ou edite `dist-workspace.toml` diretamente.
+Or edit `dist-workspace.toml` directly.
 
 ## Post-release
 
