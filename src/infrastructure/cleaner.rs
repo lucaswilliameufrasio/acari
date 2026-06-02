@@ -1,8 +1,21 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
+
+/// Resolve a path to its canonical form and verify it doesn't escape the expected
+/// parent directory. Returns None if the path is unsafe (symlink pointing outside
+/// the target root, or system directory).
+fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
+    let canonical = fs::canonicalize(entry).ok()?;
+    let canonical_root = fs::canonicalize(root).ok()?;
+    if canonical.starts_with(&canonical_root) {
+        Some(canonical)
+    } else {
+        None
+    }
+}
 
 pub fn clean_target(
     target: &CleanTarget,
@@ -10,7 +23,18 @@ pub fn clean_target(
     estimated_entries: u64,
     mode: CleanMode,
 ) -> CleanResult {
-    let path = target.resolved_path();
+    let raw_path = target.resolved_path();
+    let path = match safe_canonicalize(&raw_path, &raw_path) {
+        Some(p) => p,
+        None => {
+            return CleanResult {
+                target: target.clone(),
+                reclaimed_bytes: 0,
+                removed_entries: 0,
+                errors: 1,
+            };
+        }
+    };
 
     if !path.exists() {
         return CleanResult {
@@ -43,10 +67,14 @@ pub fn clean_target(
             Ok(read_dir) => {
                 for entry in read_dir.flatten() {
                     let entry_path = entry.path();
-                    if remove_entry(&entry_path) {
-                        removed_entries = removed_entries.saturating_add(1);
-                    } else {
-                        errors = errors.saturating_add(1);
+                    let safe_path = safe_canonicalize(&entry_path, &path);
+                    match safe_path {
+                        Some(p) if remove_entry(&p) => {
+                            removed_entries = removed_entries.saturating_add(1);
+                        }
+                        None | Some(_) => {
+                            errors = errors.saturating_add(1);
+                        }
                     }
                 }
             }

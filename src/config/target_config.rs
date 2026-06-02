@@ -40,9 +40,24 @@ impl TargetConfig {
         {
             return Ok(false);
         }
+
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("path must not be empty");
+        }
+        if trimmed.contains("..") {
+            anyhow::bail!("path must not contain '..' (traversal not allowed)");
+        }
+        if trimmed.starts_with('/') {
+            let sensitive = ["/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/usr"];
+            if sensitive.iter().any(|s| trimmed.starts_with(s) || trimmed == "/") {
+                anyhow::bail!("path '{}' is a system directory and cannot be added as a target", trimmed);
+            }
+        }
+
         self.custom_targets.push(CustomTargetEntry {
             name: name.to_owned(),
-            path: path.to_owned(),
+            path: trimmed.to_owned(),
             description: if description.is_empty() {
                 default_description()
             } else {
@@ -78,9 +93,22 @@ pub fn load_config() -> TargetConfig {
     }
     let content = match fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return TargetConfig::default(),
+        Err(e) => {
+            eprintln!("warning: could not read config at {}: {}", path.display(), e);
+            return TargetConfig::default();
+        }
     };
-    toml::from_str(&content).unwrap_or_default()
+    match toml::from_str(&content) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!(
+                "warning: invalid TOML in {}: {}. Using defaults.",
+                path.display(),
+                e
+            );
+            TargetConfig::default()
+        }
+    }
 }
 
 pub fn save_config(config: &TargetConfig) -> Result<()> {

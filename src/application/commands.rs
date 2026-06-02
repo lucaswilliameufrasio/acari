@@ -6,13 +6,53 @@ use crate::config::target_config;
 use crate::domain::{AppEvent, CleanTarget, append_custom_scan_paths, build_targets};
 use crate::i18n::{Language, msg};
 
+pub fn is_safe_path(path: &str) -> bool {
+    if path.trim().is_empty() {
+        return false;
+    }
+    if path.contains("..") {
+        return false;
+    }
+    if path.starts_with('/') {
+        let sensitive = ["/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/usr", "/bin", "/sbin", "/lib", "/lib64"];
+        if sensitive.iter().any(|s| path.starts_with(s) || path == "/") {
+            return false;
+        }
+    }
+    true
+}
+
 pub fn prepare_targets(
     filter_names: &[String],
     scan_paths: &[String],
     custom_targets: &[target_config::CustomTargetEntry],
 ) -> Vec<CleanTarget> {
-    let mut targets = build_targets(filter_names, custom_targets);
-    append_custom_scan_paths(&mut targets, scan_paths);
+    let safe_custom: Vec<target_config::CustomTargetEntry> = custom_targets
+        .iter()
+        .filter(|ct| {
+            if !is_safe_path(&ct.path) {
+                eprintln!("warning: skipping unsafe custom target '{}' (path: {})", ct.name, ct.path);
+                false
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+    let mut targets = build_targets(filter_names, &safe_custom);
+    let safe_scan_paths: Vec<String> = scan_paths
+        .iter()
+        .filter(|p| {
+            if !is_safe_path(p) {
+                eprintln!("warning: skipping unsafe scan path: {p}");
+                false
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+    append_custom_scan_paths(&mut targets, &safe_scan_paths);
     targets
 }
 
@@ -46,11 +86,19 @@ pub fn start_scan(
 pub fn merge_excludes(cli_excludes: &[String], config_excludes: &[String]) -> Vec<String> {
     let mut merged: Vec<String> = Vec::new();
     for e in cli_excludes {
+        if e.is_empty() {
+            eprintln!("warning: empty exclude pattern from CLI ignored");
+            continue;
+        }
         if !merged.contains(e) {
             merged.push(e.clone());
         }
     }
     for e in config_excludes {
+        if e.is_empty() {
+            eprintln!("warning: empty exclude pattern in config ignored");
+            continue;
+        }
         if !merged.contains(e) {
             merged.push(e.clone());
         }

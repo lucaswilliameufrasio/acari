@@ -21,14 +21,19 @@ fn print_all_targets(lang: Language) {
     );
     println!();
     for target in &targets {
-        let origin = if target.description == "User provided path" {
+        let is_custom = target.description == "User provided path";
+        let origin = if is_custom {
             msg::target_list_custom(lang)
         } else {
             msg::target_list_builtin(lang)
         };
         println!("{} {}", target.name, origin);
-        println!("  {}{}", msg::target_path(lang), target.path);
-        println!("  {}{}", msg::target_desc(lang), target.description);
+        if !is_custom {
+            println!("  {}{}", msg::target_path(lang), target.path);
+            println!("  {}{}", msg::target_desc(lang), target.description);
+        } else {
+            println!("  (custom path, use 'acari target list' for details)");
+        }
         println!();
     }
     if let Some(time) = format_modified_time() {

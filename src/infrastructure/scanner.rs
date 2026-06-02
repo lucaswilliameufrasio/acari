@@ -6,7 +6,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::domain::{AppEvent, CleanTarget, ScanResult};
 
 fn is_excluded(name: &str, excludes: &[String]) -> bool {
-    excludes.iter().any(|pat| name == pat || name.contains(pat))
+    excludes.iter().any(|pat| name == pat)
 }
 
 pub fn scan_target(
