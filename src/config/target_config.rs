@@ -156,7 +156,12 @@ pub fn config_modified_secs() -> Option<u64> {
 }
 
 pub fn unix_secs_to_local(secs: u64) -> String {
-    let total_secs = secs as i64;
+    // Saturate to i64::MAX to avoid overflow for timestamps beyond year 292 billion
+    let total_secs = if secs > i64::MAX as u64 {
+        i64::MAX
+    } else {
+        secs as i64
+    };
     let mut remaining = total_secs;
 
     let secs_per_min: i64 = 60;

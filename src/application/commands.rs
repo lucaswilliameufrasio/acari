@@ -83,11 +83,17 @@ pub fn start_scan(
     (tx, rx, handle)
 }
 
+const MAX_EXCLUDE_LEN: usize = 256;
+
 pub fn merge_excludes(cli_excludes: &[String], config_excludes: &[String]) -> Vec<String> {
     let mut merged: Vec<String> = Vec::new();
     for e in cli_excludes {
         if e.is_empty() {
             eprintln!("warning: empty exclude pattern from CLI ignored");
+            continue;
+        }
+        if e.len() > MAX_EXCLUDE_LEN {
+            eprintln!("warning: exclude pattern too long (max {MAX_EXCLUDE_LEN} chars), ignored: {e}");
             continue;
         }
         if !merged.contains(e) {
@@ -97,6 +103,10 @@ pub fn merge_excludes(cli_excludes: &[String], config_excludes: &[String]) -> Ve
     for e in config_excludes {
         if e.is_empty() {
             eprintln!("warning: empty exclude pattern in config ignored");
+            continue;
+        }
+        if e.len() > MAX_EXCLUDE_LEN {
+            eprintln!("warning: exclude pattern too long (max {MAX_EXCLUDE_LEN} chars), ignored: {e}");
             continue;
         }
         if !merged.contains(e) {

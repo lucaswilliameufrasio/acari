@@ -18,6 +18,10 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
 * **Safe Cleaning Controls:** `--clean` now requires `--yes` for destructive runs, with `--dry-run` to simulate cleanup without deleting anything.
 * **Custom Scan Paths:** Add ad-hoc directories with `--scan-path` for focused scans and tests.
 * **Permission-Aware:** Handles permission failures safely and reports cleanup errors per target.
+* **Environment Variables:**
+  - `ACARI_CONFIG_HOME`: override config directory (`$ACARI_CONFIG_HOME/acari/config.toml`)
+  - `ACARI_DATA_HOME`: override data directory (`$ACARI_DATA_HOME/acari/history.log`)
+  - `XDG_CONFIG_HOME`: fallback config directory (Linux, if `ACARI_CONFIG_HOME` not set)
 
 ## 🚀 Getting Started
 

@@ -1,15 +1,19 @@
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
+    let value = bytes as f64;
+    if value >= 9_007_199_254_740_992.0 {
+        return format!("{} {}", bytes, UNITS[0]);
+    }
+    let mut display = value;
     let mut unit = 0_usize;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
+    while display >= 1024.0 && unit < UNITS.len() - 1 {
+        display /= 1024.0;
         unit += 1;
     }
     if unit == 0 {
         format!("{} {}", bytes, UNITS[unit])
     } else {
-        format!("{value:.2} {}", UNITS[unit])
+        format!("{display:.2} {}", UNITS[unit])
     }
 }
 

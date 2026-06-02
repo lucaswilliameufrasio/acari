@@ -95,6 +95,7 @@ fn run_loop(
     let mut selected_idx = 0_usize;
     let mut status_line = String::from(msg::tui_scanning_status(lang));
     let mut dry_run = false;
+    let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
@@ -158,6 +159,9 @@ fn run_loop(
                     if let Some(ref res) = scan_res {
                         res.handle.abort();
                     }
+                    if let Some(h) = clean_handle.take() {
+                        h.abort();
+                    }
                     scan_res = Some(start_new_scan(&targets_owned, &excludes));
                     for (_, state) in &mut rows {
                         *state = TargetState::default();
@@ -198,7 +202,8 @@ fn run_loop(
                         } else {
                             CleanMode::Execute
                         };
-                        let _clean_handle = start_background_clean(res.tx.clone(), selected, mode);
+                        let h = start_background_clean(res.tx.clone(), selected, mode);
+                        clean_handle = Some(h);
                     }
                 }
             }
