@@ -2,6 +2,23 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(unix)]
+fn set_restrictive_permissions(path: &PathBuf) {
+    if let Ok(meta) = fs::metadata(path) {
+        let mut perms = meta.permissions();
+        perms.set_mode(0o600);
+        let _ = fs::set_permissions(path, perms);
+    }
+}
+
+#[cfg(not(unix))]
+fn set_restrictive_permissions(_path: &std::path::Path) {
+    // Windows: no-op, file permissions are handled by the OS ACL model
+}
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +135,7 @@ pub fn save_config(config: &TargetConfig) -> Result<()> {
     }
     let content = toml::to_string_pretty(config).context("Failed to serialize config")?;
     fs::write(&path, content).context("Failed to write config file")?;
+    set_restrictive_permissions(&path);
     Ok(())
 }
 

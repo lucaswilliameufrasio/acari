@@ -1,5 +1,14 @@
 #!/usr/bin/env sh
 set -eu
+#
+# acari installer (TOFU — Trust On First Use)
+#
+# The binary archive and its SHA256 checksum are both served from the same
+# GitHub Releases source. This provides transport security (HTTPS) and
+# integrity verification against accidental corruption, but does NOT protect
+# against a compromised release. For stronger trust anchors, consider:
+#   - Verifying the release against a maintainer GPG signature
+#   - Building from source: cargo install --git https://github.com/lucaswilliameufrasio/acari
 
 REPO=""
 TAG="latest"
