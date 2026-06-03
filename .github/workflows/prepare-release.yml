@@ -1,0 +1,67 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-prep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qP '^\d+\.\d+\.\d+$'; then
+            echo "error: version must be in semver format (e.g., 0.2.0)"
+            exit 1
+          fi
+
+      - name: Install git-cliff
+        run: cargo install git-cliff --locked 2>&1 | tail -1
+
+      - name: Generate changelog for release
+        run: |
+          git cliff --bump --tag "v${{ inputs.version }}" -o CHANGELOG.md
+
+      - name: Update version in Cargo.toml
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ inputs.version }}\"/" Cargo.toml
+
+      - name: Create release PR
+        uses: peter-evans/create-pull-request@271a8ee4f15041a0b92a3ad08b3a42032280da5c # v7.0.9
+        with:
+          commit-message: "chore(release): prepare for v${{ inputs.version }}"
+          branch: release/v${{ inputs.version }}
+          title: "Release v${{ inputs.version }}"
+          body: |
+            Automated release preparation for **v${{ inputs.version }}**.
+
+            ## After merging
+
+            Create and push the tag to trigger the build and release:
+
+            ```bash
+            git tag v${{ inputs.version }}
+            git push origin v${{ inputs.version }}
+            ```
+
+            The `Release` workflow will build artifacts, generate installers, and create the GitHub Release.
+          delete-branch: true
+          labels: release
