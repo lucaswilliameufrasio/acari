@@ -45,7 +45,7 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"${{ inputs.version }}\"/" Cargo.toml
 
       - name: Create release PR
-        uses: peter-evans/create-pull-request@271a8ee4f15041a0b92a3ad08b3a42032280da5c # v7.0.9
+        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7.0.9
         with:
           commit-message: "chore(release): prepare for v${{ inputs.version }}"
           branch: release/v${{ inputs.version }}

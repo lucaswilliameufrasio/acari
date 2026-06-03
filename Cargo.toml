@@ -5,6 +5,7 @@ edition = "2024"
 default-run = "acari"
 repository = "https://github.com/lucaswilliameufrasio/acari"
 authors = ["Lucas Eufrasio"]
+license = "MIT"
 
 [dependencies]
 anyhow = "1.0"
