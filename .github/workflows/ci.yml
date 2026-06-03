@@ -6,9 +6,21 @@ permissions:
 on:
   push:
     branches: [main, auto, canary]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - '.github/CODEOWNERS'
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - '.github/CODEOWNERS'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
