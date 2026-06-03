@@ -69,7 +69,7 @@ main() {
     err "Type must be 'feature' or 'bugfix', got '$type'"
   fi
 
-  # --- Suggest issue number ---
+  # --- Suggest issue number (optional) ---
   local suggested_issue=""
   local issue_match
   issue_match=$(printf "%s" "$raw_description" | grep -oE '[0-9]{2,}' | head -1 || true)
@@ -78,14 +78,14 @@ main() {
   fi
 
   local issue
-  issue=$(prompt "Issue number (0 if none)" "${suggested_issue:-0}")
+  issue=$(prompt "Issue number (optional)" "${suggested_issue:-}")
 
   # --- Generate branch name ---
   local description_kebab
   description_kebab=$(kebab "$raw_description")
 
   local branch
-  if [ "$issue" != "0" ]; then
+  if [ -n "$issue" ]; then
     branch="${type}/issue-${issue}-${description_kebab}"
   else
     branch="${type}/${description_kebab}"

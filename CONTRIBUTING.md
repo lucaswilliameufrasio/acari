@@ -74,21 +74,26 @@ AI-assisted contributions are allowed under these conditions:
 All branches (except `main` and release branches) must follow this pattern:
 
 ```
-<type>/issue-<number>-<description>
+<type>/[issue-<number>-]<description>
 ```
 
 | Part | Allowed values |
 |------|---------------|
 | `type` | `feature`, `bugfix` |
-| `number` | Issue number from GitHub Issues |
+| `number` | Issue number from GitHub Issues (optional for quick tasks) |
 | `description` | Lowercase, kebab-case, brief |
 
 **Examples:**
 
 ```
-feature/issue-42-add-exclude-flag
-bugfix/issue-7-fix-path-traversal
+feature/issue-42-add-exclude-flag    # linked to an issue
+bugfix/issue-7-fix-path-traversal    # linked to an issue
+feature/add-docker-support           # quick task, no issue
+bugfix/fix-empty-config-crash        # quick fix, no issue
 ```
+
+Creating an issue first is recommended for complex features or bugs that need discussion.
+For quick tasks you can skip the issue number.
 
 **Release branches** are created by the `Prepare Release` workflow:
 
