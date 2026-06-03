@@ -40,20 +40,24 @@ Cherry-picking commits between branches is not allowed. If a fix is needed on a 
 
 ### One commit per PR
 
-Each PR must be a single commit. Use `git rebase -i` to squash all changes into one before opening:
+During development you can create as many atomic commits as you like in your branch.
+Before opening a PR for review, rebase + squash them into a **single commit** describing the whole change.
 
 ```bash
 git rebase -i origin/main
 # squash everything into one commit
-git push --force-with-lease
+# write a meaningful commit message (see convention above)
+git push --force-with-lease   # only on your own branch
 ```
+
+`push --force-with-lease` is only allowed on your own feature/fix branches, never on `main` or shared branches.
 
 If you need to address review feedback, amend the existing commit:
 
 ```bash
 git add -A
-git commit --amend --no-edit
-git push --force-with-lease
+git commit --amend --no-edit   # keep the same message
+git push --force-with-lease    # only on your own branch
 ```
 
 ## AI Usage
