@@ -108,6 +108,18 @@ jobs:
       - name: Verify headless dry-run flow
         run: cargo test --locked --test cli headless_dry_run_does_not_remove_files
 
+      - name: Check CHANGELOG updated
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(git diff --name-only "$base".."$head" | grep -c 'CHANGELOG\.md' || true)"
+          code_changed="$(git diff --name-only "$base".."$head" | grep -cE '\.rs$|Cargo\.toml$|Cargo\.lock$' || true)"
+          if [ "$code_changed" -gt 0 ] && [ "$changed" -eq 0 ]; then
+            echo "::warning title=CHANGELOG::CHANGELOG.md was not updated in this PR."
+          fi
+
   docs:
     name: Build docs
     runs-on: ubuntu-latest

@@ -6,6 +6,23 @@
 - Use tags in the format `vX.Y.Z`.
 - Update `CHANGELOG.md` before creating a release tag.
 
+## Changelog generation (git-cliff)
+
+The changelog is auto-generated from git history using [git-cliff](https://git-cliff.org).
+
+Commits must follow [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```text
+feat: add --exclude flag
+fix: handle empty config path
+ci: bump Rust toolchain
+docs: add security glossary
+```
+
+Types: `feat`, `fix`, `ci`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`.
+
+---
+
 ## Prerequisites (cargo-dist)
 
 Everything is already configured. [cargo-dist](https://github.com/axodotdev/cargo-dist) handles:
@@ -21,7 +38,19 @@ Everything is already configured. [cargo-dist](https://github.com/axodotdev/carg
 ## Release Steps
 
 1. Ensure branch is green (fmt, clippy, test).
-2. Update `CHANGELOG.md` in the `[Unreleased]` section.
+
+2. Generate the changelog from git history:
+
+```bash
+# Preview unreleased changes
+git cliff --unreleased
+
+# Regenerate the full CHANGELOG.md (auto-detect version)
+git cliff -o CHANGELOG.md
+```
+
+   Review and commit the updated `CHANGELOG.md`.
+
 3. Create and push a release tag:
 
 ```bash
