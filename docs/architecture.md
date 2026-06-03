@@ -1,5 +1,7 @@
 # Architecture
 
+> See also: [Security Glossary](glossary.md) for terms like TOCTOU, TOFU, canonicalize, etc.
+
 This project follows a layered architecture adapted for Text User Interfaces.
 
 ## Layer Flow
