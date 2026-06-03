@@ -88,6 +88,17 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Build
+        run: cargo build --locked --all-targets
+
+      - name: Run tests
+        run: cargo test --locked --all-targets
+
+      - name: Verify headless dry-run flow
+        run: cargo test --locked --test cli headless_dry_run_does_not_remove_files
+
+  docs:
+    name: Build docs
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
