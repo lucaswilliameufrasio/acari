@@ -108,6 +108,18 @@ jobs:
       - name: Verify headless dry-run flow
         run: cargo test --locked --test cli headless_dry_run_does_not_remove_files
 
+      - name: Check branch naming convention
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        shell: bash
+        run: |
+          branch="${{ github.head_ref }}"
+            if [[ "$branch" =~ ^(feature|bugfix)/issue-[0-9]+[-_a-zA-Z0-9]+$ ]] || [[ "$branch" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Branch name '$branch' OK"
+          else
+            echo "::error title=Branch name::Branch '$branch' does not match pattern: <feature|bugfix>/issue-<number>-<description>"
+            exit 1
+          fi
+
       - name: Check CHANGELOG updated
         if: github.event_name == 'pull_request'
         shell: bash

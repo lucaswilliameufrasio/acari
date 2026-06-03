@@ -71,9 +71,30 @@ AI-assisted contributions are allowed under these conditions:
 
 ## Branch Naming
 
-- Feature branches: `feat/short-description`
-- Fix branches: `fix/short-description`  
-- Release branches: `release/vX.Y.Z` (created by the `Prepare Release` workflow)
+All branches (except `main` and release branches) must follow this pattern:
+
+```
+<type>/issue-<number>-<description>
+```
+
+| Part | Allowed values |
+|------|---------------|
+| `type` | `feature`, `bugfix` |
+| `number` | Issue number from GitHub Issues |
+| `description` | Lowercase, kebab-case, brief |
+
+**Examples:**
+
+```
+feature/issue-42-add-exclude-flag
+bugfix/issue-7-fix-path-traversal
+```
+
+**Release branches** are created by the `Prepare Release` workflow:
+
+```
+release/v0.2.0
+```
 
 ## Before Opening a PR
 
