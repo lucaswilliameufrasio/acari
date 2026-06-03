@@ -161,9 +161,7 @@ jobs:
         with:
           toolchain: 1.96.0
       - name: Install cargo-about
-        uses: baptiste0928/cargo-install@c2f72447195d17fd98ee426ea5838d3b9d80a6ae # v3.1.0
-        with:
-          crate: cargo-about
-          features: cli
+        shell: bash
+        run: cargo install cargo-about --locked --features cli 2>&1 | tail -1
       - name: Validate third-party licenses
         run: cargo about generate about.hbs -o /dev/null
