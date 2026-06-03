@@ -1,75 +1,124 @@
 #!/usr/bin/env sh
 set -eu
 
-usage() {
-  cat <<USAGE
-Create a feature/bugfix branch following the project conventions.
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
-Usage:
-  scripts/start-task.sh <feature|bugfix> <issue-number> <description>
+info()  { printf "${CYAN}%s${NC}\n" "$*"; }
+ok()    { printf "${GREEN}✓${NC} %s\n" "$*"; }
+warn()  { printf "${YELLOW}⚠ %s${NC}\n" "$*"; }
+err()   { printf "${RED}✗ %s${NC}\n" "$*"; exit 1; }
 
-Examples:
-  scripts/start-task.sh feature 42 add-exclude-flag
-  scripts/start-task.sh bugfix 7 fix-path-traversal
-
-This will:
-  1. Ensure you are on 'main' and it is up to date
-  2. Create and checkout a branch:
-     feature/issue-42-add-exclude-flag
-
-Then you can make atomic commits and open a PR.
-USAGE
+prompt() {
+  local msg="$1" default="$2"
+  if [ -n "$default" ]; then
+    printf "%s [%s]: " "$msg" "$default" >&2
+  else
+    printf "%s: " "$msg" >&2
+  fi
+  read -r input
+  if [ -z "$input" ]; then
+    printf "%s" "$default"
+  else
+    printf "%s" "$input"
+  fi
 }
 
-if [ "$#" -ne 3 ]; then
-  usage
-  exit 1
-fi
+kebab() {
+  printf "%s" "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-zA-Z0-9]/-/g' \
+    | sed 's/--*/-/g' \
+    | sed 's/^-//; s/-$//'
+}
 
-TYPE="$1"
-ISSUE="$2"
-DESCRIPTION="$3"
+main() {
+  echo ""
+  info "╔══════════════════════════════════════╗"
+  info "║     Acari — Start a new task         ║"
+  info "╚══════════════════════════════════════╝"
+  echo ""
 
-# Validate type
-if [ "$TYPE" != "feature" ] && [ "$TYPE" != "bugfix" ]; then
-  echo "Error: type must be 'feature' or 'bugfix', got '$TYPE'" >&2
-  exit 1
-fi
+  # --- Collect description ---
+  info "What do you want to do? (describe the task)"
+  info "Example: add exclude flag to scanner"
+  printf "> " >&2
+  read -r raw_description
 
-# Validate issue number
-if ! echo "$ISSUE" | grep -qE '^[0-9]+$'; then
-  echo "Error: issue number must be numeric, got '$ISSUE'" >&2
-  exit 1
-fi
+  if [ -z "$raw_description" ]; then
+    err "Description cannot be empty."
+  fi
 
-# Validate description (kebab-case, alphanumeric + hyphens + underscores)
-if ! echo "$DESCRIPTION" | grep -qE '^[-_a-zA-Z0-9]+$'; then
-  echo "Error: description must be kebab-case (alphanumeric, hyphens, underscores), got '$DESCRIPTION'" >&2
-  exit 1
-fi
+  # --- Suggest type ---
+  local suggested_type="feature"
+  case "$raw_description" in
+    *fix*|*bug*|*error*|*crash*|*regression*|*broken*) suggested_type="bugfix" ;;
+    *add*|*implement*|*create*|*new*|*support*)        suggested_type="feature" ;;
+  esac
 
-BRANCH="${TYPE}/issue-${ISSUE}-${DESCRIPTION}"
+  local type
+  type=$(prompt "Task type" "$suggested_type")
+  case "$type" in
+    feat*) type="feature" ;;
+    bug*)  type="bugfix" ;;
+  esac
+  if [ "$type" != "feature" ] && [ "$type" != "bugfix" ]; then
+    err "Type must be 'feature' or 'bugfix', got '$type'"
+  fi
 
-# Ensure we're on main and up to date
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$CURRENT_BRANCH" != "main" ]; then
-  echo "Warning: you are on '$CURRENT_BRANCH', not 'main'."
-  echo "The branch will be created from HEAD."
-fi
+  # --- Suggest issue number ---
+  local suggested_issue=""
+  local issue_match
+  issue_match=$(printf "%s" "$raw_description" | grep -oE '[0-9]{2,}' | head -1 || true)
+  if [ -n "$issue_match" ]; then
+    suggested_issue="$issue_match"
+  fi
 
-if ! git diff --quiet; then
-  echo "Error: you have unstaged changes. Commit or stash them first." >&2
-  exit 1
-fi
+  local issue
+  issue=$(prompt "Issue number (0 if none)" "${suggested_issue:-0}")
 
-git checkout -b "$BRANCH"
+  # --- Generate branch name ---
+  local description_kebab
+  description_kebab=$(kebab "$raw_description")
 
-echo ""
-echo "Branch created: $BRANCH"
-echo ""
-echo "Next steps:"
-echo "  1. Make atomic commits as you work"
-echo "  2. When ready, rebase + squash into one commit:"
-echo "     git rebase -i origin/main"
-echo "  3. Open a PR:"
-echo "     git push --set-upstream origin $BRANCH"
+  local branch
+  if [ "$issue" != "0" ]; then
+    branch="${type}/issue-${issue}-${description_kebab}"
+  else
+    branch="${type}/${description_kebab}"
+  fi
+
+  echo ""
+  info "Suggested branch name:"
+  printf "  ${GREEN}%s${NC}\n" "$branch"
+  echo ""
+
+  # --- Confirm and create ---
+  printf "Create branch? [Y/n] "
+  read -r confirm
+  if [ "$confirm" = "n" ] || [ "$confirm" = "N" ]; then
+    info "Cancelled."
+    exit 0
+  fi
+
+  if ! git diff --quiet; then
+    err "You have unstaged changes. Commit or stash them first."
+  fi
+
+  git checkout -b "$branch"
+
+  echo ""
+  ok "Branch created: $branch"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Make atomic commits as you work"
+  echo "  2. When ready, rebase + squash into one commit:"
+  echo "     git rebase -i origin/main"
+  echo "  3. Open a PR:"
+  echo "     git push --set-upstream origin $branch"
+}
+
+main
