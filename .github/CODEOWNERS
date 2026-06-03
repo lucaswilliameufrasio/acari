@@ -1,0 +1,11 @@
+# Require owner approval for CI/CD workflow changes
+.github/workflows/    @lucaswilliameufrasio
+
+# Security-related code (infrastructure layer)
+src/infrastructure/   @lucaswilliameufrasio
+
+# Config file handling
+src/config/           @lucaswilliameufrasio
+
+# Build and release
+dist-workspace.toml   @lucaswilliameufrasio
