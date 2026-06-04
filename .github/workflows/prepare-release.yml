@@ -20,18 +20,17 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Validate version format
         run: |
           if ! echo "${{ inputs.version }}" | grep -qP '^\d+\.\d+\.\d+$'; then
             echo "error: version must be in semver format (e.g., 0.2.0)"
             exit 1
           fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
 
       - name: Install git-cliff
         run: cargo install git-cliff --locked 2>&1 | tail -1
@@ -44,25 +43,34 @@ jobs:
         run: |
           sed -i "s/^version = \".*\"/version = \"${{ inputs.version }}\"/" Cargo.toml
 
-      - name: Create release PR
-        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7.0.9
-        with:
-          base: main
-          commit-message: "chore(release): prepare for v${{ inputs.version }}"
-          branch: release/v${{ inputs.version }}
-          title: "Release v${{ inputs.version }}"
-          body: |
-            Automated release preparation for **v${{ inputs.version }}**.
+      - name: Create release PR via gh CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: release/v${{ inputs.version }}
+          TITLE: Release v${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            ## After merging
+          git add -A
+          git commit -m "chore(release): prepare for v${{ inputs.version }}"
 
-            Create and push the tag to trigger the build and release:
+          git push origin HEAD:"$BRANCH"
 
-            ```bash
-            git tag v${{ inputs.version }}
-            git push origin v${{ inputs.version }}
-            ```
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "$TITLE" \
+            --body "Automated release preparation for **v${{ inputs.version }}**.
 
-            The `Release` workflow will build artifacts, generate installers, and create the GitHub Release.
-          delete-branch: true
-          labels: release
+          ## After merging
+
+          Create and push the tag to trigger the build and release:
+
+          \`\`\`bash
+          git tag v${{ inputs.version }}
+          git push origin v${{ inputs.version }}
+          \`\`\`
+
+          The \`Release\` workflow will build artifacts, generate installers, and create the GitHub Release." \
+            --label release
