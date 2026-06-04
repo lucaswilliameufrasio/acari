@@ -47,6 +47,7 @@ jobs:
       - name: Create release PR
         uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7.0.9
         with:
+          base: main
           commit-message: "chore(release): prepare for v${{ inputs.version }}"
           branch: release/v${{ inputs.version }}
           title: "Release v${{ inputs.version }}"
