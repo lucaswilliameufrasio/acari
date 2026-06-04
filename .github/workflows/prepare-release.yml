@@ -72,5 +72,4 @@ jobs:
           git push origin v${{ inputs.version }}
           \`\`\`
 
-          The \`Release\` workflow will build artifacts, generate installers, and create the GitHub Release." \
-            --label release
+          The \`Release\` workflow will build artifacts, generate installers, and create the GitHub Release."
