@@ -48,7 +48,7 @@ jobs:
       - name: Create release PR via gh CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: release/v${{ inputs.version }}-${{ github.run_attempt }}
+          BRANCH: release/v${{ inputs.version }}-rc.${{ github.run_attempt }}
           TITLE: Release v${{ inputs.version }}
         run: |
           git config user.name "github-actions[bot]"
@@ -63,7 +63,6 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "$TITLE" \
-            --delete-branch \
             --body "Automated release preparation for **v${{ inputs.version }}**.
 
           ## After merging
