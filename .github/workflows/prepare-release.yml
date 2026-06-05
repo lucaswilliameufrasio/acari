@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   prepare:
+    if: github.ref == 'refs/heads/main'
+    environment: release
     runs-on: ubuntu-latest
     steps:
       - name: Validate version format
