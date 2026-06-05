@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-06-05
 
 ### Bug Fixes
 
@@ -13,22 +13,44 @@ All notable changes to this project will be documented in this file.
 - Format_bytes precision, timestamp saturation, exclude limits, clean handle tracking
 - Is_safe_path uses exact match instead of starts_with, cargo fmt
 - Restore ci.yml YAML structure 
+- Replace broken cargo-install action with direct cargo install
+- Add explicit base:main to create-pull-request action
+- Replace create-pull-request action with gh CLI
+- Remove --label release flag 
+- Use unique branch names in prepare-release 
+- Branch name uses -rc.N suffix, remove invalid --delete-branch flag
 
 ### CI / Build
 
 - Pin GitHub Actions to SHAs, scope permissions, fix shell injection
 - Bump Rust toolchain from 1.94 to 1.96
 - Skip CI for documentation-only changes
+- Add Prepare Release workflow for automated changelog + version bump
+- Add environment approval and branch guard to Prepare Release
+
+### Chores
+
+- Add MIT license, fix release SHA, add third-party license compliance
 
 ### Documentation
 
 - Update releasing.md for cargo-dist workflow
 - Add security glossary 
 - Add SECURITY.md and CODEOWNERS for workflow protection
+- Add CONTRIBUTING.md with commit and PR rules
+- Clarify squash strategy in CONTRIBUTING.md
+- Add PR template with checklist and sections
+- Add branch naming CI check and start-task.sh script
+- Make issue number optional in branch naming
 
 ### Features
 
 - Human-readable bytes, persistent targets, i18n pt/en, better TUI
+- Auto-generate CHANGELOG.md with git-cliff
+
+### Other
+
+- Rewrite start-task.sh as interactive summarizer
 
 ### Styling
 
