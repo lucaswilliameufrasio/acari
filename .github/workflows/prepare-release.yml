@@ -79,7 +79,13 @@ jobs:
 
           ## After merging
 
-          Create and push the tag to trigger the build and release:
+          Before creating the tag, pull the latest main:
+
+          \`\`\`bash
+          git pull --release
+          \`\`\`
+
+          Then create and push the tag to trigger the build and release:
 
           \`\`\`bash
           git tag v$V
