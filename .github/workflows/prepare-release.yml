@@ -45,6 +45,9 @@ jobs:
         run: |
           sed -i "s/^version = \".*\"/version = \"${{ inputs.version }}\"/" Cargo.toml
 
+      - name: Regenerate Cargo.lock after version bump
+        run: cargo generate-lockfile
+
       - name: Create release PR via gh CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
