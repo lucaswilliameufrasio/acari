@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-06-07
+
+### Bug Fixes
+
+- Add allow-dirty=ci to cargo-dist config 
+
+### Chores
+
+- Sync Cargo.lock after version bump to 0.2.0
 ## [0.2.0] - 2026-06-05
 
 ### Bug Fixes
@@ -31,6 +40,7 @@ All notable changes to this project will be documented in this file.
 ### Chores
 
 - Add MIT license, fix release SHA, add third-party license compliance
+- Prepare for v0.2.0
 
 ### Documentation
 
