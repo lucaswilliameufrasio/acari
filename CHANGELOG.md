@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3] - 2026-06-07
+
+### Bug Fixes
+
+- Change PR body instructions to git checkout main && git pull --rebase
+
+### Chores
+
+- Prepare for v0.3.2
+
+### Documentation
+
+- Add git pull --release step in PR body
 ## [0.3.2] - 2026-06-07
 
 ### Bug Fixes
