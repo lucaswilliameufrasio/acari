@@ -18,4 +18,4 @@ hosting = "github"
 # Whether to install an updater program
 install-updater = false
 # Whether to allow hand-edits to CI files (e.g. pinned SHAs, permission scoping)
-allow-dirty = "ci"
+allow-dirty = ["ci"]
