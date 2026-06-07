@@ -2,12 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-06-07
+
+### Bug Fixes
+
+- Support v-prefixed version input, show version in workflow title
+- Add workflows:write permission and explicit git add in prepare-release
+- Remove invalid workflows permission and inputs.version from name
 ## [0.3.1] - 2026-06-07
 
 ### Bug Fixes
 
 - Allow-dirty must be a list, not a string
 - Regenerate Cargo.lock in Prepare Release workflow after version bump
+
+### Chores
+
+- Prepare for v0.3.1
 ## [0.3.0] - 2026-06-07
 
 ### Bug Fixes
