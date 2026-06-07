@@ -1,10 +1,10 @@
-name: Prepare Release
+name: Prepare Release v${{ inputs.version }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 0.2.0)'
+        description: 'Version to release (e.g., 0.3.2 or v0.3.2)'
         required: true
         type: string
 
@@ -23,9 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate version format
+        id: version-check
         run: |
-          if ! echo "${{ inputs.version }}" | grep -qP '^\d+\.\d+\.\d+$'; then
-            echo "error: version must be in semver format (e.g., 0.2.0)"
+          RAW="${{ inputs.version }}"
+          CLEAN="$(echo "$RAW" | sed 's/^v//')"
+          echo "version=$CLEAN" >> "$GITHUB_OUTPUT"
+          if ! echo "$CLEAN" | grep -qP '^\d+\.\d+\.\d+$'; then
+            echo "error: version must be semver format (e.g., 0.3.2 or v0.3.2)"
             exit 1
           fi
 
@@ -38,12 +42,16 @@ jobs:
         run: cargo install git-cliff --locked 2>&1 | tail -1
 
       - name: Generate changelog for release
+        env:
+          V: ${{ steps.version-check.outputs.version }}
         run: |
-          git cliff --bump --tag "v${{ inputs.version }}" -o CHANGELOG.md
+          git cliff --bump --tag "v$V" -o CHANGELOG.md
 
       - name: Update version in Cargo.toml
+        env:
+          V: ${{ steps.version-check.outputs.version }}
         run: |
-          sed -i "s/^version = \".*\"/version = \"${{ inputs.version }}\"/" Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"$V\"/" Cargo.toml
 
       - name: Regenerate Cargo.lock after version bump
         run: cargo generate-lockfile
@@ -51,14 +59,15 @@ jobs:
       - name: Create release PR via gh CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: release/v${{ inputs.version }}-rc.${{ github.run_attempt }}
-          TITLE: Release v${{ inputs.version }}
+          V: ${{ steps.version-check.outputs.version }}
+          BRANCH: release/v${{ steps.version-check.outputs.version }}-rc.${{ github.run_attempt }}
+          TITLE: Release v${{ steps.version-check.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add -A
-          git commit -m "chore(release): prepare for v${{ inputs.version }}"
+          git commit -m "chore(release): prepare for v$V"
 
           git push origin HEAD:"$BRANCH"
 
@@ -66,15 +75,15 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "$TITLE" \
-            --body "Automated release preparation for **v${{ inputs.version }}**.
+            --body "Automated release preparation for **v$V**.
 
           ## After merging
 
           Create and push the tag to trigger the build and release:
 
           \`\`\`bash
-          git tag v${{ inputs.version }}
-          git push origin v${{ inputs.version }}
+          git tag v$V
+          git push origin v$V
           \`\`\`
 
           The \`Release\` workflow will build artifacts, generate installers, and create the GitHub Release."
