@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-06-07
+
+### Bug Fixes
+
+- Allow-dirty must be a list, not a string
+- Regenerate Cargo.lock in Prepare Release workflow after version bump
 ## [0.3.0] - 2026-06-07
 
 ### Bug Fixes
@@ -11,6 +17,7 @@ All notable changes to this project will be documented in this file.
 ### Chores
 
 - Sync Cargo.lock after version bump to 0.2.0
+- Prepare for v0.3.0
 ## [0.2.0] - 2026-06-05
 
 ### Bug Fixes
