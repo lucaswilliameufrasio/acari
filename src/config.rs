@@ -47,9 +47,11 @@ pub enum Commands {
         action: TargetAction,
     },
     /// Discover and clean project junk (node_modules, target, build, etc.)
+    /// Defaults to the management TUI if no subcommand given.
     Project {
+        /// Open the management TUI by default
         #[command(subcommand)]
-        action: ProjectAction,
+        action: Option<ProjectAction>,
     },
 }
 
@@ -76,9 +78,6 @@ pub enum TargetAction {
 
 #[derive(Debug, Subcommand)]
 pub enum ProjectAction {
-    /// Open TUI to manage patterns and roots
-    #[command(hide = true)]
-    Manage,
     /// Add a project root
     AddRoot {
         /// Project root path

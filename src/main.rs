@@ -155,11 +155,11 @@ async fn main() -> Result<()> {
                 }
             },
             Commands::Project { action } => match action {
-                ProjectAction::Manage => {
+                None => {
                     let cfg = target_config::load_config();
                     acari::ui::project::run_project_tui(&cfg, lang)?;
                 }
-                ProjectAction::AddRoot { path } => {
+                Some(ProjectAction::AddRoot { path }) => {
                     let mut cfg = target_config::load_config();
                     if cfg.project_scan.roots.contains(path) {
                         println!("{}", msg::root_already_exists(lang).replace("{path}", path));
@@ -171,7 +171,7 @@ async fn main() -> Result<()> {
                         println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
                     }
                 }
-                ProjectAction::RemoveRoot { path } => {
+                Some(ProjectAction::RemoveRoot { path }) => {
                     let mut cfg = target_config::load_config();
                     let len = cfg.project_scan.roots.len();
                     cfg.project_scan.roots.retain(|r| r != path);
@@ -184,11 +184,11 @@ async fn main() -> Result<()> {
                         println!("{}", msg::root_not_found(lang).replace("{path}", path));
                     }
                 }
-                ProjectAction::ListRoots => {
+                Some(ProjectAction::ListRoots) => {
                     let cfg = target_config::load_config();
                     print_project_roots(lang, &cfg);
                 }
-                ProjectAction::AddPattern { pattern } => {
+                Some(ProjectAction::AddPattern { pattern }) => {
                     let mut cfg = target_config::load_config();
                     let builtins = builtin_patterns();
                     if builtins.iter().any(|p| p == pattern) {
@@ -209,7 +209,7 @@ async fn main() -> Result<()> {
                         println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
                     }
                 }
-                ProjectAction::RemovePattern { pattern } => {
+                Some(ProjectAction::RemovePattern { pattern }) => {
                     let mut cfg = target_config::load_config();
                     let len = cfg.project_scan.patterns.len();
                     cfg.project_scan.patterns.retain(|p| p != pattern);
@@ -228,11 +228,11 @@ async fn main() -> Result<()> {
                         );
                     }
                 }
-                ProjectAction::ListPatterns => {
+                Some(ProjectAction::ListPatterns) => {
                     let cfg = target_config::load_config();
                     print_project_patterns(lang, &cfg);
                 }
-                ProjectAction::Scan {
+                Some(ProjectAction::Scan {
                     roots,
                     patterns,
                     no_default_patterns,
@@ -241,7 +241,7 @@ async fn main() -> Result<()> {
                     dry_run,
                     yes,
                     excludes,
-                } => {
+                }) => {
                     let cfg = target_config::load_config();
                     let io_priority = cfg.scan.io_priority;
 
