@@ -52,6 +52,26 @@ cd acari
 cargo run --release
 ```
 
+### Upgrade
+
+Re-run the installer to overwrite the existing binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | sh
+```
+
+Or build from source:
+
+```bash
+cargo install --git https://github.com/lucaswilliameufrasio/acari
+```
+
+Verify:
+
+```bash
+acari --version
+```
+
 ### Usage
 
 Launch the TUI (interactive mode):
