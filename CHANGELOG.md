@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-06-08
+
+### Bug Fixes
+
+- Make acari project open TUI by default, add discovery tests
+
+### Documentation
+
+- Add upgrade section in README
+
+### Features
+
+- Project junk scanner with TUI management, I/O priority, and install-path fix
+
+### Styling
+
+- Cargo fmt
+
+### Testing
+
+- Add project CLI integration tests, docs, empty-state hints
 ## [0.3.3] - 2026-06-07
 
 ### Bug Fixes
@@ -11,6 +32,7 @@ All notable changes to this project will be documented in this file.
 ### Chores
 
 - Prepare for v0.3.2
+- Prepare for v0.3.3
 
 ### Documentation
 
