@@ -109,11 +109,9 @@ impl ProjectTui {
                 if val.is_empty() {
                     self.status = msg::project_empty_pattern(self.lang).to_string();
                 } else if self.builtins.iter().any(|p| p == &val) {
-                    self.status =
-                        msg::pattern_is_builtin(self.lang).replace("{pattern}", &val);
+                    self.status = msg::pattern_is_builtin(self.lang).replace("{pattern}", &val);
                 } else if self.cfg.project_scan.patterns.contains(&val) {
-                    self.status =
-                        msg::pattern_exists(self.lang).replace("{pattern}", &val);
+                    self.status = msg::pattern_exists(self.lang).replace("{pattern}", &val);
                 } else {
                     self.cfg.project_scan.patterns.push(val.clone());
                     let _ = target_config::save_config(&self.cfg);
@@ -124,8 +122,7 @@ impl ProjectTui {
                 if val.is_empty() {
                     self.status = msg::root_empty(self.lang).to_string();
                 } else if self.cfg.project_scan.roots.contains(&val) {
-                    self.status =
-                        msg::root_already_exists(self.lang).replace("{path}", &val);
+                    self.status = msg::root_already_exists(self.lang).replace("{path}", &val);
                 } else {
                     self.cfg.project_scan.roots.push(val.clone());
                     let _ = target_config::save_config(&self.cfg);
@@ -152,16 +149,12 @@ impl ProjectTui {
                     let idx = self.selected_pattern;
                     let custom_start = self.builtins.len();
                     if idx < custom_start {
-                        self.status =
-                            msg::pattern_is_builtin(self.lang).replace(
-                                "{pattern}",
-                                self.builtins.get(idx).unwrap_or(&""),
-                            );
+                        self.status = msg::pattern_is_builtin(self.lang)
+                            .replace("{pattern}", self.builtins.get(idx).unwrap_or(&""));
                     } else {
                         let custom_idx = idx - custom_start;
                         if custom_idx < self.cfg.project_scan.patterns.len() {
-                            let removed =
-                                self.cfg.project_scan.patterns.remove(custom_idx);
+                            let removed = self.cfg.project_scan.patterns.remove(custom_idx);
                             let _ = target_config::save_config(&self.cfg);
                             self.status =
                                 msg::pattern_removed(self.lang).replace("{pattern}", &removed);
@@ -177,8 +170,7 @@ impl ProjectTui {
                     if idx < self.cfg.project_scan.roots.len() {
                         let removed = self.cfg.project_scan.roots.remove(idx);
                         let _ = target_config::save_config(&self.cfg);
-                        self.status =
-                            msg::root_removed(self.lang).replace("{path}", &removed);
+                        self.status = msg::root_removed(self.lang).replace("{path}", &removed);
                     }
                     if self.selected_root >= self.cfg.project_scan.roots.len() {
                         self.selected_root = self.selected_root.saturating_sub(1);
@@ -254,7 +246,11 @@ impl ProjectTui {
             .split(area);
 
         let title = Paragraph::new(msg::project_tui_title(self.lang))
-            .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )
             .block(Block::default().borders(Borders::ALL));
         frame.render_widget(title, chunks[0]);
 
@@ -315,11 +311,11 @@ impl ProjectTui {
             }
         }
 
-        let list = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!("{} ({})", msg::project_patterns_title(self.lang), total)),
-        );
+        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
+            "{} ({})",
+            msg::project_patterns_title(self.lang),
+            total
+        )));
         frame.render_widget(list, area);
     }
 
@@ -351,7 +347,8 @@ impl ProjectTui {
     }
 
     fn draw_actions(&self, area: Rect, frame: &mut ratatui::Frame) {
-        let lines = [format!(
+        let lines = [
+            format!(
                 "[s] {}    [d] {}",
                 msg::project_action_scan(self.lang),
                 msg::project_action_dry_run(self.lang)
@@ -366,7 +363,8 @@ impl ProjectTui {
                 msg::project_action_remove(self.lang),
                 msg::project_action_switch(self.lang)
             ),
-            format!("[q] {}", msg::project_action_quit(self.lang))];
+            format!("[q] {}", msg::project_action_quit(self.lang)),
+        ];
 
         let text = lines.join("\n");
         let paragraph = Paragraph::new(text)
@@ -444,8 +442,7 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
         let patterns = tui.cfg.project_scan.patterns.clone();
         let excludes = merge_excludes(&[], &tui.cfg.scan.exclude_patterns);
 
-        let discovered =
-            project_scan::discover_junk_dirs(&roots, &patterns, false);
+        let discovered = project_scan::discover_junk_dirs(&roots, &patterns, false);
 
         if discovered.is_empty() {
             println!("{}", msg::no_junk_found(lang));

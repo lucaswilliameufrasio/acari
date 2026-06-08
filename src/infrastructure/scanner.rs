@@ -30,24 +30,24 @@ pub fn scan_target(
     let mut files_scanned = 0_u64;
 
     let walker = if excludes.is_empty() {
-        WalkDir::new(&path).follow_links(false).parallelism(parallelism)
+        WalkDir::new(&path)
+            .follow_links(false)
+            .parallelism(parallelism)
     } else {
         let ex = excludes.to_vec();
         WalkDir::new(&path)
             .follow_links(false)
             .parallelism(parallelism)
-            .process_read_dir(
-                move |_depth, _parent_path, _state, children: &mut Vec<_>| {
-                    children.retain(|entry| {
-                        if let Ok(entry) = entry {
-                            let name = entry.file_name.to_string_lossy();
-                            !is_excluded(&name, &ex)
-                        } else {
-                            true
-                        }
-                    });
-                },
-            )
+            .process_read_dir(move |_depth, _parent_path, _state, children: &mut Vec<_>| {
+                children.retain(|entry| {
+                    if let Ok(entry) = entry {
+                        let name = entry.file_name.to_string_lossy();
+                        !is_excluded(&name, &ex)
+                    } else {
+                        true
+                    }
+                });
+            })
     };
 
     for entry in walker {
@@ -135,7 +135,12 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
-        let result = scan_target(&target, &tx, &["node_modules".to_string()], Parallelism::Serial);
+        let result = scan_target(
+            &target,
+            &tx,
+            &["node_modules".to_string()],
+            Parallelism::Serial,
+        );
 
         assert_eq!(result.files_scanned, 1);
         assert_eq!(result.bytes, 4); // "main" = 4 bytes

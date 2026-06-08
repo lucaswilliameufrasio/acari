@@ -50,8 +50,7 @@ pub fn start_background_scan(
                     let p = parallelism.clone();
                     let target = target.clone();
                     s.spawn(move || {
-                        let result =
-                            infra_scanner::scan_target(&target, &tx, &excludes, p);
+                        let result = infra_scanner::scan_target(&target, &tx, &excludes, p);
                         let _ = tx.send(AppEvent::TargetCompleted {
                             target_name: result.target.name.to_string(),
                             total_bytes: result.bytes,

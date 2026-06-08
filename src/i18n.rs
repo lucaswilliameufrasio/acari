@@ -385,7 +385,11 @@ pub mod msg {
     }
 
     pub fn root_not_found(lang: Language) -> &'static str {
-        s("Root '{path}' não encontrado.", "Root '{path}' not found.", lang)
+        s(
+            "Root '{path}' não encontrado.",
+            "Root '{path}' not found.",
+            lang,
+        )
     }
 
     pub fn root_empty(lang: Language) -> &'static str {
@@ -523,7 +527,11 @@ pub mod msg {
     }
 
     pub fn project_empty_pattern(lang: Language) -> &'static str {
-        s("Nome do padrão não pode ser vazio.", "Pattern name cannot be empty.", lang)
+        s(
+            "Nome do padrão não pode ser vazio.",
+            "Pattern name cannot be empty.",
+            lang,
+        )
     }
 
     pub fn starting_scan(lang: Language) -> &'static str {

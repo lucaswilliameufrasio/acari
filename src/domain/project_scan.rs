@@ -8,15 +8,32 @@ use jwalk::WalkDir;
 use crate::domain::CleanTarget;
 
 const BUILTIN_PATTERNS: &[&str] = &[
-    "node_modules", ".next", ".nuxt", ".output", ".turbo", "dist", ".cache",
+    "node_modules",
+    ".next",
+    ".nuxt",
+    ".output",
+    ".turbo",
+    "dist",
+    ".cache",
     "target",
     "vendor",
-    "build", ".gradle", "bin",
-    "__pycache__", ".venv", "venv", ".pytest_cache", ".tox", ".mypy_cache",
+    "build",
+    ".gradle",
+    "bin",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".pytest_cache",
+    ".tox",
+    ".mypy_cache",
     "obj",
     "packages",
-    ".dart_tool", ".packages", ".pub",
-    "Library", "Temp", "Obj",
+    ".dart_tool",
+    ".packages",
+    ".pub",
+    "Library",
+    "Temp",
+    "Obj",
     "coverage",
 ];
 
@@ -54,9 +71,8 @@ pub fn discover_junk_dirs(
         let s = Arc::clone(&seen);
         let p = Arc::clone(&patterns_arc);
 
-        let walker = WalkDir::new(path)
-            .follow_links(false)
-            .process_read_dir(move |_, _, _, children: &mut Vec<_>| {
+        let walker = WalkDir::new(path).follow_links(false).process_read_dir(
+            move |_, _, _, children: &mut Vec<_>| {
                 children.retain(|entry| {
                     if let Ok(e) = entry {
                         let name = e.file_name.to_string_lossy().to_string();
@@ -64,7 +80,10 @@ pub fn discover_junk_dirs(
                             return false;
                         }
                         if p.iter().any(|pat| pat == &name) {
-                            if s.lock().unwrap().insert(e.path().to_string_lossy().to_string()) {
+                            if s.lock()
+                                .unwrap()
+                                .insert(e.path().to_string_lossy().to_string())
+                            {
                                 let desc = format!("Project junk: {}", name);
                                 d.lock().unwrap().push(CleanTarget {
                                     name: Cow::Owned(name),
@@ -79,7 +98,8 @@ pub fn discover_junk_dirs(
                         true
                     }
                 });
-            });
+            },
+        );
 
         for _ in walker {}
     }

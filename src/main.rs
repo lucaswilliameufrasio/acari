@@ -4,11 +4,9 @@ use acari::application::commands::{
 };
 use acari::application::headless::run_headless;
 use acari::config::target_config::{self, format_modified_time};
-use acari::config::{
-    Cli, Commands, ProjectAction, TargetAction,
-};
-use acari::domain::project_scan::{self, builtin_patterns};
+use acari::config::{Cli, Commands, ProjectAction, TargetAction};
 use acari::domain::CleanTarget;
+use acari::domain::project_scan::{self, builtin_patterns};
 use acari::i18n::{Language, detect_language, msg};
 use acari::infrastructure::distro;
 use acari::ui::app::run_tui;
@@ -54,7 +52,10 @@ fn print_project_patterns(lang: Language, cfg: &target_config::TargetConfig) {
     for chunk in builtins.chunks(5) {
         println!("  {}", chunk.join("  "));
     }
-    println!("  {}", msg::pattern_count(lang).replace("{n}", &builtins.len().to_string()));
+    println!(
+        "  {}",
+        msg::pattern_count(lang).replace("{n}", &builtins.len().to_string())
+    );
     println!();
     if cfg.project_scan.patterns.is_empty() {
         println!("{}", msg::no_custom_patterns(lang));
@@ -91,8 +92,7 @@ fn collect_project_targets(
     } else {
         println!(
             "[project-scan] {}",
-            msg::junk_found(lang)
-                .replace("{n}", &discovered.len().to_string())
+            msg::junk_found(lang).replace("{n}", &discovered.len().to_string())
         );
     }
     Ok(discovered)
@@ -162,10 +162,7 @@ async fn main() -> Result<()> {
                 ProjectAction::AddRoot { path } => {
                     let mut cfg = target_config::load_config();
                     if cfg.project_scan.roots.contains(path) {
-                        println!(
-                            "{}",
-                            msg::root_already_exists(lang).replace("{path}", path)
-                        );
+                        println!("{}", msg::root_already_exists(lang).replace("{path}", path));
                     } else {
                         cfg.project_scan.roots.push(path.clone());
                         target_config::save_config(&cfg)?;
@@ -195,7 +192,10 @@ async fn main() -> Result<()> {
                     let mut cfg = target_config::load_config();
                     let builtins = builtin_patterns();
                     if builtins.iter().any(|p| p == pattern) {
-                        println!("{}", msg::pattern_is_builtin(lang).replace("{pattern}", pattern));
+                        println!(
+                            "{}",
+                            msg::pattern_is_builtin(lang).replace("{pattern}", pattern)
+                        );
                     } else if cfg.project_scan.patterns.contains(pattern) {
                         println!(
                             "{}",
@@ -222,7 +222,10 @@ async fn main() -> Result<()> {
                         );
                         println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
                     } else {
-                        println!("{}", msg::pattern_not_found(lang).replace("{pattern}", pattern));
+                        println!(
+                            "{}",
+                            msg::pattern_not_found(lang).replace("{pattern}", pattern)
+                        );
                     }
                 }
                 ProjectAction::ListPatterns => {
@@ -267,7 +270,9 @@ async fn main() -> Result<()> {
                     }
 
                     if *headless {
-                        enforce_headless_clean_safety_l10n(*headless, *clean, *dry_run, *yes, lang)?;
+                        enforce_headless_clean_safety_l10n(
+                            *headless, *clean, *dry_run, *yes, lang,
+                        )?;
                         let clean_mode = if *dry_run {
                             CleanMode::DryRun
                         } else {

@@ -170,8 +170,7 @@ fn run_loop(
                     if let Some(h) = clean_handle.take() {
                         h.abort();
                     }
-                    scan_res =
-                        Some(start_new_scan(&targets_owned, &excludes, io_priority));
+                    scan_res = Some(start_new_scan(&targets_owned, &excludes, io_priority));
                     for (_, state) in &mut rows {
                         *state = TargetState::default();
                     }

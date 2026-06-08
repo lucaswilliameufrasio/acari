@@ -22,8 +22,7 @@ fn set_restrictive_permissions(_path: &std::path::Path) {
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum IoPriority {
     #[serde(rename = "low")]
     Low,
@@ -33,7 +32,6 @@ pub enum IoPriority {
     #[serde(rename = "high")]
     High,
 }
-
 
 impl std::fmt::Display for IoPriority {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
