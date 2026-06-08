@@ -22,18 +22,62 @@ fn set_restrictive_permissions(_path: &std::path::Path) {
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
+pub enum IoPriority {
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "normal")]
+    #[default]
+    Normal,
+    #[serde(rename = "high")]
+    High,
+}
+
+
+impl std::fmt::Display for IoPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IoPriority::Low => write!(f, "low"),
+            IoPriority::Normal => write!(f, "normal"),
+            IoPriority::High => write!(f, "high"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TargetConfig {
     #[serde(default)]
     pub custom_targets: Vec<CustomTargetEntry>,
     #[serde(default)]
     pub scan: ScanConfig,
+    #[serde(default)]
+    pub project_scan: ProjectScanConfig,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
     #[serde(default)]
     pub exclude_patterns: Vec<String>,
+    #[serde(default)]
+    pub io_priority: IoPriority,
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            exclude_patterns: Vec::new(),
+            io_priority: IoPriority::Normal,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectScanConfig {
+    #[serde(default)]
+    pub roots: Vec<String>,
+    #[serde(default)]
+    pub patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

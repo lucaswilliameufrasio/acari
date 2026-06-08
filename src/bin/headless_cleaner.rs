@@ -16,6 +16,7 @@ async fn main() -> Result<()> {
     enforce_headless_clean_safety_l10n(true, cli.clean, cli.dry_run, cli.yes, lang)?;
 
     let cfg = target_config::load_config();
+    let io_priority = cfg.scan.io_priority;
     let excludes = merge_excludes(&cli.excludes, &cfg.scan.exclude_patterns);
     let targets = prepare_targets(&cli.targets, &cli.scan_paths, &cfg.custom_targets);
 
@@ -24,7 +25,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let (tx, rx, _scan_handle) = start_scan(targets.clone(), excludes);
+    let (tx, rx, _scan_handle) = start_scan(targets.clone(), excludes, io_priority);
 
     let clean_mode = if cli.dry_run {
         CleanMode::DryRun

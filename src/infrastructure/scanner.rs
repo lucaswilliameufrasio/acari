@@ -1,5 +1,6 @@
 use std::io::ErrorKind;
 
+use jwalk::Parallelism;
 use jwalk::WalkDir;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -13,6 +14,7 @@ pub fn scan_target(
     target: &CleanTarget,
     tx: &UnboundedSender<AppEvent>,
     excludes: &[String],
+    parallelism: Parallelism,
 ) -> ScanResult {
     let path = target.resolved_path();
 
@@ -28,21 +30,24 @@ pub fn scan_target(
     let mut files_scanned = 0_u64;
 
     let walker = if excludes.is_empty() {
-        WalkDir::new(&path).follow_links(false)
+        WalkDir::new(&path).follow_links(false).parallelism(parallelism)
     } else {
         let ex = excludes.to_vec();
-        WalkDir::new(&path).follow_links(false).process_read_dir(
-            move |_depth, _parent_path, _state, children: &mut Vec<_>| {
-                children.retain(|entry| {
-                    if let Ok(entry) = entry {
-                        let name = entry.file_name.to_string_lossy();
-                        !is_excluded(&name, &ex)
-                    } else {
-                        true
-                    }
-                });
-            },
-        )
+        WalkDir::new(&path)
+            .follow_links(false)
+            .parallelism(parallelism)
+            .process_read_dir(
+                move |_depth, _parent_path, _state, children: &mut Vec<_>| {
+                    children.retain(|entry| {
+                        if let Ok(entry) = entry {
+                            let name = entry.file_name.to_string_lossy();
+                            !is_excluded(&name, &ex)
+                        } else {
+                            true
+                        }
+                    });
+                },
+            )
     };
 
     for entry in walker {
@@ -86,6 +91,7 @@ mod tests {
     use std::borrow::Cow;
     use std::fs;
 
+    use jwalk::Parallelism;
     use tokio::sync::mpsc;
 
     use crate::domain::CleanTarget;
@@ -108,7 +114,7 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
-        let result = scan_target(&target, &tx, &[]);
+        let result = scan_target(&target, &tx, &[], Parallelism::Serial);
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.bytes, 10);
@@ -129,7 +135,7 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
-        let result = scan_target(&target, &tx, &["node_modules".to_string()]);
+        let result = scan_target(&target, &tx, &["node_modules".to_string()], Parallelism::Serial);
 
         assert_eq!(result.files_scanned, 1);
         assert_eq!(result.bytes, 4); // "main" = 4 bytes

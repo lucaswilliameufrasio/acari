@@ -3,6 +3,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::scanner::start_background_scan;
 use crate::config::target_config;
+use crate::config::target_config::IoPriority;
 use crate::domain::{AppEvent, CleanTarget, append_custom_scan_paths, build_targets};
 use crate::i18n::{Language, msg};
 
@@ -80,13 +81,14 @@ pub fn print_targets(targets: &[CleanTarget], lang: Language) {
 pub fn start_scan(
     targets: Vec<CleanTarget>,
     excludes: Vec<String>,
+    io_priority: IoPriority,
 ) -> (
     UnboundedSender<AppEvent>,
     UnboundedReceiver<AppEvent>,
     tokio::task::JoinHandle<()>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_scan(tx.clone(), targets, excludes);
+    let handle = start_background_scan(tx.clone(), targets, excludes, io_priority);
     (tx, rx, handle)
 }
 

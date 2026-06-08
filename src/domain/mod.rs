@@ -2,6 +2,7 @@ pub mod custom_targets;
 pub mod format;
 pub mod messages;
 pub mod models;
+pub mod project_scan;
 pub mod targets;
 
 pub use custom_targets::append_custom_scan_paths;

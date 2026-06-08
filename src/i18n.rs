@@ -337,4 +337,200 @@ pub mod msg {
     pub fn clean_dry_run_label(lang: Language) -> &'static str {
         s("simulação", "dry-run", lang)
     }
+
+    // --- project scan ---
+
+    pub fn builtin_patterns_header(_lang: Language) -> &'static str {
+        "Built-in patterns:"
+    }
+
+    pub fn custom_patterns_header(_lang: Language) -> &'static str {
+        "Custom patterns:"
+    }
+
+    pub fn no_custom_patterns(_lang: Language) -> &'static str {
+        "No custom patterns configured."
+    }
+
+    pub fn pattern_count(lang: Language) -> &'static str {
+        s("{n} padrões no total", "{n} total built-in patterns", lang)
+    }
+
+    pub fn roots_header(_lang: Language) -> &'static str {
+        "Project roots:"
+    }
+
+    pub fn no_roots_configured(lang: Language) -> &'static str {
+        s(
+            "Nenhum root de projeto configurado.",
+            "No project roots configured.",
+            lang,
+        )
+    }
+
+    pub fn root_already_exists(lang: Language) -> &'static str {
+        s(
+            "Root '{path}' já existe.",
+            "Root '{path}' already exists.",
+            lang,
+        )
+    }
+
+    pub fn root_added(lang: Language) -> &'static str {
+        s("Root '{path}' adicionado.", "Root '{path}' added.", lang)
+    }
+
+    pub fn root_removed(lang: Language) -> &'static str {
+        s("Root '{path}' removido.", "Root '{path}' removed.", lang)
+    }
+
+    pub fn root_not_found(lang: Language) -> &'static str {
+        s("Root '{path}' não encontrado.", "Root '{path}' not found.", lang)
+    }
+
+    pub fn root_empty(lang: Language) -> &'static str {
+        s("Caminho não pode ser vazio.", "Path cannot be empty.", lang)
+    }
+
+    pub fn pattern_is_builtin(lang: Language) -> &'static str {
+        s(
+            "'{pattern}' já é um padrão embutido.",
+            "'{pattern}' is a built-in pattern.",
+            lang,
+        )
+    }
+
+    pub fn pattern_exists(lang: Language) -> &'static str {
+        s(
+            "Padrão '{pattern}' já existe nos custom patterns.",
+            "Pattern '{pattern}' already added as custom.",
+            lang,
+        )
+    }
+
+    pub fn pattern_added(lang: Language) -> &'static str {
+        s(
+            "Padrão '{pattern}' adicionado.",
+            "Pattern '{pattern}' added.",
+            lang,
+        )
+    }
+
+    pub fn pattern_removed(lang: Language) -> &'static str {
+        s(
+            "Padrão '{pattern}' removido.",
+            "Pattern '{pattern}' removed.",
+            lang,
+        )
+    }
+
+    pub fn pattern_not_found(lang: Language) -> &'static str {
+        s(
+            "Padrão '{pattern}' não encontrado.",
+            "Pattern '{pattern}' not found.",
+            lang,
+        )
+    }
+
+    pub fn no_junk_found(lang: Language) -> &'static str {
+        s(
+            "Nenhum diretório de lixo encontrado.",
+            "No junk directories found.",
+            lang,
+        )
+    }
+
+    pub fn junk_found(lang: Language) -> &'static str {
+        s(
+            "{n} diretório(s) de lixo encontrados.",
+            "Found {n} junk directory(ies).",
+            lang,
+        )
+    }
+
+    // --- project TUI ---
+
+    pub fn project_tui_title(lang: Language) -> &'static str {
+        s(
+            "Acari — Gerenciador de Lixo de Projetos",
+            "Acari — Project Junk Manager",
+            lang,
+        )
+    }
+
+    pub fn project_panel_title(lang: Language) -> &'static str {
+        s("Gerenciador", "Manager", lang)
+    }
+
+    pub fn project_builtin_label(lang: Language) -> &'static str {
+        s("Embutidos", "Built-in", lang)
+    }
+
+    pub fn project_patterns(_lang: Language) -> &'static str {
+        "patterns"
+    }
+
+    pub fn project_custom_label(lang: Language) -> &'static str {
+        s("Personalizados", "Custom", lang)
+    }
+
+    pub fn project_patterns_title(lang: Language) -> &'static str {
+        s("Padrões de Diretórios", "Directory Patterns", lang)
+    }
+
+    pub fn project_roots_title(lang: Language) -> &'static str {
+        s("Roots de Projetos", "Project Roots", lang)
+    }
+
+    pub fn project_action_scan(lang: Language) -> &'static str {
+        s("Escanear", "Scan", lang)
+    }
+
+    pub fn project_action_dry_run(lang: Language) -> &'static str {
+        s("Simular", "Dry-run check", lang)
+    }
+
+    pub fn project_action_add_pattern(lang: Language) -> &'static str {
+        s("Add pattern", "Add pattern", lang)
+    }
+
+    pub fn project_action_add_root(lang: Language) -> &'static str {
+        s("Add root", "Add root", lang)
+    }
+
+    pub fn project_action_remove(lang: Language) -> &'static str {
+        s("Remover selecionado", "Remove selected", lang)
+    }
+
+    pub fn project_action_switch(lang: Language) -> &'static str {
+        s("Alternar foco", "Switch focus", lang)
+    }
+
+    pub fn project_action_quit(lang: Language) -> &'static str {
+        s("Sair", "Quit", lang)
+    }
+
+    pub fn project_actions_title(lang: Language) -> &'static str {
+        s("Ações", "Actions", lang)
+    }
+
+    pub fn project_prompt_pattern(lang: Language) -> &'static str {
+        s("Digite o nome do padrão:", "Enter pattern name:", lang)
+    }
+
+    pub fn project_prompt_root(lang: Language) -> &'static str {
+        s("Digite o caminho do root:", "Enter root path:", lang)
+    }
+
+    pub fn project_empty_pattern(lang: Language) -> &'static str {
+        s("Nome do padrão não pode ser vazio.", "Pattern name cannot be empty.", lang)
+    }
+
+    pub fn starting_scan(lang: Language) -> &'static str {
+        s("Iniciando scan...", "Starting scan...", lang)
+    }
+
+    pub fn starting_dry_run(lang: Language) -> &'static str {
+        s("Iniciando simulação...", "Starting dry-run...", lang)
+    }
 }

@@ -18,6 +18,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::cleaner::{CleanMode, start_background_clean};
 use crate::application::commands::start_scan;
+use crate::config::target_config::IoPriority;
 use crate::domain::{AppEvent, CleanTarget, format_bytes};
 use crate::i18n::{Language, msg};
 use crate::infrastructure::distro;
@@ -61,9 +62,14 @@ struct ScanResources {
     handle: tokio::task::JoinHandle<()>,
 }
 
-pub fn run_tui(targets: &[CleanTarget], excludes: Vec<String>, lang: Language) -> Result<()> {
+pub fn run_tui(
+    targets: &[CleanTarget],
+    excludes: Vec<String>,
+    lang: Language,
+    io_priority: IoPriority,
+) -> Result<()> {
     let mut terminal = setup_terminal()?;
-    let result = run_loop(&mut terminal, targets, excludes, lang);
+    let result = run_loop(&mut terminal, targets, excludes, lang, io_priority);
     restore_terminal(&mut terminal)?;
     result
 }
@@ -73,6 +79,7 @@ fn run_loop(
     targets: &[CleanTarget],
     excludes: Vec<String>,
     lang: Language,
+    io_priority: IoPriority,
 ) -> Result<()> {
     let targets_owned = targets.to_vec();
     let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
@@ -88,7 +95,8 @@ fn run_loop(
         .collect();
 
     let total_targets = rows.len() as u64;
-    let mut scan_res: Option<ScanResources> = Some(start_new_scan(&targets_owned, &excludes));
+    let mut scan_res: Option<ScanResources> =
+        Some(start_new_scan(&targets_owned, &excludes, io_priority));
     let mut finished_targets = 0_u64;
     let mut total_scanned_bytes = 0_u64;
     let mut phase = Phase::Scanning;
@@ -162,7 +170,8 @@ fn run_loop(
                     if let Some(h) = clean_handle.take() {
                         h.abort();
                     }
-                    scan_res = Some(start_new_scan(&targets_owned, &excludes));
+                    scan_res =
+                        Some(start_new_scan(&targets_owned, &excludes, io_priority));
                     for (_, state) in &mut rows {
                         *state = TargetState::default();
                     }
@@ -223,8 +232,12 @@ fn run_loop(
     Ok(())
 }
 
-fn start_new_scan(targets: &[CleanTarget], excludes: &[String]) -> ScanResources {
-    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec());
+fn start_new_scan(
+    targets: &[CleanTarget],
+    excludes: &[String],
+    io_priority: IoPriority,
+) -> ScanResources {
+    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec(), io_priority);
     ScanResources { tx, rx, handle }
 }
 

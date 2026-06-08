@@ -4,6 +4,7 @@ use std::{borrow::Cow, path::Path};
 
 use acari::application::cleaner::{CleanMode, start_background_clean};
 use acari::application::scanner::start_background_scan;
+use acari::config::target_config::IoPriority;
 use acari::domain::{AppEvent, CleanTarget};
 
 fn test_target(name: &'static str, path: &Path) -> CleanTarget {
@@ -24,7 +25,7 @@ async fn scanner_emits_target_and_finished_events() {
     let target = test_target("Scan Flow", &root);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_scan(tx, vec![target], vec![]);
+    let handle = start_background_scan(tx, vec![target], vec![], IoPriority::Normal);
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let mut saw_completed = false;

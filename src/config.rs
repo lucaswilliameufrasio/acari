@@ -46,6 +46,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: TargetAction,
     },
+    /// Discover and clean project junk (node_modules, target, build, etc.)
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -67,6 +72,63 @@ pub enum TargetAction {
     },
     /// List all custom targets
     List,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProjectAction {
+    /// Open TUI to manage patterns and roots
+    #[command(hide = true)]
+    Manage,
+    /// Add a project root
+    AddRoot {
+        /// Project root path
+        path: String,
+    },
+    /// Remove a project root
+    RemoveRoot {
+        /// Project root path to remove
+        path: String,
+    },
+    /// List project roots
+    ListRoots,
+    /// Add a custom junk directory pattern
+    AddPattern {
+        /// Directory name to find (e.g., .terraform)
+        pattern: String,
+    },
+    /// Remove a custom pattern
+    RemovePattern {
+        /// Pattern to remove
+        pattern: String,
+    },
+    /// List all patterns (built-in + custom)
+    ListPatterns,
+    /// Scan project roots for junk directories
+    Scan {
+        /// Project roots to scan (uses config roots if omitted)
+        roots: Vec<String>,
+        /// Additional junk patterns
+        #[arg(short, long = "pattern")]
+        patterns: Vec<String>,
+        /// Skip built-in patterns
+        #[arg(long)]
+        no_default_patterns: bool,
+        /// Run without TUI
+        #[arg(long)]
+        headless: bool,
+        /// Clean after scan
+        #[arg(long)]
+        clean: bool,
+        /// Simulate cleaning (requires --clean)
+        #[arg(long, requires = "clean")]
+        dry_run: bool,
+        /// Confirm destructive clean (requires --clean)
+        #[arg(long, requires = "clean")]
+        yes: bool,
+        /// Exclude patterns
+        #[arg(long = "exclude")]
+        excludes: Vec<String>,
+    },
 }
 
 pub mod target_config;
