@@ -541,4 +541,16 @@ pub mod msg {
     pub fn starting_dry_run(lang: Language) -> &'static str {
         s("Iniciando simulação...", "Starting dry-run...", lang)
     }
+
+    pub fn project_hint_add_root(lang: Language) -> &'static str {
+        s("Pressione [p] para adicionar", "Press [p] to add one", lang)
+    }
+
+    pub fn project_hint_add_pattern(lang: Language) -> &'static str {
+        s(
+            "Nenhum padrão custom — pressione [a] para adicionar ou use os built-in",
+            "No custom patterns — press [a] to add or use the built-in ones",
+            lang,
+        )
+    }
 }

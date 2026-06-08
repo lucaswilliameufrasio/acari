@@ -110,6 +110,33 @@ Scan only a custom path:
 acari --headless --target target-that-does-not-exist --scan-path /tmp/my-cache
 ```
 
+### Project Junk Scanner
+
+Find and clean build/cache directories across your projects (node_modules, target, build, .venv, __pycache__, etc.):
+
+```bash
+# Open the project management TUI (add/remove roots and patterns, launch scan)
+acari project
+
+# Direct scan one or more project roots
+acari project scan ~/projects ~/work
+
+# Scan with patterns and dry-run
+acari project scan --no-default-patterns --pattern .terraform --headless
+
+# Manage project roots
+acari project add-root ~/projects
+acari project list-roots
+acari project remove-root ~/projects
+
+# Add custom junk directory patterns
+acari project add-pattern .terraform
+acari project list-patterns
+acari project remove-pattern .terraform
+```
+
+The built-in patterns (24 total) include: `node_modules`, `target`, `build`, `.next`, `__pycache__`, `.venv`, `vendor`, `.gradle`, and more. Custom patterns can be added via CLI or the TUI.
+
 ### Verify Release Checksums
 
 Each release asset includes:

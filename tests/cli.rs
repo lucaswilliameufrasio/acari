@@ -258,3 +258,153 @@ fn target_list_empty_shows_hint() {
         .success()
         .stdout(predicate::str::contains("acari target add"));
 }
+
+// --- project CLI tests ---
+
+#[test]
+fn project_add_pattern_persists_to_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-pattern", ".terraform"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Pattern '.terraform' added."));
+
+    let config_path = temp.path().join("acari").join("config.toml");
+    let content = fs::read_to_string(&config_path).expect("read config");
+    assert!(content.contains(".terraform"));
+}
+
+#[test]
+fn project_add_pattern_builtin_rejected() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-pattern", "node_modules"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("built-in"));
+}
+
+#[test]
+fn project_remove_pattern_removes_from_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-pattern", ".terraform"])
+        .assert()
+        .success();
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "remove-pattern", ".terraform"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Pattern '.terraform' removed."));
+
+    let config_path = temp.path().join("acari").join("config.toml");
+    let content = fs::read_to_string(&config_path).expect("read config");
+    assert!(!content.contains(".terraform"));
+}
+
+#[test]
+fn project_list_patterns_shows_builtin_and_custom() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-pattern", ".terraform"])
+        .assert()
+        .success();
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "list-patterns"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Built-in patterns:"))
+        .stdout(predicate::str::contains("node_modules"))
+        .stdout(predicate::str::contains(".terraform"));
+}
+
+#[test]
+fn project_add_root_persists_to_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-root", "~/projects"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Root '~/projects' added."));
+
+    let config_path = temp.path().join("acari").join("config.toml");
+    let content = fs::read_to_string(&config_path).expect("read config");
+    assert!(content.contains("~/projects"));
+}
+
+#[test]
+fn project_remove_root_removes_from_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-root", "~/projects"])
+        .assert()
+        .success();
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "remove-root", "~/projects"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Root '~/projects' removed."));
+
+    let config_path = temp.path().join("acari").join("config.toml");
+    let content = fs::read_to_string(&config_path).expect("read config");
+    assert!(!content.contains("~/projects"));
+}
+
+#[test]
+fn project_list_roots_shows_roots() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-root", "~/projects"])
+        .assert()
+        .success();
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "list-roots"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Project roots:"))
+        .stdout(predicate::str::contains("~/projects"));
+}
+
+#[test]
+fn project_scan_headless_finds_junk() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let junk = temp.path().join("node_modules");
+    fs::create_dir_all(junk.join("dep")).expect("create node_modules");
+    fs::write(junk.join("dep").join("lib.js"), b"x").expect("write dep");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args([
+        "project",
+        "scan",
+        temp.path().to_string_lossy().as_ref(),
+        "--headless",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("node_modules"))
+    .stdout(predicate::str::contains("B"));
+}

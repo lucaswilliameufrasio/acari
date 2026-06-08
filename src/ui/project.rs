@@ -46,6 +46,17 @@ pub struct ProjectTui {
 impl ProjectTui {
     fn new(cfg: TargetConfig, lang: Language) -> Self {
         let builtins = builtin_patterns();
+        let status = if cfg.project_scan.roots.is_empty() {
+            format!(
+                "{} — {}.",
+                msg::no_roots_configured(lang),
+                msg::project_hint_add_root(lang)
+            )
+        } else if cfg.project_scan.patterns.is_empty() {
+            msg::project_hint_add_pattern(lang).to_string()
+        } else {
+            String::new()
+        };
         Self {
             cfg,
             builtins,
@@ -54,7 +65,7 @@ impl ProjectTui {
             focus: Focus::Patterns,
             input_mode: InputMode::Idle,
             input_buf: String::new(),
-            status: String::new(),
+            status,
             lang,
         }
     }
