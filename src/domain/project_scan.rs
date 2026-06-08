@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use jwalk::WalkDir;
 
-use crate::domain::CleanTarget;
+use crate::domain::{CleanTarget, expand_tilde};
 
 const BUILTIN_PATTERNS: &[&str] = &[
     "node_modules",
@@ -61,17 +61,23 @@ pub fn discover_junk_dirs(
     let patterns_arc = Arc::new(patterns);
 
     for root in roots {
-        let path = root.as_ref();
+        let raw = root.as_ref();
+        let path = expand_tilde(&raw.to_string_lossy());
         if !path.exists() {
-            eprintln!("warning: project root does not exist: {}", path.display());
+            eprintln!(
+                "warning: project root does not exist: {} (expanded: {})",
+                raw.display(),
+                path.display()
+            );
             continue;
         }
 
+        let count_before = discovered.lock().unwrap().len();
         let d = Arc::clone(&discovered);
         let s = Arc::clone(&seen);
         let p = Arc::clone(&patterns_arc);
 
-        let walker = WalkDir::new(path)
+        let walker = WalkDir::new(&path)
             .follow_links(false)
             .skip_hidden(false)
             .process_read_dir(move |_, _, _, children: &mut Vec<_>| {
@@ -103,6 +109,13 @@ pub fn discover_junk_dirs(
             });
 
         for _ in walker {}
+
+        let found = discovered.lock().unwrap().len() - count_before;
+        eprintln!(
+            "[project-scan] {}: found {} junk dir(s)",
+            path.display(),
+            found
+        );
     }
 
     discovered.lock().unwrap().clone()
@@ -201,6 +214,12 @@ mod tests {
     #[test]
     fn nonexistent_root_does_not_crash() {
         let results = discover_junk_dirs(&["/tmp/acari-nonexistent-12345"], &[], false);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn expands_tilde_in_roots() {
+        let results = discover_junk_dirs(&["~/.acari-junk-test-unused"], &[], false);
         assert!(results.is_empty());
     }
 
