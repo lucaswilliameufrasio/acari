@@ -2,12 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.5] - 2026-06-09
+
+### Features
+
+- Install.sh detects and removes old binaries in PATH
 ## [0.3.4] - 2026-06-08
 
 ### Bug Fixes
 
 - Make acari project open TUI by default, add discovery tests
 - Expand tilde in project scan roots, add discovery feedback
+
+### Chores
+
+- Prepare for v0.3.4
 
 ### Documentation
 
