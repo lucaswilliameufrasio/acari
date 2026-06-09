@@ -13,6 +13,7 @@ set -eu
 REPO=""
 TAG="latest"
 BIN_DIR="${HOME}/.local/bin"
+FORCE=""
 
 usage() {
   cat <<USAGE
@@ -25,6 +26,7 @@ Options:
   --repo      GitHub repository in owner/repo format (required)
   --tag       Release tag (default: latest)
   --bin-dir   Install directory (default: ~/.local/bin)
+  --force     Remove old installations without prompting
   -h, --help  Show this help
 USAGE
 }
@@ -42,6 +44,10 @@ while [ "$#" -gt 0 ]; do
     --bin-dir)
       BIN_DIR="$2"
       shift 2
+      ;;
+    --force)
+      FORCE="yes"
+      shift
       ;;
     -h|--help)
       usage
@@ -168,6 +174,39 @@ install_bin() {
   chmod +x "$dest"
 }
 
+cleanup_old_binary() {
+  bin="$1"
+  found=""
+  OLD_IFS="$IFS"
+  IFS=':'
+  for dir in $PATH; do
+    [ "$dir" = "$BIN_DIR" ] && continue
+    [ -f "$dir/$bin" ] && found="$found $dir/$bin"
+  done
+  IFS="$OLD_IFS"
+
+  for old in $found; do
+    if [ "$old" -ef "${BIN_DIR}/${bin}" ] 2>/dev/null; then
+      continue
+    fi
+    if [ "$FORCE" = "yes" ]; then
+      rm -f "$old" && echo "  removed old: $old"
+    else
+      printf "Remove old installation at %s? [Y/n] " "$old"
+      if tty -s 2>/dev/null; then
+        read -r answer || answer=n
+      else
+        answer=n
+        echo "non-interactive, keeping: $old" >&2
+      fi
+      case "$answer" in
+        [Nn]*) ;;
+        *) rm -f "$old" && echo "  removed" ;;
+      esac
+    fi
+  done
+}
+
 install_bin "${TMP_DIR}/acari" "${BIN_DIR}/acari"
 install_bin "${TMP_DIR}/headless_cleaner" "${BIN_DIR}/headless_cleaner"
 
@@ -183,5 +222,8 @@ if ! printf '%s' ":$PATH:" | grep -q ":${BIN_DIR}:"; then
   echo "- bash/zsh: export PATH=\"${BIN_DIR}:\$PATH\""
   echo "- fish: set -Ux fish_user_paths ${BIN_DIR} \$fish_user_paths"
 fi
+
+cleanup_old_binary "acari"
+cleanup_old_binary "headless_cleaner"
 
 echo "Done."
