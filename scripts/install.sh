@@ -116,7 +116,7 @@ if [ "$TAG" = "latest" ]; then
   fi
 fi
 
-ASSET="acari-${TAG}-${TARGET}.tar.xz"
+ASSET="acari-${TARGET}.tar.xz"
 BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 ASSET_URL="${BASE_URL}/${ASSET}"
 CHECKSUM_URL="${BASE_URL}/${ASSET}.sha256"
