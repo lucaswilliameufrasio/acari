@@ -2,11 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.10] - 2026-06-10
+
+### Bug Fixes
+
+- Show live bytes from in-progress targets in gauge label
+- Use unique relative names for project junk dirs, add gauge label tests
+- Use MAIN_SEPARATOR for Windows compatibility in project scan names
 ## [0.3.9] - 2026-06-10
 
 ### Bug Fixes
 
 - Strip top-level directory when extracting archive
+
+### Chores
+
+- Prepare for v0.3.9
 ## [0.3.8] - 2026-06-10
 
 ### Bug Fixes
