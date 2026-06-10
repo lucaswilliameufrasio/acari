@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.11] - 2026-06-10
+
+### Bug Fixes
+
+- Cleaner symlinks, partial bytes, macOS uchg; TUI pattern cursor/confirm/validate
+
+### Features
+
+- Add clear-patterns subcommand
+
+### Testing
+
+- Add_pattern validation, clear-patterns CLI, broken symlink cleaner
 ## [0.3.10] - 2026-06-10
 
 ### Bug Fixes
@@ -9,6 +22,10 @@ All notable changes to this project will be documented in this file.
 - Show live bytes from in-progress targets in gauge label
 - Use unique relative names for project junk dirs, add gauge label tests
 - Use MAIN_SEPARATOR for Windows compatibility in project scan names
+
+### Chores
+
+- Prepare for v0.3.10
 ## [0.3.9] - 2026-06-10
 
 ### Bug Fixes
