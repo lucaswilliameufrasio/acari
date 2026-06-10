@@ -400,6 +400,27 @@ fn handle_key(
     }
 }
 
+fn format_scanning_label(
+    rows: &[(CleanTarget, TargetState)],
+    finished_targets: u64,
+    total_targets: u64,
+    total_scanned_bytes: u64,
+    lang: Language,
+) -> String {
+    let live: u64 = rows
+        .iter()
+        .filter(|(_, s)| !s.scan_done)
+        .map(|(_, s)| s.bytes)
+        .sum();
+    format!(
+        "{} | {}",
+        msg::scanning_progress(lang)
+            .replace("{n}", &finished_targets.to_string())
+            .replace("{total}", &total_targets.to_string()),
+        format_bytes(total_scanned_bytes.saturating_add(live))
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_ui(
     area: Rect,
@@ -446,20 +467,13 @@ fn draw_ui(
     };
 
     let progress_label = match phase {
-        Phase::Scanning => {
-            let live: u64 = rows
-                .iter()
-                .filter(|(_, s)| !s.scan_done)
-                .map(|(_, s)| s.bytes)
-                .sum();
-            format!(
-                "{} | {}",
-                msg::scanning_progress(lang)
-                    .replace("{n}", &finished_targets.to_string())
-                    .replace("{total}", &total_targets.to_string()),
-                format_bytes(total_scanned_bytes.saturating_add(live))
-            )
-        }
+        Phase::Scanning => format_scanning_label(
+            rows,
+            finished_targets,
+            total_targets,
+            total_scanned_bytes,
+            lang,
+        ),
         Phase::ReadyToClean => {
             msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
         }
@@ -583,7 +597,7 @@ mod tests {
     use crate::domain::{AppEvent, CleanTarget};
     use crate::i18n::Language;
 
-    use super::{Phase, TargetState, UiCommand, handle_event, handle_key};
+    use super::{Phase, TargetState, UiCommand, format_scanning_label, handle_event, handle_key};
 
     fn build_rows() -> Vec<(CleanTarget, TargetState)> {
         vec![
@@ -764,5 +778,50 @@ mod tests {
         );
 
         assert!(matches!(cmd, UiCommand::None));
+    }
+
+    // --- format_scanning_label ---
+
+    fn label_rows(done: &[(bool, u64)]) -> Vec<(CleanTarget, TargetState)> {
+        done.iter()
+            .map(|(scan_done, bytes)| {
+                (
+                    CleanTarget {
+                        name: Cow::Owned("x".into()),
+                        path: Cow::Owned("/x".into()),
+                        description: Cow::Owned("test".into()),
+                    },
+                    TargetState {
+                        bytes: *bytes,
+                        scan_done: *scan_done,
+                        ..TargetState::default()
+                    },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn gauge_label_includes_in_progress_bytes() {
+        let rows = label_rows(&[(true, 100), (false, 50)]);
+        let label = format_scanning_label(&rows, 1, 2, 100, Language::English);
+        assert!(
+            label.contains("150"),
+            "100 completed + 50 in-progress = 150"
+        );
+    }
+
+    #[test]
+    fn gauge_label_all_done_shows_only_total() {
+        let rows = label_rows(&[(true, 100), (true, 50)]);
+        let label = format_scanning_label(&rows, 2, 2, 150, Language::English);
+        assert!(label.contains("150"), "all done, no in-progress bytes");
+    }
+
+    #[test]
+    fn gauge_label_shows_progress_fraction() {
+        let rows = label_rows(&[(false, 0), (false, 0)]);
+        let label = format_scanning_label(&rows, 0, 2, 0, Language::English);
+        assert!(label.contains("0/2") || label.contains("Scanning 0/2"));
     }
 }

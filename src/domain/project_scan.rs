@@ -80,6 +80,7 @@ pub fn discover_junk_dirs(
         let s = Arc::clone(&seen);
         let p = Arc::clone(&patterns_arc);
 
+        let root_str = path.to_string_lossy().to_string();
         let dir_counter = Arc::new(AtomicU64::new(0));
         let dc = Arc::clone(&dir_counter);
 
@@ -106,10 +107,15 @@ pub fn discover_junk_dirs(
                                 .unwrap()
                                 .insert(e.path().to_string_lossy().to_string())
                             {
+                                let full = e.path().to_string_lossy().to_string();
+                                let rel = full
+                                    .strip_prefix(&root_str)
+                                    .and_then(|s| s.strip_prefix('/'))
+                                    .unwrap_or(&full);
                                 let desc = format!("Project junk: {}", name);
                                 d.lock().unwrap().push(CleanTarget {
-                                    name: Cow::Owned(name),
-                                    path: Cow::Owned(e.path().to_string_lossy().to_string()),
+                                    name: Cow::Owned(rel.to_string()),
+                                    path: Cow::Owned(full),
                                     description: Cow::Owned(desc),
                                 });
                             }
