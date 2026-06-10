@@ -246,6 +246,19 @@ async fn main() -> Result<()> {
                     let cfg = target_config::load_config();
                     print_project_patterns(lang, &cfg);
                 }
+                Some(ProjectAction::ClearPatterns) => {
+                    let mut cfg = target_config::load_config();
+                    let count = cfg.project_scan.patterns.len();
+                    cfg.project_scan.patterns.clear();
+                    target_config::save_config(&cfg)?;
+                    println!(
+                        "{}",
+                        msg::patterns_cleared(lang).replace("{n}", &count.to_string())
+                    );
+                    if let Some(time) = format_modified_time() {
+                        println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
+                    }
+                }
                 Some(ProjectAction::Scan {
                     roots,
                     patterns,

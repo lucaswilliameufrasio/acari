@@ -102,6 +102,8 @@ pub enum ProjectAction {
     },
     /// List all patterns (built-in + custom)
     ListPatterns,
+    /// Remove all custom patterns
+    ClearPatterns,
     /// Scan project roots for junk directories
     Scan {
         /// Project roots to scan (uses config roots if omitted)

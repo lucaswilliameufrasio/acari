@@ -436,6 +436,14 @@ pub mod msg {
         )
     }
 
+    pub fn patterns_cleared(lang: Language) -> &'static str {
+        s(
+            "{n} padrão(s) custom removido(s).",
+            "{n} custom pattern(s) removed.",
+            lang,
+        )
+    }
+
     pub fn no_junk_found(lang: Language) -> &'static str {
         s(
             "Nenhum diretório de lixo encontrado.",
