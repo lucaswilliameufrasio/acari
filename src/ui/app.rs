@@ -446,13 +446,20 @@ fn draw_ui(
     };
 
     let progress_label = match phase {
-        Phase::Scanning => format!(
-            "{} | {}",
-            msg::scanning_progress(lang)
-                .replace("{n}", &finished_targets.to_string())
-                .replace("{total}", &total_targets.to_string()),
-            format_bytes(total_scanned_bytes)
-        ),
+        Phase::Scanning => {
+            let live: u64 = rows
+                .iter()
+                .filter(|(_, s)| !s.scan_done)
+                .map(|(_, s)| s.bytes)
+                .sum();
+            format!(
+                "{} | {}",
+                msg::scanning_progress(lang)
+                    .replace("{n}", &finished_targets.to_string())
+                    .replace("{total}", &total_targets.to_string()),
+                format_bytes(total_scanned_bytes.saturating_add(live))
+            )
+        }
         Phase::ReadyToClean => {
             msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
         }
