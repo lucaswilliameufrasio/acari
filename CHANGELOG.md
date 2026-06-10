@@ -2,11 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-06-10
+
+### Bug Fixes
+
+- Use numeric index instead of name in pattern removal confirmation
 ## [0.3.11] - 2026-06-10
 
 ### Bug Fixes
 
 - Cleaner symlinks, partial bytes, macOS uchg; TUI pattern cursor/confirm/validate
+
+### Chores
+
+- Prepare for v0.3.11
 
 ### Features
 
