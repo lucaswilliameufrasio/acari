@@ -116,7 +116,7 @@ if [ "$TAG" = "latest" ]; then
   fi
 fi
 
-ASSET="acari-${TAG}-${TARGET}.tar.gz"
+ASSET="acari-${TAG}-${TARGET}.tar.xz"
 BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 ASSET_URL="${BASE_URL}/${ASSET}"
 CHECKSUM_URL="${BASE_URL}/${ASSET}.sha256"
@@ -160,7 +160,7 @@ fi
 
 echo "Checksum verified"
 
-tar -xzf "$ASSET_FILE" -C "$TMP_DIR"
+tar -xf "$ASSET_FILE" -C "$TMP_DIR"
 
 mkdir -p "$BIN_DIR"
 install_bin() {
