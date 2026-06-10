@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.8] - 2026-06-10
+
+### Bug Fixes
+
+- Remove version tag from asset name in install script
 ## [0.3.7] - 2026-06-10
 
 ### Bug Fixes
@@ -13,6 +18,10 @@ All notable changes to this project will be documented in this file.
 
 - Use cargo-binstall for fast git-cliff installation
 - Replace cargo-binstall with taiki-e/install-action for git-cliff
+
+### Chores
+
+- Prepare for v0.3.7
 
 ### Documentation
 
