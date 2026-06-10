@@ -38,14 +38,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install cargo-binstall
-        run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf \
-            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
-            | bash
-
       - name: Install git-cliff
-        run: cargo binstall git-cliff --version 1.20.0 -y --locked
+        uses: taiki-e/install-action@afafcdae00e81d512280adc9103f79fab4fca4ae # v2
+        with:
+          tool: git-cliff@2.13.1
 
       - name: Generate changelog for release
         env:
