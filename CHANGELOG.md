@@ -2,11 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.9] - 2026-06-10
+
+### Bug Fixes
+
+- Strip top-level directory when extracting archive
 ## [0.3.8] - 2026-06-10
 
 ### Bug Fixes
 
 - Remove version tag from asset name in install script
+
+### Chores
+
+- Prepare for v0.3.8
 ## [0.3.7] - 2026-06-10
 
 ### Bug Fixes
