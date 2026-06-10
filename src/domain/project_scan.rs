@@ -110,7 +110,7 @@ pub fn discover_junk_dirs(
                                 let full = e.path().to_string_lossy().to_string();
                                 let rel = full
                                     .strip_prefix(&root_str)
-                                    .and_then(|s| s.strip_prefix('/'))
+                                    .and_then(|s| s.strip_prefix(std::path::MAIN_SEPARATOR))
                                     .unwrap_or(&full);
                                 let desc = format!("Project junk: {}", name);
                                 d.lock().unwrap().push(CleanTarget {
