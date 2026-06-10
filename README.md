@@ -33,21 +33,21 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
 Quick install from GitHub Releases (curl | sh):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install.sh | \
-  sh -s -- --repo <owner>/<repo>
+curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | \
+  sh -s -- --repo lucaswilliameufrasio/acari
 ```
 
 Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install.sh | \
-  sh -s -- --repo <owner>/<repo> --tag v0.1.0
+curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | \
+  sh -s -- --repo lucaswilliameufrasio/acari --tag v0.1.0
 ```
 
 Build from source:
 
 ```bash
-git clone [https://github.com/your-username/acari.git](https://github.com/your-username/acari.git)
+git clone https://github.com/lucaswilliameufrasio/acari.git
 cd acari
 cargo run --release
 ```
@@ -57,7 +57,8 @@ cargo run --release
 Re-run the installer to overwrite the existing binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | \
+  sh -s -- --repo lucaswilliameufrasio/acari
 ```
 
 Or build from source:
