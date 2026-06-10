@@ -2,7 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.6] - 2026-06-10
+
+### Bug Fixes
+
+- Show live byte count in gauge and discovery progress
 ## [0.3.5] - 2026-06-09
+
+### Chores
+
+- Prepare for v0.3.5
 
 ### Features
 
