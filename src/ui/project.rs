@@ -18,6 +18,19 @@ use crate::domain::project_scan::{self, builtin_patterns};
 use crate::i18n::{Language, msg};
 use crate::ui::app::run_tui;
 
+fn resolve_scroll(selected: usize, current: usize, visible: usize) -> usize {
+    if visible == 0 {
+        return 0;
+    }
+    if selected < current {
+        selected
+    } else if selected >= current + visible {
+        selected.saturating_sub(visible.saturating_sub(1))
+    } else {
+        current
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum InputMode {
     Idle,
@@ -41,6 +54,8 @@ pub struct ProjectTui {
     input_buf: String,
     status: String,
     pending_removal: Option<usize>,
+    pattern_scroll: usize,
+    root_scroll: usize,
     lang: Language,
 }
 
@@ -68,6 +83,8 @@ impl ProjectTui {
             input_buf: String::new(),
             status,
             pending_removal: None,
+            pattern_scroll: 0,
+            root_scroll: 0,
             lang,
         }
     }
@@ -270,7 +287,7 @@ impl ProjectTui {
         UiAction::None
     }
 
-    fn draw(&self, area: Rect, frame: &mut ratatui::Frame) {
+    fn draw(&mut self, area: Rect, frame: &mut ratatui::Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -295,7 +312,7 @@ impl ProjectTui {
         self.draw_footer(chunks[3], frame);
     }
 
-    fn draw_patterns_roots(&self, area: Rect, frame: &mut ratatui::Frame) {
+    fn draw_patterns_roots(&mut self, area: Rect, frame: &mut ratatui::Frame) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
@@ -305,9 +322,11 @@ impl ProjectTui {
         self.draw_roots_list(sections[1], frame);
     }
 
-    fn draw_patterns_list(&self, area: Rect, frame: &mut ratatui::Frame) {
+    fn draw_patterns_list(&mut self, area: Rect, frame: &mut ratatui::Frame) {
+        let visible = (area.height.saturating_sub(2)).max(1) as usize;
+        self.pattern_scroll = resolve_scroll(self.selected_pattern, self.pattern_scroll, visible);
         let total = self.builtins.len() + self.cfg.project_scan.patterns.len();
-        let mut items: Vec<ListItem> = Vec::new();
+        let mut all_items: Vec<ListItem> = Vec::new();
 
         for (i, p) in self.builtins.iter().enumerate() {
             let prefix = if self.focus == Focus::Patterns && i == self.selected_pattern {
@@ -320,7 +339,7 @@ impl ProjectTui {
             } else {
                 p.to_string()
             };
-            items.push(
+            all_items.push(
                 ListItem::new(format!(
                     "{} {:<24}  [{}]",
                     prefix,
@@ -344,7 +363,7 @@ impl ProjectTui {
                 } else {
                     p.clone()
                 };
-                items.push(ListItem::new(format!(
+                all_items.push(ListItem::new(format!(
                     "{} {:<24}  [{}]",
                     prefix,
                     display,
@@ -353,19 +372,23 @@ impl ProjectTui {
             }
         }
 
-        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
-            "{} ({})",
-            msg::project_patterns_title(self.lang),
-            total
-        )));
+        let start = self.pattern_scroll.min(all_items.len());
+        let end = (start + visible).min(all_items.len());
+        let visible_items: Vec<ListItem> = all_items[start..end].to_vec();
+
+        let list = List::new(visible_items).block(Block::default().borders(Borders::ALL).title(
+            format!("{} ({})", msg::project_patterns_title(self.lang), total),
+        ));
         frame.render_widget(list, area);
     }
 
-    fn draw_roots_list(&self, area: Rect, frame: &mut ratatui::Frame) {
-        let mut items: Vec<ListItem> = Vec::new();
+    fn draw_roots_list(&mut self, area: Rect, frame: &mut ratatui::Frame) {
+        let visible = (area.height.saturating_sub(2)).max(1) as usize;
+        self.root_scroll = resolve_scroll(self.selected_root, self.root_scroll, visible);
+        let mut all_items: Vec<ListItem> = Vec::new();
 
         if self.cfg.project_scan.roots.is_empty() {
-            items.push(
+            all_items.push(
                 ListItem::new(format!("  {}", msg::no_roots_configured(self.lang)))
                     .style(Style::default().fg(Color::DarkGray)),
             );
@@ -377,10 +400,14 @@ impl ProjectTui {
             } else {
                 " "
             };
-            items.push(ListItem::new(format!("{} {}", prefix, root)));
+            all_items.push(ListItem::new(format!("{} {}", prefix, root)));
         }
 
-        let list = List::new(items).block(
+        let start = self.root_scroll.min(all_items.len());
+        let end = (start + visible).min(all_items.len());
+        let visible_items: Vec<ListItem> = all_items[start..end].to_vec();
+
+        let list = List::new(visible_items).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(msg::project_roots_title(self.lang)),
@@ -501,4 +528,117 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
 fn wait_for_key() {
     let mut buf = String::new();
     let _ = io::stdin().read_line(&mut buf);
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::KeyCode;
+
+    use crate::config::target_config::TargetConfig;
+    use crate::i18n::Language;
+
+    use super::ProjectTui;
+
+    fn make_tui() -> ProjectTui {
+        let mut cfg = TargetConfig::default();
+        cfg.project_scan.patterns.push(".foo".into());
+        cfg.project_scan.patterns.push(".bar".into());
+        cfg.project_scan.patterns.push(".baz".into());
+        ProjectTui::new(cfg, Language::English)
+    }
+
+    // --- resolve_scroll ---
+
+    #[test]
+    fn resolve_scroll_above() {
+        assert_eq!(super::resolve_scroll(0, 5, 3), 0);
+    }
+
+    #[test]
+    fn resolve_scroll_below() {
+        assert_eq!(super::resolve_scroll(9, 5, 3), 7);
+    }
+
+    #[test]
+    fn resolve_scroll_stays_visible() {
+        assert_eq!(super::resolve_scroll(6, 5, 3), 5);
+    }
+
+    #[test]
+    fn resolve_scroll_visible_start() {
+        assert_eq!(super::resolve_scroll(5, 5, 3), 5);
+    }
+
+    #[test]
+    fn resolve_scroll_zero_visible() {
+        assert_eq!(super::resolve_scroll(3, 5, 0), 0);
+    }
+
+    // --- pending_removal ---
+
+    #[test]
+    fn r_on_custom_pattern_sets_pending_removal() {
+        let mut tui = make_tui();
+        tui.selected_pattern = tui.builtins.len(); // first custom pattern
+        let _action = tui.handle_key(KeyCode::Char('r'));
+        assert!(tui.pending_removal.is_some(), "should set pending_removal");
+        assert!(tui.status.contains("#1"), "status should show index #1");
+    }
+
+    #[test]
+    fn y_confirms_and_removes_pattern() {
+        let mut tui = make_tui();
+        tui.selected_pattern = tui.builtins.len(); // first custom pattern
+        tui.handle_key(KeyCode::Char('r'));
+        assert_eq!(tui.cfg.project_scan.patterns.len(), 3, "before confirm");
+        tui.handle_key(KeyCode::Char('y'));
+        assert_eq!(tui.cfg.project_scan.patterns.len(), 2, "one removed");
+        assert!(tui.pending_removal.is_none(), "no longer pending");
+    }
+
+    #[test]
+    fn n_cancels_pending_removal() {
+        let mut tui = make_tui();
+        tui.selected_pattern = tui.builtins.len(); // first custom pattern
+        tui.handle_key(KeyCode::Char('r'));
+        assert!(tui.pending_removal.is_some());
+        tui.handle_key(KeyCode::Char('n'));
+        assert!(tui.pending_removal.is_none(), "cancelled");
+        assert_eq!(tui.cfg.project_scan.patterns.len(), 3, "pattern kept");
+    }
+
+    #[test]
+    fn r_on_builtin_shows_error() {
+        let mut tui = make_tui();
+        tui.selected_pattern = 0; // first built-in
+        let _action = tui.handle_key(KeyCode::Char('r'));
+        assert!(
+            tui.pending_removal.is_none(),
+            "should NOT set pending for built-in"
+        );
+        assert!(
+            tui.status.contains("built") || tui.status.contains("embutido"),
+            "status should mention built-in"
+        );
+    }
+
+    #[test]
+    fn enter_confirms_pending_removal() {
+        let mut tui = make_tui();
+        tui.selected_pattern = tui.builtins.len();
+        tui.handle_key(KeyCode::Char('r'));
+        assert!(tui.pending_removal.is_some());
+        tui.handle_key(KeyCode::Enter);
+        assert_eq!(tui.cfg.project_scan.patterns.len(), 2);
+    }
+
+    #[test]
+    fn other_key_cancels_pending_removal() {
+        let mut tui = make_tui();
+        tui.selected_pattern = tui.builtins.len();
+        tui.handle_key(KeyCode::Char('r'));
+        tui.handle_key(KeyCode::Char('x'));
+        assert!(tui.pending_removal.is_none(), "cancelled");
+        assert_eq!(tui.cfg.project_scan.patterns.len(), 3);
+    }
 }
