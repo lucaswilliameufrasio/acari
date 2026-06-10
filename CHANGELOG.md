@@ -2,11 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-06-10
+
+### Features
+
+- Auto-scroll in project TUI + 11 scroll/confirmation tests
 ## [0.4.0] - 2026-06-10
 
 ### Bug Fixes
 
 - Use numeric index instead of name in pattern removal confirmation
+
+### Chores
+
+- Prepare for v0.4.0
 ## [0.3.11] - 2026-06-10
 
 ### Bug Fixes
