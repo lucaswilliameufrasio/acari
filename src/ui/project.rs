@@ -17,19 +17,7 @@ use crate::config::target_config::{self, TargetConfig};
 use crate::domain::project_scan::{self, builtin_patterns};
 use crate::i18n::{Language, msg};
 use crate::ui::app::run_tui;
-
-fn resolve_scroll(selected: usize, current: usize, visible: usize) -> usize {
-    if visible == 0 {
-        return 0;
-    }
-    if selected < current {
-        selected
-    } else if selected >= current + visible {
-        selected.saturating_sub(visible.saturating_sub(1))
-    } else {
-        current
-    }
-}
+use crate::ui::resolve_scroll;
 
 #[derive(Clone, Copy, PartialEq)]
 enum InputMode {
@@ -536,6 +524,7 @@ mod tests {
 
     use crate::config::target_config::TargetConfig;
     use crate::i18n::Language;
+    use crate::ui::resolve_scroll;
 
     use super::ProjectTui;
 
@@ -551,27 +540,27 @@ mod tests {
 
     #[test]
     fn resolve_scroll_above() {
-        assert_eq!(super::resolve_scroll(0, 5, 3), 0);
+        assert_eq!(resolve_scroll(0, 5, 3), 0);
     }
 
     #[test]
     fn resolve_scroll_below() {
-        assert_eq!(super::resolve_scroll(9, 5, 3), 7);
+        assert_eq!(resolve_scroll(9, 5, 3), 7);
     }
 
     #[test]
     fn resolve_scroll_stays_visible() {
-        assert_eq!(super::resolve_scroll(6, 5, 3), 5);
+        assert_eq!(resolve_scroll(6, 5, 3), 5);
     }
 
     #[test]
     fn resolve_scroll_visible_start() {
-        assert_eq!(super::resolve_scroll(5, 5, 3), 5);
+        assert_eq!(resolve_scroll(5, 5, 3), 5);
     }
 
     #[test]
     fn resolve_scroll_zero_visible() {
-        assert_eq!(super::resolve_scroll(3, 5, 0), 0);
+        assert_eq!(resolve_scroll(3, 5, 0), 0);
     }
 
     // --- pending_removal ---

@@ -23,6 +23,7 @@ use crate::domain::{AppEvent, CleanTarget, format_bytes};
 use crate::i18n::{Language, msg};
 use crate::infrastructure::distro;
 use crate::infrastructure::history;
+use crate::ui::resolve_scroll;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct TargetState {
@@ -103,6 +104,7 @@ fn run_loop(
     let mut selected_idx = 0_usize;
     let mut status_line = String::from(msg::tui_scanning_status(lang));
     let mut dry_run = false;
+    let mut target_scroll = 0_usize;
     let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     let frame_time = Duration::from_millis(16);
@@ -138,6 +140,7 @@ fn run_loop(
                 &status_line,
                 dry_run,
                 lang,
+                &mut target_scroll,
             )
         })?;
 
@@ -177,6 +180,7 @@ fn run_loop(
                     finished_targets = 0;
                     total_scanned_bytes = 0;
                     phase = Phase::Scanning;
+                    target_scroll = 0;
                     status_line = String::from(msg::tui_scanning_status(lang));
                 }
                 UiCommand::ToggleDryRun => {
@@ -421,6 +425,18 @@ fn format_scanning_label(
     )
 }
 
+fn visible_target_list<'a>(
+    all_items: &'a [ListItem<'a>],
+    selected: usize,
+    scroll: usize,
+    visible_rows: usize,
+) -> (usize, Vec<ListItem<'a>>) {
+    let new_scroll = resolve_scroll(selected, scroll, visible_rows);
+    let start = new_scroll.min(all_items.len());
+    let end = (start + visible_rows).min(all_items.len());
+    (new_scroll, all_items[start..end].to_vec())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_ui(
     area: Rect,
@@ -434,6 +450,7 @@ fn draw_ui(
     status_line: &str,
     dry_run: bool,
     lang: Language,
+    target_scroll: &mut usize,
 ) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -495,7 +512,7 @@ fn draw_ui(
         .label(progress_label);
     frame.render_widget(progress, vertical[1]);
 
-    let items: Vec<ListItem> = rows
+    let all_items: Vec<ListItem> = rows
         .iter()
         .enumerate()
         .map(|(idx, (target, state))| {
@@ -537,12 +554,18 @@ fn draw_ui(
         })
         .collect();
 
-    let list = List::new(items).block(
+    let list_area = vertical[2];
+    let visible_rows = (list_area.height.saturating_sub(2)).max(1) as usize;
+    let (new_scroll, visible_items) =
+        visible_target_list(&all_items, selected_idx, *target_scroll, visible_rows);
+    *target_scroll = new_scroll;
+
+    let list = List::new(visible_items).block(
         Block::default()
             .borders(Borders::ALL)
             .title(msg::panel_targets(lang)),
     );
-    frame.render_widget(list, vertical[2]);
+    frame.render_widget(list, list_area);
 
     let mut footer_text = status_line.to_string();
     if *phase == Phase::Scanning {
@@ -597,7 +620,13 @@ mod tests {
     use crate::domain::{AppEvent, CleanTarget};
     use crate::i18n::Language;
 
-    use super::{Phase, TargetState, UiCommand, format_scanning_label, handle_event, handle_key};
+    use ratatui::widgets::ListItem;
+
+    use super::{
+        Phase, TargetState, UiCommand, format_scanning_label, handle_event, handle_key,
+        visible_target_list,
+    };
+    use crate::ui::resolve_scroll;
 
     fn build_rows() -> Vec<(CleanTarget, TargetState)> {
         vec![
@@ -823,5 +852,71 @@ mod tests {
         let rows = label_rows(&[(false, 0), (false, 0)]);
         let label = format_scanning_label(&rows, 0, 2, 0, Language::English);
         assert!(label.contains("0/2") || label.contains("Scanning 0/2"));
+    }
+
+    // --- resolve_scroll ---
+
+    #[test]
+    fn resolve_scroll_above() {
+        assert_eq!(resolve_scroll(0, 5, 3), 0);
+    }
+
+    #[test]
+    fn resolve_scroll_below() {
+        assert_eq!(resolve_scroll(9, 5, 3), 7);
+    }
+
+    #[test]
+    fn resolve_scroll_stays_visible() {
+        assert_eq!(resolve_scroll(6, 5, 3), 5);
+    }
+
+    #[test]
+    fn resolve_scroll_zero_visible() {
+        assert_eq!(resolve_scroll(3, 5, 0), 0);
+    }
+
+    // --- visible_target_list ---
+
+    fn make_items<'a>(labels: &'a [&'a str]) -> Vec<ListItem<'a>> {
+        labels
+            .iter()
+            .map(|l| ListItem::new(ratatui::text::Line::from(*l)))
+            .collect()
+    }
+
+    #[test]
+    fn visible_list_scrolls_down_when_selected_below() {
+        let labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let items = make_items(&labels);
+        let (new_scroll, vis) = visible_target_list(&items, 8, 0, 3);
+        assert_eq!(new_scroll, 6, "scroll should advance to show selected at 8");
+        assert_eq!(vis.len(), 3, "3 visible items");
+        assert_eq!(vis.len(), 3, "3 items visible");
+    }
+
+    #[test]
+    fn visible_list_scrolls_up_when_selected_above() {
+        let labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let items = make_items(&labels);
+        let (new_scroll, _vis) = visible_target_list(&items, 1, 5, 3);
+        assert_eq!(new_scroll, 1, "scroll should go back to 1");
+    }
+
+    #[test]
+    fn visible_list_stays_when_selected_visible() {
+        let labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let items = make_items(&labels);
+        let (new_scroll, vis) = visible_target_list(&items, 6, 5, 3);
+        assert_eq!(new_scroll, 5, "scroll unchanged");
+        assert_eq!(vis.len(), 3);
+    }
+
+    #[test]
+    fn visible_list_handles_empty() {
+        let items = vec![];
+        let (new_scroll, vis) = visible_target_list(&items, 0, 0, 3);
+        assert_eq!(new_scroll, 0);
+        assert!(vis.is_empty());
     }
 }
