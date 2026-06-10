@@ -40,7 +40,7 @@ pub struct ProjectTui {
     input_mode: InputMode,
     input_buf: String,
     status: String,
-    pending_removal: Option<(usize, String)>,
+    pending_removal: Option<usize>,
     lang: Language,
 }
 
@@ -156,12 +156,13 @@ impl ProjectTui {
     }
 
     fn handle_key(&mut self, key: KeyCode) -> UiAction {
-        if let Some((idx, name)) = self.pending_removal.take() {
+        if let Some(idx) = self.pending_removal.take() {
             match key {
                 KeyCode::Char('y') | KeyCode::Enter => {
                     self.cfg.project_scan.patterns.remove(idx);
                     let _ = target_config::save_config(&self.cfg);
-                    self.status = msg::pattern_removed(self.lang).replace("{pattern}", &name);
+                    let label = format!("#{}", idx + 1);
+                    self.status = msg::pattern_removed(self.lang).replace("{pattern}", &label);
                     let custom_start = self.builtins.len();
                     if self.selected_pattern >= custom_start + self.cfg.project_scan.patterns.len()
                     {
@@ -193,10 +194,10 @@ impl ProjectTui {
                     } else {
                         let custom_idx = idx - custom_start;
                         if custom_idx < self.cfg.project_scan.patterns.len() {
-                            let name = self.cfg.project_scan.patterns[custom_idx].clone();
+                            let label = format!("#{}", custom_idx + 1);
                             self.status =
-                                msg::confirm_remove_pattern(self.lang).replace("{pattern}", &name);
-                            self.pending_removal = Some((custom_idx, name));
+                                msg::confirm_remove_pattern(self.lang).replace("{pattern}", &label);
+                            self.pending_removal = Some(custom_idx);
                         }
                     }
                 }
