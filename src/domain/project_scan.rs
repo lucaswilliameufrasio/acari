@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use jwalk::WalkDir;
@@ -72,15 +73,28 @@ pub fn discover_junk_dirs(
             continue;
         }
 
+        eprintln!("[project-scan] scanning {}...", path.display());
+
         let count_before = discovered.lock().unwrap().len();
         let d = Arc::clone(&discovered);
         let s = Arc::clone(&seen);
         let p = Arc::clone(&patterns_arc);
 
+        let dir_counter = Arc::new(AtomicU64::new(0));
+        let dc = Arc::clone(&dir_counter);
+
         let walker = WalkDir::new(&path)
             .follow_links(false)
             .skip_hidden(false)
             .process_read_dir(move |_, _, _, children: &mut Vec<_>| {
+                let n = dc.fetch_add(1, Ordering::Relaxed);
+                if n > 0 && n.is_multiple_of(1000) {
+                    eprintln!(
+                        "[project-scan] ...{} dirs, {} junk found",
+                        n,
+                        d.lock().unwrap().len()
+                    );
+                }
                 children.retain(|entry| {
                     if let Ok(e) = entry {
                         let name = e.file_name.to_string_lossy().to_string();
