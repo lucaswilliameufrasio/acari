@@ -408,3 +408,35 @@ fn project_scan_headless_finds_junk() {
     .stdout(predicate::str::contains("node_modules"))
     .stdout(predicate::str::contains("B"));
 }
+
+#[test]
+fn project_clear_patterns_removes_all() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-pattern", ".terraform"])
+        .assert()
+        .success();
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "add-pattern", ".serverless"])
+        .assert()
+        .success();
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["project", "clear-patterns"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2 custom pattern"));
+
+    let config_path = temp.path().join("acari").join("config.toml");
+    let content = fs::read_to_string(&config_path).expect("read config");
+    assert!(!content.contains(".terraform"), ".terraform should be gone");
+    assert!(
+        !content.contains(".serverless"),
+        ".serverless should be gone"
+    );
+}

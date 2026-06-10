@@ -306,4 +306,35 @@ mod tests {
         let mut cfg = TargetConfig::default();
         assert!(!cfg.remove("nonexistent"));
     }
+
+    #[test]
+    fn add_pattern_empty_rejected() {
+        let mut cfg = TargetConfig::default();
+        assert!(cfg.add_pattern("").is_err());
+    }
+
+    #[test]
+    fn add_pattern_too_long_rejected() {
+        let mut cfg = TargetConfig::default();
+        let long = "a".repeat(65);
+        assert!(cfg.add_pattern(&long).is_err());
+    }
+
+    #[test]
+    fn add_pattern_invalid_chars_rejected() {
+        let mut cfg = TargetConfig::default();
+        assert!(cfg.add_pattern("foo/bar").is_err(), "slash");
+        assert!(cfg.add_pattern("foo\\bar").is_err(), "backslash");
+        assert!(cfg.add_pattern("..etc").is_err(), "dots");
+        assert!(cfg.add_pattern(".terraform").is_ok(), "valid");
+    }
+
+    #[test]
+    fn add_pattern_duplicate_returns_false() {
+        let mut cfg = TargetConfig::default();
+        assert!(cfg.add_pattern(".terraform").unwrap());
+        let dup = cfg.add_pattern(".terraform").unwrap();
+        assert!(!dup, "duplicate should return false");
+        assert_eq!(cfg.project_scan.patterns.len(), 1);
+    }
 }

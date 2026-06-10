@@ -212,4 +212,34 @@ mod tests {
         perms.set_mode(0o755);
         fs::set_permissions(&root, perms).expect("restore perms");
     }
+
+    #[test]
+    fn removes_broken_symlink() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).expect("create root");
+
+        // Create a dangling symlink (points to nothing)
+        // Must use #[cfg(unix)] for symlink API
+        #[cfg(unix)]
+        {
+            let dangling = root.join("gone.lnk");
+            std::os::unix::fs::symlink("/nonexistent-target", &dangling)
+                .expect("create dangling symlink");
+
+            let target = CleanTarget {
+                name: Cow::Borrowed("Broken Link"),
+                path: Cow::Owned(root.to_string_lossy().into_owned()),
+                description: Cow::Borrowed("test"),
+            };
+
+            let result = clean_target(&target, 1, 1, CleanMode::Execute);
+            assert_eq!(
+                result.errors, 0,
+                "broken symlink should be removed without errors"
+            );
+            assert_eq!(result.removed_entries, 1);
+            assert!(!dangling.exists(), "symlink should be removed");
+        }
+    }
 }
