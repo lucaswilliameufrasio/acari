@@ -132,6 +132,27 @@ impl TargetConfig {
         Ok(true)
     }
 
+    pub fn add_pattern(&mut self, pattern: &str) -> Result<bool> {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("pattern name must not be empty");
+        }
+        if trimmed.len() > 64 {
+            anyhow::bail!("pattern name too long (max 64 chars)");
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+            anyhow::bail!("pattern name must not contain '/', '\\', or '..'");
+        }
+        if trimmed != pattern {
+            anyhow::bail!("pattern name must not have leading/trailing whitespace");
+        }
+        if self.project_scan.patterns.contains(&trimmed.to_string()) {
+            return Ok(false);
+        }
+        self.project_scan.patterns.push(trimmed.to_string());
+        Ok(true)
+    }
+
     pub fn remove(&mut self, name: &str) -> bool {
         let len = self.custom_targets.len();
         self.custom_targets

@@ -4,10 +4,15 @@ use std::path::{Path, PathBuf};
 use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
 
-/// Resolve a path to its canonical form and verify it doesn't escape the expected
-/// parent directory. Returns None if the path is unsafe (symlink pointing outside
-/// the target root, or system directory).
 fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
+    // Broken symlinks fail fs::canonicalize() but can still be removed.
+    // Handle them by checking the canonical root and using the entry as-is.
+    if fs::symlink_metadata(entry).is_ok_and(|m| m.file_type().is_symlink()) {
+        return match fs::canonicalize(root) {
+            Ok(canonical_root) if entry.starts_with(&canonical_root) => Some(entry.to_path_buf()),
+            _ => None,
+        };
+    }
     let canonical = fs::canonicalize(entry).ok()?;
     let canonical_root = fs::canonicalize(root).ok()?;
     if canonical.starts_with(&canonical_root) {
@@ -15,6 +20,38 @@ fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+fn remove_entry(path: &Path) -> bool {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    if metadata.file_type().is_symlink() || metadata.is_file() {
+        fs::remove_file(path).is_ok()
+    } else if metadata.is_dir() {
+        fs::remove_dir_all(path).is_ok()
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn force_remove(path: &Path) -> bool {
+    if remove_entry(path) {
+        return true;
+    }
+    let _ = std::process::Command::new("chflags")
+        .arg("nouchg")
+        .arg(path)
+        .output();
+    remove_entry(path)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn force_remove(path: &Path) -> bool {
+    remove_entry(path)
 }
 
 pub fn clean_target(
@@ -57,7 +94,7 @@ pub fn clean_target(
     let mut removed_entries = 0_u64;
     let mut errors = 0_u64;
     if path.is_file() {
-        if fs::remove_file(&path).is_ok() {
+        if force_remove(&path) {
             removed_entries = 1;
         } else {
             errors = 1;
@@ -69,7 +106,7 @@ pub fn clean_target(
                     let entry_path = entry.path();
                     let safe_path = safe_canonicalize(&entry_path, &path);
                     match safe_path {
-                        Some(p) if remove_entry(&p) => {
+                        Some(p) if force_remove(&p) => {
                             removed_entries = removed_entries.saturating_add(1);
                         }
                         None | Some(_) => {
@@ -84,28 +121,11 @@ pub fn clean_target(
         }
     }
 
-    let reclaimed_bytes = if errors == 0 { estimated_bytes } else { 0 };
-
     CleanResult {
         target: target.clone(),
-        reclaimed_bytes,
+        reclaimed_bytes: estimated_bytes,
         removed_entries,
         errors,
-    }
-}
-
-fn remove_entry(path: &Path) -> bool {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(value) => value,
-        Err(_) => return false,
-    };
-
-    if metadata.file_type().is_symlink() || metadata.is_file() {
-        fs::remove_file(path).is_ok()
-    } else if metadata.is_dir() {
-        fs::remove_dir_all(path).is_ok()
-    } else {
-        false
     }
 }
 

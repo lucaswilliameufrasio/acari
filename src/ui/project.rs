@@ -40,6 +40,7 @@ pub struct ProjectTui {
     input_mode: InputMode,
     input_buf: String,
     status: String,
+    pending_removal: Option<(usize, String)>,
     lang: Language,
 }
 
@@ -66,6 +67,7 @@ impl ProjectTui {
             input_mode: InputMode::Idle,
             input_buf: String::new(),
             status,
+            pending_removal: None,
             lang,
         }
     }
@@ -121,12 +123,19 @@ impl ProjectTui {
                     self.status = msg::project_empty_pattern(self.lang).to_string();
                 } else if self.builtins.iter().any(|p| p == &val) {
                     self.status = msg::pattern_is_builtin(self.lang).replace("{pattern}", &val);
-                } else if self.cfg.project_scan.patterns.contains(&val) {
-                    self.status = msg::pattern_exists(self.lang).replace("{pattern}", &val);
                 } else {
-                    self.cfg.project_scan.patterns.push(val.clone());
-                    let _ = target_config::save_config(&self.cfg);
-                    self.status = msg::pattern_added(self.lang).replace("{pattern}", &val);
+                    match self.cfg.add_pattern(&val) {
+                        Ok(true) => {
+                            let _ = target_config::save_config(&self.cfg);
+                            self.status = msg::pattern_added(self.lang).replace("{pattern}", &val);
+                        }
+                        Ok(false) => {
+                            self.status = msg::pattern_exists(self.lang).replace("{pattern}", &val);
+                        }
+                        Err(_) => {
+                            self.status = msg::pattern_invalid_name(self.lang).to_string();
+                        }
+                    }
                 }
             }
             InputMode::AddRoot => {
@@ -147,6 +156,25 @@ impl ProjectTui {
     }
 
     fn handle_key(&mut self, key: KeyCode) -> UiAction {
+        if let Some((idx, name)) = self.pending_removal.take() {
+            match key {
+                KeyCode::Char('y') | KeyCode::Enter => {
+                    self.cfg.project_scan.patterns.remove(idx);
+                    let _ = target_config::save_config(&self.cfg);
+                    self.status = msg::pattern_removed(self.lang).replace("{pattern}", &name);
+                    let custom_start = self.builtins.len();
+                    if self.selected_pattern >= custom_start + self.cfg.project_scan.patterns.len()
+                    {
+                        self.selected_pattern = self.selected_pattern.saturating_sub(1);
+                    }
+                }
+                _ => {
+                    self.status = String::new();
+                }
+            }
+            return UiAction::None;
+        }
+
         match key {
             KeyCode::Char('q') => return UiAction::Quit,
             KeyCode::Esc => return UiAction::Quit,
@@ -160,20 +188,16 @@ impl ProjectTui {
                     let idx = self.selected_pattern;
                     let custom_start = self.builtins.len();
                     if idx < custom_start {
-                        self.status = msg::pattern_is_builtin(self.lang)
-                            .replace("{pattern}", self.builtins.get(idx).unwrap_or(&""));
+                        let name = self.builtins.get(idx).unwrap_or(&"");
+                        self.status = msg::pattern_is_builtin(self.lang).replace("{pattern}", name);
                     } else {
                         let custom_idx = idx - custom_start;
                         if custom_idx < self.cfg.project_scan.patterns.len() {
-                            let removed = self.cfg.project_scan.patterns.remove(custom_idx);
-                            let _ = target_config::save_config(&self.cfg);
+                            let name = self.cfg.project_scan.patterns[custom_idx].clone();
                             self.status =
-                                msg::pattern_removed(self.lang).replace("{pattern}", &removed);
+                                msg::confirm_remove_pattern(self.lang).replace("{pattern}", &name);
+                            self.pending_removal = Some((custom_idx, name));
                         }
-                    }
-                    if self.selected_pattern >= custom_start + self.cfg.project_scan.patterns.len()
-                    {
-                        self.selected_pattern = self.selected_pattern.saturating_sub(1);
                     }
                 }
                 Focus::Roots => {
@@ -284,33 +308,29 @@ impl ProjectTui {
         let total = self.builtins.len() + self.cfg.project_scan.patterns.len();
         let mut items: Vec<ListItem> = Vec::new();
 
-        items.push(
-            ListItem::new(format!(
-                "  {} ({} {})",
-                msg::project_builtin_label(self.lang),
-                self.builtins.len(),
-                msg::project_patterns(self.lang),
-            ))
-            .style(Style::default().add_modifier(Modifier::DIM)),
-        );
-
-        for chunk in self.builtins.chunks(6) {
+        for (i, p) in self.builtins.iter().enumerate() {
+            let prefix = if self.focus == Focus::Patterns && i == self.selected_pattern {
+                ">"
+            } else {
+                " "
+            };
+            let display = if p.len() > 30 {
+                format!("{}...", &p[..27])
+            } else {
+                p.to_string()
+            };
             items.push(
-                ListItem::new(format!("    {}", chunk.join("  ")))
-                    .style(Style::default().fg(Color::DarkGray)),
+                ListItem::new(format!(
+                    "{} {:<24}  [{}]",
+                    prefix,
+                    display,
+                    msg::pattern_layout_label(self.lang)
+                ))
+                .style(Style::default().fg(Color::DarkGray)),
             );
         }
 
         if !self.cfg.project_scan.patterns.is_empty() {
-            items.push(
-                ListItem::new(format!(
-                    "  {} {}",
-                    msg::project_custom_label(self.lang),
-                    msg::project_patterns(self.lang),
-                ))
-                .style(Style::default().add_modifier(Modifier::DIM)),
-            );
-
             for (i, p) in self.cfg.project_scan.patterns.iter().enumerate() {
                 let idx = self.builtins.len() + i;
                 let prefix = if self.focus == Focus::Patterns && idx == self.selected_pattern {
@@ -318,7 +338,17 @@ impl ProjectTui {
                 } else {
                     " "
                 };
-                items.push(ListItem::new(format!("{} {}", prefix, p)));
+                let display = if p.len() > 30 {
+                    format!("{}...", &p[..27])
+                } else {
+                    p.clone()
+                };
+                items.push(ListItem::new(format!(
+                    "{} {:<24}  [{}]",
+                    prefix,
+                    display,
+                    msg::custom_layout_label(self.lang)
+                )));
             }
         }
 
@@ -441,8 +471,6 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
         let mut terminal = terminal_setup()?;
         let mut tui = ProjectTui::new(current_cfg.clone(), lang);
         let action = tui.run(&mut terminal);
-        // Terminal is already cleaned up inside run() when action is RunScan/RunDryRun
-        // For Quit, we need to cleanup here
         if matches!(action, UiAction::Quit) {
             terminal_cleanup()?;
             return Ok(());

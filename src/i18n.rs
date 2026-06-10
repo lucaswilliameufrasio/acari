@@ -553,4 +553,28 @@ pub mod msg {
             lang,
         )
     }
+
+    pub fn pattern_invalid_name(lang: Language) -> &'static str {
+        s(
+            "Nome inválido: não pode conter /, \\, .., e deve ter no máximo 64 caracteres.",
+            "Invalid name: no /, \\, .. allowed, max 64 chars.",
+            lang,
+        )
+    }
+
+    pub fn confirm_remove_pattern(lang: Language) -> &'static str {
+        s(
+            "Remover '{pattern}'? [y/n]",
+            "Remove '{pattern}'? [y/n]",
+            lang,
+        )
+    }
+
+    pub fn pattern_layout_label(lang: Language) -> &'static str {
+        s("embutido", "built-in", lang)
+    }
+
+    pub fn custom_layout_label(lang: Language) -> &'static str {
+        s("custom", "custom", lang)
+    }
 }

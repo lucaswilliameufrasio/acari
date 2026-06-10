@@ -196,17 +196,31 @@ async fn main() -> Result<()> {
                             "{}",
                             msg::pattern_is_builtin(lang).replace("{pattern}", pattern)
                         );
-                    } else if cfg.project_scan.patterns.contains(pattern) {
-                        println!(
-                            "{}",
-                            msg::pattern_exists(lang).replace("{pattern}", pattern)
-                        );
                     } else {
-                        cfg.project_scan.patterns.push(pattern.clone());
-                        target_config::save_config(&cfg)?;
-                        let time = format_modified_time().unwrap_or_default();
-                        println!("{}", msg::pattern_added(lang).replace("{pattern}", pattern));
-                        println!("{}", msg::config_updated_at(lang).replace("{time}", &time));
+                        match cfg.add_pattern(pattern) {
+                            Ok(true) => {
+                                target_config::save_config(&cfg)?;
+                                let time = format_modified_time().unwrap_or_default();
+                                println!(
+                                    "{}",
+                                    msg::pattern_added(lang).replace("{pattern}", pattern)
+                                );
+                                println!(
+                                    "{}",
+                                    msg::config_updated_at(lang).replace("{time}", &time)
+                                );
+                            }
+                            Ok(false) => {
+                                println!(
+                                    "{}",
+                                    msg::pattern_exists(lang).replace("{pattern}", pattern)
+                                );
+                            }
+                            Err(e) => {
+                                println!("{}", msg::pattern_invalid_name(lang));
+                                eprintln!("  ({e})");
+                            }
+                        }
                     }
                 }
                 Some(ProjectAction::RemovePattern { pattern }) => {
