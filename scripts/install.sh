@@ -160,7 +160,7 @@ fi
 
 echo "Checksum verified"
 
-tar -xf "$ASSET_FILE" -C "$TMP_DIR"
+tar --strip-components=1 -xf "$ASSET_FILE" -C "$TMP_DIR"
 
 mkdir -p "$BIN_DIR"
 install_bin() {
