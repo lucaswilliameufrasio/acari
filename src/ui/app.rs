@@ -694,6 +694,100 @@ mod tests {
     }
 
     #[test]
+    fn scan_finished_sorts_by_bytes_descending() {
+        let mut rows = build_rows();
+        rows[0].1.bytes = 100;
+        rows[1].1.bytes = 500;
+        let mut by_name =
+            HashMap::from([(String::from("A"), 0_usize), (String::from("B"), 1_usize)]);
+        let mut finished_targets = 0_u64;
+        let mut total_bytes = 0_u64;
+        let mut phase = Phase::Scanning;
+        let mut status = String::new();
+
+        handle_event(
+            &mut rows,
+            &mut by_name,
+            &mut finished_targets,
+            &mut total_bytes,
+            &mut phase,
+            &mut status,
+            AppEvent::ScanFinished,
+            false,
+            Language::English,
+        );
+
+        assert_eq!(rows[0].0.name, "B", "500 bytes should be first");
+        assert_eq!(rows[0].1.bytes, 500);
+        assert_eq!(rows[1].0.name, "A", "100 bytes should be second");
+        assert_eq!(rows[1].1.bytes, 100);
+    }
+
+    #[test]
+    fn scan_finished_status_shows_sorted() {
+        let mut rows = build_rows();
+        let mut by_name =
+            HashMap::from([(String::from("A"), 0_usize), (String::from("B"), 1_usize)]);
+        let mut finished_targets = 0_u64;
+        let mut total_bytes = 0_u64;
+        let mut phase = Phase::Scanning;
+        let mut status = String::new();
+
+        handle_event(
+            &mut rows,
+            &mut by_name,
+            &mut finished_targets,
+            &mut total_bytes,
+            &mut phase,
+            &mut status,
+            AppEvent::ScanFinished,
+            false,
+            Language::English,
+        );
+
+        assert!(
+            status.contains("Sorted") || status.contains("Sort"),
+            "status should mention sorted"
+        );
+    }
+
+    #[test]
+    fn scan_finished_updates_by_name_map() {
+        let mut rows = build_rows();
+        rows[0].1.bytes = 100;
+        rows[1].1.bytes = 500;
+        let mut by_name =
+            HashMap::from([(String::from("A"), 0_usize), (String::from("B"), 1_usize)]);
+        let mut finished_targets = 0_u64;
+        let mut total_bytes = 0_u64;
+        let mut phase = Phase::Scanning;
+        let mut status = String::new();
+
+        handle_event(
+            &mut rows,
+            &mut by_name,
+            &mut finished_targets,
+            &mut total_bytes,
+            &mut phase,
+            &mut status,
+            AppEvent::ScanFinished,
+            false,
+            Language::English,
+        );
+
+        assert_eq!(
+            by_name.get("B"),
+            Some(&0),
+            "B (500 bytes) should be at index 0"
+        );
+        assert_eq!(
+            by_name.get("A"),
+            Some(&1),
+            "A (100 bytes) should be at index 1"
+        );
+    }
+
+    #[test]
     fn space_toggles_selected_row() {
         let mut rows = build_rows();
         let mut idx = 1_usize;
