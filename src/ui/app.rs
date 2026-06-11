@@ -115,7 +115,7 @@ fn run_loop(
             while let Ok(event) = res.rx.try_recv() {
                 handle_event(
                     &mut rows,
-                    &by_name,
+                    &mut by_name,
                     &mut finished_targets,
                     &mut total_scanned_bytes,
                     &mut phase,
@@ -247,7 +247,7 @@ fn start_new_scan(
 #[allow(clippy::too_many_arguments)]
 fn handle_event(
     rows: &mut [(CleanTarget, TargetState)],
-    by_name: &HashMap<String, usize>,
+    by_name: &mut HashMap<String, usize>,
     finished_targets: &mut u64,
     total_scanned_bytes: &mut u64,
     phase: &mut Phase,
@@ -286,7 +286,15 @@ fn handle_event(
         }
         AppEvent::ScanFinished => {
             *phase = Phase::ReadyToClean;
-            *status_line = String::from(msg::tui_ready_status(lang));
+            rows.sort_by_key(|(_, s)| std::cmp::Reverse(s.bytes));
+            for (i, (t, _)) in rows.iter().enumerate() {
+                by_name.insert(t.name.to_string(), i);
+            }
+            *status_line = format!(
+                "{} | {}",
+                msg::tui_ready_status(lang),
+                msg::sorted_by_size(lang)
+            );
         }
         AppEvent::TargetCleaned {
             target_name,
@@ -362,11 +370,11 @@ fn handle_key(
         KeyCode::Char('r') if *phase != Phase::Scanning && *phase != Phase::Cleaning => {
             UiCommand::Rescan
         }
-        KeyCode::Up if *phase == Phase::ReadyToClean => {
+        KeyCode::Up if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
             *selected_idx = selected_idx.saturating_sub(1);
             UiCommand::None
         }
-        KeyCode::Down if *phase == Phase::ReadyToClean => {
+        KeyCode::Down if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
             if *selected_idx + 1 < rows.len() {
                 *selected_idx += 1;
             }
@@ -516,7 +524,9 @@ fn draw_ui(
         .iter()
         .enumerate()
         .map(|(idx, (target, state))| {
-            let cursor = if *phase == Phase::ReadyToClean && idx == selected_idx {
+            let cursor = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)
+                && idx == selected_idx
+            {
                 ">"
             } else {
                 " "
@@ -544,7 +554,9 @@ fn draw_ui(
                 state.files,
             );
 
-            let style = if *phase == Phase::ReadyToClean && idx == selected_idx {
+            let style = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)
+                && idx == selected_idx
+            {
                 Style::default().fg(Color::Black).bg(Color::Yellow)
             } else {
                 Style::default()
@@ -560,11 +572,17 @@ fn draw_ui(
         visible_target_list(&all_items, selected_idx, *target_scroll, visible_rows);
     *target_scroll = new_scroll;
 
-    let list = List::new(visible_items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(msg::panel_targets(lang)),
-    );
+    let panel_title = if *phase == Phase::ReadyToClean || *phase == Phase::Finished {
+        format!(
+            "{} | {}",
+            msg::panel_targets(lang),
+            msg::sorted_by_size(lang)
+        )
+    } else {
+        msg::panel_targets(lang).to_string()
+    };
+    let list =
+        List::new(visible_items).block(Block::default().borders(Borders::ALL).title(panel_title));
     frame.render_widget(list, list_area);
 
     let mut footer_text = status_line.to_string();
@@ -652,7 +670,8 @@ mod tests {
     #[test]
     fn scan_finished_moves_to_ready_phase() {
         let mut rows = build_rows();
-        let by_name = HashMap::from([(String::from("A"), 0_usize), (String::from("B"), 1_usize)]);
+        let mut by_name =
+            HashMap::from([(String::from("A"), 0_usize), (String::from("B"), 1_usize)]);
         let mut finished_targets = 0_u64;
         let mut total_bytes = 0_u64;
         let mut phase = Phase::Scanning;
@@ -660,7 +679,7 @@ mod tests {
 
         handle_event(
             &mut rows,
-            &by_name,
+            &mut by_name,
             &mut finished_targets,
             &mut total_bytes,
             &mut phase,
