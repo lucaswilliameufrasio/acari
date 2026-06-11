@@ -2,7 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-06-11
+
+### Bug Fixes
+
+- Auto-sort targets by size, cursor in Finished phase, sorted indicator
+
+### Testing
+
+- Add 3 tests for auto-sort behavior on scan finish
 ## [0.5.1] - 2026-06-10
+
+### Chores
+
+- Prepare for v0.5.1
 
 ### Features
 
