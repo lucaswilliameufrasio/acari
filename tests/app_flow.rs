@@ -12,6 +12,7 @@ fn test_target(name: &'static str, path: &Path) -> CleanTarget {
         name: Cow::Borrowed(name),
         path: Cow::Owned(path.to_string_lossy().into_owned()),
         description: Cow::Borrowed("test"),
+        delete_entire: false,
     }
 }
 

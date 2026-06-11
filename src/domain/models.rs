@@ -6,6 +6,7 @@ pub struct CleanTarget {
     pub name: Cow<'static, str>,
     pub path: Cow<'static, str>,
     pub description: Cow<'static, str>,
+    pub delete_entire: bool,
 }
 
 impl CleanTarget {

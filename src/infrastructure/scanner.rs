@@ -111,6 +111,7 @@ mod tests {
             name: Cow::Borrowed("Temp Target"),
             path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            delete_entire: false,
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -132,6 +133,7 @@ mod tests {
             name: Cow::Borrowed("With Node"),
             path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            delete_entire: false,
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();

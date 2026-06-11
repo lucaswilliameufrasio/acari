@@ -653,6 +653,7 @@ mod tests {
                     name: Cow::Borrowed("A"),
                     path: Cow::Borrowed("/tmp/a"),
                     description: Cow::Borrowed("a"),
+                    delete_entire: false,
                 },
                 TargetState::default(),
             ),
@@ -661,6 +662,7 @@ mod tests {
                     name: Cow::Borrowed("B"),
                     path: Cow::Borrowed("/tmp/b"),
                     description: Cow::Borrowed("b"),
+                    delete_entire: false,
                 },
                 TargetState::default(),
             ),
@@ -932,6 +934,7 @@ mod tests {
                         name: Cow::Owned("x".into()),
                         path: Cow::Owned("/x".into()),
                         description: Cow::Owned("test".into()),
+                        delete_entire: false,
                     },
                     TargetState {
                         bytes: *bytes,

@@ -5,8 +5,6 @@ use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
 
 fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
-    // Broken symlinks fail fs::canonicalize() but can still be removed.
-    // Handle them by checking the canonical root and using the entry as-is.
     if fs::symlink_metadata(entry).is_ok_and(|m| m.file_type().is_symlink()) {
         return match fs::canonicalize(root) {
             Ok(canonical_root) if entry.starts_with(&canonical_root) => Some(entry.to_path_buf()),
@@ -22,35 +20,35 @@ fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
     }
 }
 
-fn remove_entry(path: &Path) -> bool {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(value) => value,
-        Err(_) => return false,
-    };
+/// Remove a single entry (file, dir, or symlink). Returns the number of bytes freed,
+/// or None on failure.
+fn remove_entry(path: &Path) -> Option<u64> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    let is_sym = metadata.file_type().is_symlink();
 
-    if metadata.file_type().is_symlink() || metadata.is_file() {
-        fs::remove_file(path).is_ok()
+    if is_sym || metadata.is_file() {
+        let size = if is_sym { 0 } else { metadata.len() };
+        fs::remove_file(path).ok().map(|_| size)
     } else if metadata.is_dir() {
-        fs::remove_dir_all(path).is_ok()
+        fs::remove_dir_all(path).ok().map(|_| 0)
     } else {
-        false
+        None
     }
 }
 
 #[cfg(target_os = "macos")]
-fn force_remove(path: &Path) -> bool {
-    if remove_entry(path) {
-        return true;
-    }
-    let _ = std::process::Command::new("chflags")
-        .arg("nouchg")
-        .arg(path)
-        .output();
-    remove_entry(path)
+fn force_remove(path: &Path) -> Option<u64> {
+    remove_entry(path).or_else(|| {
+        let _ = std::process::Command::new("chflags")
+            .arg("nouchg")
+            .arg(path)
+            .output();
+        remove_entry(path)
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
-fn force_remove(path: &Path) -> bool {
+fn force_remove(path: &Path) -> Option<u64> {
     remove_entry(path)
 }
 
@@ -91,13 +89,29 @@ pub fn clean_target(
         };
     }
 
+    if target.delete_entire {
+        let ok = force_remove(&path).is_some();
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: if ok { estimated_bytes } else { 0 },
+            removed_entries: if ok { estimated_entries } else { 0 },
+            errors: if ok { 0 } else { 1 },
+        };
+    }
+
     let mut removed_entries = 0_u64;
     let mut errors = 0_u64;
+    let mut reclaimed_bytes = 0_u64;
+
     if path.is_file() {
-        if force_remove(&path) {
-            removed_entries = 1;
-        } else {
-            errors = 1;
+        match force_remove(&path) {
+            Some(freed) => {
+                removed_entries = 1;
+                reclaimed_bytes = freed;
+            }
+            None => {
+                errors = 1;
+            }
         }
     } else if path.is_dir() {
         match fs::read_dir(&path) {
@@ -106,10 +120,16 @@ pub fn clean_target(
                     let entry_path = entry.path();
                     let safe_path = safe_canonicalize(&entry_path, &path);
                     match safe_path {
-                        Some(p) if force_remove(&p) => {
-                            removed_entries = removed_entries.saturating_add(1);
-                        }
-                        None | Some(_) => {
+                        Some(p) => match force_remove(&p) {
+                            Some(freed) => {
+                                removed_entries = removed_entries.saturating_add(1);
+                                reclaimed_bytes = reclaimed_bytes.saturating_add(freed);
+                            }
+                            None => {
+                                errors = errors.saturating_add(1);
+                            }
+                        },
+                        None => {
                             errors = errors.saturating_add(1);
                         }
                     }
@@ -123,7 +143,11 @@ pub fn clean_target(
 
     CleanResult {
         target: target.clone(),
-        reclaimed_bytes: estimated_bytes,
+        reclaimed_bytes: if errors == 0 {
+            estimated_bytes
+        } else {
+            reclaimed_bytes
+        },
         removed_entries,
         errors,
     }
@@ -152,6 +176,7 @@ mod tests {
             name: Cow::Borrowed("Temp Cache"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            delete_entire: false,
         };
 
         let result = clean_target(&target, 8, 2, CleanMode::Execute);
@@ -174,6 +199,7 @@ mod tests {
             name: Cow::Borrowed("Temp Cache"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            delete_entire: false,
         };
 
         let result = clean_target(&target, 3, 1, CleanMode::DryRun);
@@ -203,6 +229,7 @@ mod tests {
             name: Cow::Borrowed("Readonly Cache"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            delete_entire: false,
         };
 
         let result = clean_target(&target, 3, 1, CleanMode::Execute);
@@ -219,8 +246,6 @@ mod tests {
         let root = temp.path().join("cache");
         fs::create_dir_all(&root).expect("create root");
 
-        // Create a dangling symlink (points to nothing)
-        // Must use #[cfg(unix)] for symlink API
         #[cfg(unix)]
         {
             let dangling = root.join("gone.lnk");
@@ -231,6 +256,7 @@ mod tests {
                 name: Cow::Borrowed("Broken Link"),
                 path: Cow::Owned(root.to_string_lossy().into_owned()),
                 description: Cow::Borrowed("test"),
+                delete_entire: false,
             };
 
             let result = clean_target(&target, 1, 1, CleanMode::Execute);
@@ -241,5 +267,46 @@ mod tests {
             assert_eq!(result.removed_entries, 1);
             assert!(!dangling.exists(), "symlink should be removed");
         }
+    }
+
+    #[test]
+    fn delete_entire_removes_directory() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("junk");
+        fs::create_dir_all(root.join("deep").join("nested")).expect("create nested");
+        fs::write(root.join("file.txt"), b"data").expect("write file");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("Junk"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            delete_entire: true,
+        };
+
+        let result = clean_target(&target, 4, 1, CleanMode::Execute);
+        assert_eq!(result.errors, 0, "delete_entire should succeed");
+        assert_eq!(result.reclaimed_bytes, 4, "should report estimated bytes");
+        assert_eq!(result.removed_entries, 1);
+        assert!(!root.exists(), "entire dir should be removed");
+    }
+
+    #[test]
+    fn delete_entire_dry_run_reports_estimate() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("junk");
+        fs::create_dir_all(&root).expect("create root");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("Junk"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            delete_entire: true,
+        };
+
+        let result = clean_target(&target, 100, 5, CleanMode::DryRun);
+        assert_eq!(result.errors, 0);
+        assert_eq!(result.reclaimed_bytes, 100);
+        assert_eq!(result.removed_entries, 5);
+        assert!(root.exists(), "should not delete in dry run");
     }
 }
