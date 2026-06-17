@@ -104,6 +104,9 @@ fn scan_command_target(
 fn estimate_command_target_bytes(name: &str) -> (u64, u64) {
     match name {
         "Time Machine Local Snapshots" => estimate_apfs_snapshots(),
+        "Docker System Prune" => estimate_docker_reclaimable(),
+        "Apt Autoremove" => estimate_apt_autoremove(),
+        "Journalctl Vacuum" => estimate_journalctl_usage(),
         _ => (0, 0),
     }
 }
@@ -139,6 +142,102 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
 #[cfg(not(target_os = "macos"))]
 fn estimate_apfs_snapshots() -> (u64, u64) {
     (0, 0)
+}
+
+fn estimate_docker_reclaimable() -> (u64, u64) {
+    let output = match std::process::Command::new("docker")
+        .args(["system", "df", "--format", "{{.ReclaimableSize}}"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return (0, 0),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut total: u64 = 0;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() || line == "<unknown>" {
+            continue;
+        }
+        total += parse_human_size(line).unwrap_or(0);
+    }
+    (total, 1)
+}
+
+fn estimate_apt_autoremove() -> (u64, u64) {
+    let output = match std::process::Command::new("apt")
+        .args(["--just-print", "autoremove"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return (0, 0),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let count = stdout.lines().filter(|l| l.starts_with("Purg")).count() as u64;
+    // Rough ~10MB per package heuristic when no precise size available
+    (count.saturating_mul(10_000_000), count)
+}
+
+fn estimate_journalctl_usage() -> (u64, u64) {
+    let output = match std::process::Command::new("journalctl")
+        .args(["--disk-usage"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return (0, 0),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let current = parse_human_usage(&stdout).unwrap_or(0);
+    // Target after vacuum: 100MB
+    let reclaimable = current.saturating_sub(100_000_000);
+    if reclaimable > 0 { (reclaimable, 1) } else { (0, 0) }
+}
+
+fn parse_human_size(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let lower = s.to_lowercase();
+    if lower.ends_with("gib") {
+        let n = s[..s.len()-3].trim().parse::<f64>().ok()?;
+        Some((n * 1_073_741_824.0) as u64)
+    } else if lower.ends_with("mib") {
+        let n = s[..s.len()-3].trim().parse::<f64>().ok()?;
+        Some((n * 1_048_576.0) as u64)
+    } else if lower.ends_with("kib") {
+        let n = s[..s.len()-3].trim().parse::<f64>().ok()?;
+        Some((n * 1_024.0) as u64)
+    } else if lower.ends_with("gb") {
+        let n = s[..s.len()-2].trim().parse::<f64>().ok()?;
+        Some((n * 1_000_000_000.0) as u64)
+    } else if lower.ends_with("mb") {
+        let n = s[..s.len()-2].trim().parse::<f64>().ok()?;
+        Some((n * 1_000_000.0) as u64)
+    } else if lower.ends_with("kb") {
+        let n = s[..s.len()-2].trim().parse::<f64>().ok()?;
+        Some((n * 1_000.0) as u64)
+    } else if lower.ends_with('g') {
+        let n = s[..s.len()-1].trim().parse::<f64>().ok()?;
+        Some((n * 1_000_000_000.0) as u64)
+    } else if lower.ends_with('m') {
+        let n = s[..s.len()-1].trim().parse::<f64>().ok()?;
+        Some((n * 1_000_000.0) as u64)
+    } else if lower.ends_with('k') {
+        let n = s[..s.len()-1].trim().parse::<f64>().ok()?;
+        Some((n * 1_000.0) as u64)
+    } else if lower.ends_with('b') {
+        let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+        digits.parse::<u64>().ok()
+    } else {
+        s.parse::<u64>().ok()
+    }
+}
+
+/// Parse output like "Archived and active journals use 1.2G." to bytes
+fn parse_human_usage(output: &str) -> Option<u64> {
+    let line = output.lines().find(|l| l.contains("use"))?;
+    let word = line.split_whitespace().find(|w| {
+        w.ends_with('G') || w.ends_with('M') || w.ends_with('K') || w.ends_with("GB") || w.ends_with("MB") || w.ends_with("KB")
+    })?;
+    parse_human_size(word)
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

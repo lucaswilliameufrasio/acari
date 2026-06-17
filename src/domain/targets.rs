@@ -242,6 +242,13 @@ pub const OS_CACHES: &[CleanTarget] = &[
         command: &["tmutil", "deletelocalsnapshots", "/"],
         delete_entire: false,
     },
+    CleanTarget {
+        name: Cow::Borrowed("Docker System Prune"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("Remove all unused Docker containers, images, and build cache"),
+        command: &["docker", "system", "prune", "-a", "--force"],
+        delete_entire: false,
+    },
 ];
 
 #[cfg(target_os = "linux")]
@@ -349,6 +356,27 @@ pub const OS_CACHES: &[CleanTarget] = &[
         path: Cow::Borrowed("~/.cache/BraveSoftware/Brave-Browser"),
         description: Cow::Borrowed("Brave browser cache"),
         command: &[],
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Docker System Prune"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("Remove all unused Docker containers, images, and build cache"),
+        command: &["docker", "system", "prune", "-a", "--force"],
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Apt Autoremove"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("Remove orphaned apt packages (Requires sudo)"),
+        command: &["sudo", "apt", "autoremove", "-y"],
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Journalctl Vacuum"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("Trim systemd journal logs to 100MB (Requires sudo)"),
+        command: &["sudo", "journalctl", "--vacuum-size=100M"],
         delete_entire: false,
     },
 ];
