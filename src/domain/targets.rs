@@ -155,6 +155,54 @@ pub const OS_CACHES: &[CleanTarget] = &[
         description: Cow::Borrowed("Brave browser cache"),
         delete_entire: false,
     },
+    CleanTarget {
+        name: Cow::Borrowed("Xcode Archives"),
+        path: Cow::Borrowed("~/Library/Developer/Xcode/Archives"),
+        description: Cow::Borrowed("Archived app builds"),
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Xcode Device Logs"),
+        path: Cow::Borrowed("~/Library/Developer/Xcode/Devices"),
+        description: Cow::Borrowed("Device crash logs and console data"),
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Xcode Previews Cache"),
+        path: Cow::Borrowed("~/Library/Developer/Xcode/UserData/Previews"),
+        description: Cow::Borrowed("SwiftUI preview compilation cache"),
+        delete_entire: true,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Xcode Caches"),
+        path: Cow::Borrowed("~/Library/Caches/com.apple.dt.Xcode"),
+        description: Cow::Borrowed("SourceKit index and symbol caches"),
+        delete_entire: true,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("iOS Device Backups"),
+        path: Cow::Borrowed("~/Library/Application Support/MobileSync/Backup"),
+        description: Cow::Borrowed("iPhone/iPad encrypted backups"),
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("iOS Simulator Runtimes"),
+        path: Cow::Borrowed("/Library/Developer/CoreSimulator/Images"),
+        description: Cow::Borrowed("Simulator OS runtime images"),
+        delete_entire: false,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Android Studio Caches"),
+        path: Cow::Borrowed("~/Library/Caches/Google/AndroidStudio"),
+        description: Cow::Borrowed("Android IDE build caches"),
+        delete_entire: true,
+    },
+    CleanTarget {
+        name: Cow::Borrowed("Android Studio Preview Caches"),
+        path: Cow::Borrowed("~/Library/Caches/Google/AndroidStudioPreview"),
+        description: Cow::Borrowed("Android IDE preview build caches"),
+        delete_entire: true,
+    },
 ];
 
 #[cfg(target_os = "linux")]
