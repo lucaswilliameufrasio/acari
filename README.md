@@ -23,6 +23,27 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
   - `ACARI_DATA_HOME`: override data directory (`$ACARI_DATA_HOME/acari/history.log`)
   - `XDG_CONFIG_HOME`: fallback config directory (Linux, if `ACARI_CONFIG_HOME` not set)
 
+## 🍎 macOS "System Data"
+
+macOS's **System Data** (formerly "Other" in older versions) is a catch-all category for files that don't fit into Apps, Photos, or Backups. The largest contributors are:
+
+| Source | Typical size | Acarí target |
+|---|---|---|
+| **APFS Time Machine local snapshots** | 5–100 GB | `Time Machine Local Snapshots` |
+| **Xcode DerivedData** | 1–20 GB | `Xcode DerivedData` |
+| **Xcode Archives** | 1–10 GB | `Xcode Archives` |
+| **iOS Simulator Runtimes** | 5–30 GB each | `iOS Simulator Runtimes` |
+| **iOS Device Backups** | 5–50 GB | `iOS Device Backups` |
+| **iOS DeviceSupport** | 1–5 GB | `iOS DeviceSupport` |
+| **User Caches + Logs** | 1–10 GB | `User Caches`, `User Logs` |
+| **Trash** | 0.1–50 GB | `Trash` |
+| **XDG/Homebrew caches** | 0.5–5 GB | `Homebrew Cache`, etc. |
+| **Android Studio SDK + Caches** | 10–50 GB | `Android Studio Caches` |
+
+Run `acari` — all detected targets appear with their sizes. Select what you want and press Enter to clean. Command targets (like APFS snapshots) show a `[cmd]` badge and execute system commands instead of deleting files.
+
+**Note:** APFS snapshots may require `sudo`. Enter your password when prompted.
+
 ## 🚀 Getting Started
 
 ### Prerequisites
