@@ -122,3 +122,67 @@ async fn cleaner_dry_run_keeps_entries() {
     assert_eq!(remaining, 1, "dry-run must keep files");
     assert!(saw_finished);
 }
+
+#[tokio::test]
+async fn command_target_happy_path_scan_and_clean() {
+    let target = CleanTarget {
+        name: Cow::Borrowed("Echo Happy Path"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("test command target"),
+        command: &["echo", "ok"],
+        delete_entire: false,
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+
+    let scan_handle = start_background_scan(tx.clone(), vec![target.clone()], vec![], IoPriority::Normal);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut saw_completed = false;
+    let mut saw_finished = false;
+
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+            match event {
+                AppEvent::TargetCompleted { target_name, .. } if target_name == "Echo Happy Path" => {
+                    saw_completed = true;
+                }
+                AppEvent::ScanFinished => {
+                    saw_finished = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let _ = scan_handle.await;
+    assert!(saw_completed, "expected TargetCompleted for command target");
+    assert!(saw_finished, "expected ScanFinished");
+
+    // Now clean the command target (echo always succeeds)
+    let clean_handle = start_background_clean(tx, vec![(target, 42, 1)], CleanMode::Execute);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut saw_cleaned = false;
+    let mut saw_clean_finished = false;
+
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+            match event {
+                AppEvent::TargetCleaned { target_name, .. } if target_name == "Echo Happy Path" => {
+                    saw_cleaned = true;
+                }
+                AppEvent::CleaningFinished { .. } => {
+                    saw_clean_finished = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let _ = clean_handle.await;
+    assert!(saw_cleaned, "expected TargetCleaned for command target");
+    assert!(saw_clean_finished, "expected CleaningFinished for command target");
+}

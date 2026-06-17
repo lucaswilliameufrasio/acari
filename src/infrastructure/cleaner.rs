@@ -376,4 +376,60 @@ mod tests {
         assert_eq!(result.removed_entries, 5);
         assert!(root.exists(), "should not delete in dry run");
     }
+
+    // --- command target tests ---
+
+    #[test]
+    fn clean_command_target_dry_run_returns_estimates() {
+        let target = CleanTarget {
+            name: Cow::Borrowed("Time Machine Local Snapshots"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &["tmutil", "deletelocalsnapshots", "/"],
+            delete_entire: false,
+        };
+
+        let result = clean_target(&target, 42_000_000_000, 5, CleanMode::DryRun);
+        assert_eq!(result.errors, 0);
+        assert_eq!(result.reclaimed_bytes, 42_000_000_000);
+        assert_eq!(result.removed_entries, 5);
+    }
+
+    #[test]
+    fn clean_command_target_successful_command_returns_estimates() {
+        // echo always succeeds on any platform
+        let target = CleanTarget {
+            name: Cow::Borrowed("Echo Test"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &["echo", "ok"],
+            delete_entire: false,
+        };
+
+        let result = clean_target(&target, 1000, 1, CleanMode::Execute);
+        assert_eq!(result.errors, 0);
+        assert_eq!(result.reclaimed_bytes, 1000);
+        assert_eq!(result.removed_entries, 1);
+    }
+
+    #[test]
+    fn clean_command_target_file_target_is_untouched() {
+        // A file target (empty command) should not be treated as command target
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).expect("create root");
+        fs::write(root.join("f.txt"), b"data").expect("write file");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("Normal File Target"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            delete_entire: false,
+        };
+
+        let result = clean_target(&target, 4, 1, CleanMode::Execute);
+        assert_eq!(result.errors, 0);
+        assert_eq!(result.reclaimed_bytes, 4);
+    }
 }

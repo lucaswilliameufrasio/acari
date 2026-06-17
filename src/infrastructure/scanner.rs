@@ -141,7 +141,7 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
     (0, 0)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parse_purgeable_bytes(output: &str) -> Option<u64> {
     for line in output.lines() {
         let line = line.trim();
@@ -176,7 +176,7 @@ mod tests {
 
     use crate::domain::CleanTarget;
 
-    use super::scan_target;
+    use super::{estimate_command_target_bytes, parse_purgeable_bytes, scan_target};
 
     #[test]
     fn scans_directory_and_counts_bytes() {
@@ -228,5 +228,73 @@ mod tests {
 
         assert_eq!(result.files_scanned, 1);
         assert_eq!(result.bytes, 4); // "main" = 4 bytes
+    }
+
+    // --- parse_purgeable_bytes ---
+
+    #[test]
+    fn parse_purgeable_bytes_full_bytes() {
+        let input = "   Purgeable:   51,234,567,890 bytes\n";
+        assert_eq!(parse_purgeable_bytes(input), Some(51_234_567_890));
+    }
+
+    #[test]
+    fn parse_purgeable_bytes_gb() {
+        let input = "   Purgeable:   5.2 GB\n";
+        assert_eq!(parse_purgeable_bytes(input), Some(5_200_000_000));
+    }
+
+    #[test]
+    fn parse_purgeable_bytes_gib() {
+        let input = "   Purgeable:   2.5 GiB\n";
+        assert_eq!(parse_purgeable_bytes(input), Some(2_684_354_560));
+    }
+
+    #[test]
+    fn parse_purgeable_bytes_bytes_without_commas() {
+        let input = "   Purgeable:   12345678 bytes\n";
+        assert_eq!(parse_purgeable_bytes(input), Some(12_345_678));
+    }
+
+    #[test]
+    fn parse_purgeable_bytes_no_match() {
+        let input = "   Something:  1234 bytes\n";
+        assert_eq!(parse_purgeable_bytes(input), None);
+    }
+
+    #[test]
+    fn parse_purgeable_bytes_empty() {
+        assert_eq!(parse_purgeable_bytes(""), None);
+    }
+
+    // --- estimate_command_target_bytes ---
+
+    #[test]
+    fn unknown_command_target_returns_zero() {
+        assert_eq!(estimate_command_target_bytes("Some Unknown Target"), (0, 0));
+    }
+
+    // --- scan_target dispatch ---
+
+    #[test]
+    fn scan_target_command_target_dispatches_and_returns_zero_on_linux() {
+        let target = CleanTarget {
+            name: Cow::Borrowed("Time Machine Local Snapshots"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &["tmutil", "deletelocalsnapshots", "/"],
+            delete_entire: false,
+        };
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let result = scan_target(&target, &tx, &[], Parallelism::Serial);
+
+        // On non-macOS, estimate returns (0, 0)
+        assert_eq!(result.bytes, 0);
+        assert_eq!(result.files_scanned, 0);
+
+        // Should emit TargetCompleted event
+        let event = rx.try_recv();
+        assert!(event.is_ok(), "should emit TargetCompleted event");
     }
 }

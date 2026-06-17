@@ -547,8 +547,10 @@ fn draw_ui(
                 "clean:--"
             };
 
+            let cmd_label = if target.is_command() { " [cmd]" } else { "" };
             let text = format!(
-                "{cursor} {sel} {} | {scan_mark} | {} | {} files | {clean_mark}",
+                "{cursor} {sel}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
+                cmd_label,
                 target.name,
                 format_bytes(state.bytes),
                 state.files,
