@@ -16,15 +16,11 @@ pub fn scan_target(
     excludes: &[String],
     parallelism: Parallelism,
 ) -> ScanResult {
-    let path = target.resolved_path();
-
-    if !path.exists() {
-        return ScanResult {
-            target: target.clone(),
-            bytes: 0,
-            files_scanned: 0,
-        };
+    if target.is_command() {
+        return scan_command_target(target, tx);
     }
+
+    let path = target.resolved_path();
 
     let mut total_bytes = 0_u64;
     let mut files_scanned = 0_u64;
@@ -86,6 +82,90 @@ pub fn scan_target(
     }
 }
 
+fn scan_command_target(
+    target: &CleanTarget,
+    tx: &UnboundedSender<AppEvent>,
+) -> ScanResult {
+    let (bytes, count) = estimate_command_target_bytes(&target.name);
+
+    let _ = tx.send(AppEvent::TargetCompleted {
+        target_name: target.name.to_string(),
+        total_bytes: bytes,
+        files_scanned: count,
+    });
+
+    ScanResult {
+        target: target.clone(),
+        bytes,
+        files_scanned: count,
+    }
+}
+
+fn estimate_command_target_bytes(name: &str) -> (u64, u64) {
+    match name {
+        "Time Machine Local Snapshots" => estimate_apfs_snapshots(),
+        _ => (0, 0),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn estimate_apfs_snapshots() -> (u64, u64) {
+    let snap_count = match std::process::Command::new("tmutil")
+        .args(["listlocalsnapshots", "/"])
+        .output()
+    {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.lines().filter(|l| l.starts_with("localhost")).count() as u64
+        }
+        Err(_) => return (0, 0),
+    };
+
+    let purgeable = match std::process::Command::new("diskutil")
+        .args(["info", "/"])
+        .output()
+    {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            parse_purgeable_bytes(&stdout)
+        }
+        Err(_) => None,
+    };
+
+    let bytes = purgeable.unwrap_or(snap_count.saturating_mul(5_000_000_000));
+    (bytes, snap_count)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn estimate_apfs_snapshots() -> (u64, u64) {
+    (0, 0)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_purgeable_bytes(output: &str) -> Option<u64> {
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(val) = line.strip_prefix("Purgeable:") {
+            let val = val.trim();
+            if let Some(bytes_str) = val.strip_suffix("bytes") {
+                let cleaned: String = bytes_str.chars().filter(|c| c.is_ascii_digit()).collect();
+                return cleaned.parse::<u64>().ok();
+            }
+            if let Some(gb) = val.strip_suffix("GB") {
+                if let Ok(num) = gb.trim().parse::<f64>() {
+                    return Some((num * 1_000_000_000.0) as u64);
+                }
+            }
+            if let Some(gib) = val.strip_suffix("GiB") {
+                if let Ok(num) = gib.trim().parse::<f64>() {
+                    return Some((num * 1_073_741_824.0) as u64);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -111,6 +191,7 @@ mod tests {
             name: Cow::Borrowed("Temp Target"),
             path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: false,
         };
 
@@ -133,6 +214,7 @@ mod tests {
             name: Cow::Borrowed("With Node"),
             path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: false,
         };
 

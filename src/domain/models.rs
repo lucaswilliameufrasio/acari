@@ -7,6 +7,54 @@ pub struct CleanTarget {
     pub path: Cow<'static, str>,
     pub description: Cow<'static, str>,
     pub delete_entire: bool,
+    pub command: &'static [&'static str],
+}
+
+impl CleanTarget {
+    pub const fn file(
+        name: &'static str,
+        path: &'static str,
+        description: &'static str,
+        delete_entire: bool,
+    ) -> Self {
+        Self {
+            name: Cow::Borrowed(name),
+            path: Cow::Borrowed(path),
+            description: Cow::Borrowed(description),
+            delete_entire,
+            command: &[],
+        }
+    }
+
+    pub const fn cmd(
+        name: &'static str,
+        description: &'static str,
+        command: &'static [&'static str],
+    ) -> Self {
+        Self {
+            name: Cow::Borrowed(name),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed(description),
+            delete_entire: false,
+            command,
+        }
+    }
+
+    pub fn is_command(&self) -> bool {
+        !self.command.is_empty()
+    }
+}
+
+impl Default for CleanTarget {
+    fn default() -> Self {
+        Self {
+            name: Cow::Borrowed(""),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed(""),
+            delete_entire: false,
+            command: &[],
+        }
+    }
 }
 
 impl CleanTarget {

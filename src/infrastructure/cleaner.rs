@@ -58,6 +58,10 @@ pub fn clean_target(
     estimated_entries: u64,
     mode: CleanMode,
 ) -> CleanResult {
+    if target.is_command() {
+        return clean_command_target(target, estimated_bytes, estimated_entries, mode);
+    }
+
     let raw_path = target.resolved_path();
     let path = match safe_canonicalize(&raw_path, &raw_path) {
         Some(p) => p,
@@ -153,6 +157,63 @@ pub fn clean_target(
     }
 }
 
+fn clean_command_target(
+    target: &CleanTarget,
+    estimated_bytes: u64,
+    estimated_entries: u64,
+    mode: CleanMode,
+) -> CleanResult {
+    if mode == CleanMode::DryRun {
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: estimated_bytes,
+            removed_entries: estimated_entries,
+            errors: 0,
+        };
+    }
+
+    let cmd = target.command;
+    if cmd.is_empty() {
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: 0,
+            removed_entries: 0,
+            errors: 1,
+        };
+    }
+
+    let output = match std::process::Command::new(cmd[0]).args(&cmd[1..]).output() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("error running {}: {e}", cmd[0]);
+            return CleanResult {
+                target: target.clone(),
+                reclaimed_bytes: 0,
+                removed_entries: 0,
+                errors: 1,
+            };
+        }
+    };
+
+    if output.status.success() {
+        CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: estimated_bytes,
+            removed_entries: estimated_entries,
+            errors: 0,
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("command failed: {stderr}");
+        CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: 0,
+            removed_entries: 0,
+            errors: 1,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -176,6 +237,7 @@ mod tests {
             name: Cow::Borrowed("Temp Cache"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: false,
         };
 
@@ -199,6 +261,7 @@ mod tests {
             name: Cow::Borrowed("Temp Cache"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: false,
         };
 
@@ -229,6 +292,7 @@ mod tests {
             name: Cow::Borrowed("Readonly Cache"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: false,
         };
 
@@ -256,6 +320,7 @@ mod tests {
                 name: Cow::Borrowed("Broken Link"),
                 path: Cow::Owned(root.to_string_lossy().into_owned()),
                 description: Cow::Borrowed("test"),
+                command: &[],
                 delete_entire: false,
             };
 
@@ -280,6 +345,7 @@ mod tests {
             name: Cow::Borrowed("Junk"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: true,
         };
 
@@ -300,6 +366,7 @@ mod tests {
             name: Cow::Borrowed("Junk"),
             path: Cow::Owned(root.to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
+            command: &[],
             delete_entire: true,
         };
 

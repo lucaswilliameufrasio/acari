@@ -117,6 +117,7 @@ pub fn discover_junk_dirs(
                                     name: Cow::Owned(rel.to_string()),
                                     path: Cow::Owned(full),
                                     description: Cow::Owned(desc),
+                                    command: &[],
                                     delete_entire: true,
                                 });
                             }
