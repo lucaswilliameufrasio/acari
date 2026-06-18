@@ -135,7 +135,8 @@ async fn command_target_happy_path_scan_and_clean() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
 
-    let scan_handle = start_background_scan(tx.clone(), vec![target.clone()], vec![], IoPriority::Normal);
+    let scan_handle =
+        start_background_scan(tx.clone(), vec![target.clone()], vec![], IoPriority::Normal);
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let mut saw_completed = false;
@@ -144,7 +145,9 @@ async fn command_target_happy_path_scan_and_clean() {
     while tokio::time::Instant::now() < deadline {
         if let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
             match event {
-                AppEvent::TargetCompleted { target_name, .. } if target_name == "Echo Happy Path" => {
+                AppEvent::TargetCompleted { target_name, .. }
+                    if target_name == "Echo Happy Path" =>
+                {
                     saw_completed = true;
                 }
                 AppEvent::ScanFinished => {
@@ -184,5 +187,8 @@ async fn command_target_happy_path_scan_and_clean() {
 
     let _ = clean_handle.await;
     assert!(saw_cleaned, "expected TargetCleaned for command target");
-    assert!(saw_clean_finished, "expected CleaningFinished for command target");
+    assert!(
+        saw_clean_finished,
+        "expected CleaningFinished for command target"
+    );
 }

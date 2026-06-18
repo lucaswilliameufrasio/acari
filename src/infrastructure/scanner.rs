@@ -82,10 +82,7 @@ pub fn scan_target(
     }
 }
 
-fn scan_command_target(
-    target: &CleanTarget,
-    tx: &UnboundedSender<AppEvent>,
-) -> ScanResult {
+fn scan_command_target(target: &CleanTarget, tx: &UnboundedSender<AppEvent>) -> ScanResult {
     let (bytes, count) = estimate_command_target_bytes(&target.name);
 
     let _ = tx.send(AppEvent::TargetCompleted {
@@ -119,7 +116,10 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
     {
         Ok(o) => {
             let stdout = String::from_utf8_lossy(&o.stdout);
-            stdout.lines().filter(|l| l.starts_with("localhost")).count() as u64
+            stdout
+                .lines()
+                .filter(|l| l.starts_with("localhost"))
+                .count() as u64
         }
         Err(_) => return (0, 0),
     };
@@ -190,38 +190,42 @@ fn estimate_journalctl_usage() -> (u64, u64) {
     let current = parse_human_usage(&stdout).unwrap_or(0);
     // Target after vacuum: 100MB
     let reclaimable = current.saturating_sub(100_000_000);
-    if reclaimable > 0 { (reclaimable, 1) } else { (0, 0) }
+    if reclaimable > 0 {
+        (reclaimable, 1)
+    } else {
+        (0, 0)
+    }
 }
 
 fn parse_human_size(s: &str) -> Option<u64> {
     let s = s.trim();
     let lower = s.to_lowercase();
     if lower.ends_with("gib") {
-        let n = s[..s.len()-3].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 3].trim().parse::<f64>().ok()?;
         Some((n * 1_073_741_824.0) as u64)
     } else if lower.ends_with("mib") {
-        let n = s[..s.len()-3].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 3].trim().parse::<f64>().ok()?;
         Some((n * 1_048_576.0) as u64)
     } else if lower.ends_with("kib") {
-        let n = s[..s.len()-3].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 3].trim().parse::<f64>().ok()?;
         Some((n * 1_024.0) as u64)
     } else if lower.ends_with("gb") {
-        let n = s[..s.len()-2].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 2].trim().parse::<f64>().ok()?;
         Some((n * 1_000_000_000.0) as u64)
     } else if lower.ends_with("mb") {
-        let n = s[..s.len()-2].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 2].trim().parse::<f64>().ok()?;
         Some((n * 1_000_000.0) as u64)
     } else if lower.ends_with("kb") {
-        let n = s[..s.len()-2].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 2].trim().parse::<f64>().ok()?;
         Some((n * 1_000.0) as u64)
     } else if lower.ends_with('g') {
-        let n = s[..s.len()-1].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
         Some((n * 1_000_000_000.0) as u64)
     } else if lower.ends_with('m') {
-        let n = s[..s.len()-1].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
         Some((n * 1_000_000.0) as u64)
     } else if lower.ends_with('k') {
-        let n = s[..s.len()-1].trim().parse::<f64>().ok()?;
+        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
         Some((n * 1_000.0) as u64)
     } else if lower.ends_with('b') {
         let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -235,7 +239,12 @@ fn parse_human_size(s: &str) -> Option<u64> {
 fn parse_human_usage(output: &str) -> Option<u64> {
     let line = output.lines().find(|l| l.contains("use"))?;
     let word = line.split_whitespace().find(|w| {
-        w.ends_with('G') || w.ends_with('M') || w.ends_with('K') || w.ends_with("GB") || w.ends_with("MB") || w.ends_with("KB")
+        w.ends_with('G')
+            || w.ends_with('M')
+            || w.ends_with('K')
+            || w.ends_with("GB")
+            || w.ends_with("MB")
+            || w.ends_with("KB")
     })?;
     parse_human_size(word)
 }
@@ -250,15 +259,15 @@ fn parse_purgeable_bytes(output: &str) -> Option<u64> {
                 let cleaned: String = bytes_str.chars().filter(|c| c.is_ascii_digit()).collect();
                 return cleaned.parse::<u64>().ok();
             }
-            if let Some(gb) = val.strip_suffix("GB") {
-                if let Ok(num) = gb.trim().parse::<f64>() {
-                    return Some((num * 1_000_000_000.0) as u64);
-                }
+            if let Some(gb) = val.strip_suffix("GB")
+                && let Ok(num) = gb.trim().parse::<f64>()
+            {
+                return Some((num * 1_000_000_000.0) as u64);
             }
-            if let Some(gib) = val.strip_suffix("GiB") {
-                if let Ok(num) = gib.trim().parse::<f64>() {
-                    return Some((num * 1_073_741_824.0) as u64);
-                }
+            if let Some(gib) = val.strip_suffix("GiB")
+                && let Ok(num) = gib.trim().parse::<f64>()
+            {
+                return Some((num * 1_073_741_824.0) as u64);
             }
         }
     }
