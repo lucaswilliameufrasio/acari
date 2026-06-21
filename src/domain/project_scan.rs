@@ -118,6 +118,8 @@ pub fn discover_junk_dirs(
                                     path: Cow::Owned(full),
                                     description: Cow::Owned(desc),
                                     command: &[],
+                                    requires_sudo: false,
+                                    dangerous: false,
                                     delete_entire: true,
                                 });
                             }

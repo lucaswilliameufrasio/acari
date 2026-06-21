@@ -194,6 +194,8 @@ mod tests {
             path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
             command: &[],
+            requires_sudo: false,
+            dangerous: false,
             delete_entire: false,
         };
 
@@ -217,6 +219,8 @@ mod tests {
             path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
             description: Cow::Borrowed("test"),
             command: &[],
+            requires_sudo: false,
+            dangerous: false,
             delete_entire: false,
         };
 
@@ -244,6 +248,8 @@ mod tests {
             path: Cow::Borrowed(""),
             description: Cow::Borrowed("test"),
             command: &["tmutil", "deletelocalsnapshots", "/"],
+            requires_sudo: false,
+            dangerous: false,
             delete_entire: false,
         };
 

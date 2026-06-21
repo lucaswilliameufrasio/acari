@@ -8,6 +8,18 @@ pub struct CleanTarget {
     pub description: Cow<'static, str>,
     pub delete_entire: bool,
     pub command: &'static [&'static str],
+    pub requires_sudo: bool,
+    pub dangerous: bool,
+}
+
+impl CleanTarget {
+    pub fn is_command(&self) -> bool {
+        !self.command.is_empty()
+    }
+
+    pub fn is_dangerous(&self) -> bool {
+        self.dangerous || self.requires_sudo
+    }
 }
 
 impl CleanTarget {
@@ -23,6 +35,8 @@ impl CleanTarget {
             description: Cow::Borrowed(description),
             delete_entire,
             command: &[],
+            requires_sudo: false,
+            dangerous: false,
         }
     }
 
@@ -37,11 +51,19 @@ impl CleanTarget {
             description: Cow::Borrowed(description),
             delete_entire: false,
             command,
+            requires_sudo: false,
+            dangerous: false,
         }
     }
 
-    pub fn is_command(&self) -> bool {
-        !self.command.is_empty()
+    pub const fn with_sudo(mut self) -> Self {
+        self.requires_sudo = true;
+        self
+    }
+
+    pub const fn dangerous(mut self) -> Self {
+        self.dangerous = true;
+        self
     }
 }
 
@@ -53,6 +75,8 @@ impl Default for CleanTarget {
             description: Cow::Borrowed(""),
             delete_entire: false,
             command: &[],
+            requires_sudo: false,
+            dangerous: false,
         }
     }
 }

@@ -13,6 +13,8 @@ fn test_target(name: &'static str, path: &Path) -> CleanTarget {
         path: Cow::Owned(path.to_string_lossy().into_owned()),
         description: Cow::Borrowed("test"),
         command: &[],
+        requires_sudo: false,
+        dangerous: false,
         delete_entire: false,
     }
 }
@@ -130,6 +132,8 @@ async fn command_target_happy_path_scan_and_clean() {
         path: Cow::Borrowed(""),
         description: Cow::Borrowed("test command target"),
         command: &["echo", "ok"],
+        requires_sudo: false,
+        dangerous: false,
         delete_entire: false,
     };
 

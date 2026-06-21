@@ -9,6 +9,8 @@ pub fn append_custom_scan_paths(targets: &mut Vec<CleanTarget>, scan_paths: &[St
             path: Cow::Owned(path.clone()),
             description: Cow::Borrowed("User provided path"),
             command: &[],
+            requires_sudo: false,
+            dangerous: false,
             delete_entire: false,
         });
     }
