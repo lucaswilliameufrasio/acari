@@ -42,6 +42,7 @@ enum Phase {
     Scanning,
     ReadyToClean,
     Confirming(Vec<(CleanTarget, u64, u64)>),
+    ConfirmingDangerous(Vec<(CleanTarget, u64, u64)>),
     Cleaning,
     Finished,
 }
@@ -53,7 +54,7 @@ enum UiCommand {
     Rescan,
     ToggleDryRun,
     SortBySize,
-    Confirm(Vec<(CleanTarget, u64, u64)>),
+    Confirm(Vec<(CleanTarget, u64, u64)>, bool),
     Clean(Vec<(CleanTarget, u64, u64)>),
 }
 
@@ -199,13 +200,20 @@ fn run_loop(
                     selected_idx = 0;
                     status_line = msg::sorted_by_size(lang).to_string();
                 }
-                UiCommand::Confirm(selected) => {
+                UiCommand::Confirm(selected, dangerous) => {
                     let total_bytes: u64 = selected.iter().map(|(_, b, _)| *b).sum();
                     let count = selected.len();
-                    status_line = msg::confirm_clean(lang)
-                        .replace("{n}", &count.to_string())
-                        .replace("{size}", &format_bytes(total_bytes));
-                    phase = Phase::Confirming(selected);
+                    if dangerous {
+                        status_line = msg::confirm_dangerous(lang)
+                            .replace("{n}", &count.to_string())
+                            .replace("{size}", &format_bytes(total_bytes));
+                        phase = Phase::ConfirmingDangerous(selected);
+                    } else {
+                        status_line = msg::confirm_clean(lang)
+                            .replace("{n}", &count.to_string())
+                            .replace("{size}", &format_bytes(total_bytes));
+                        phase = Phase::Confirming(selected);
+                    }
                 }
                 UiCommand::Clean(selected) => {
                     if let Some(ref res) = scan_res {
@@ -343,19 +351,27 @@ fn handle_key(
     has_active_scan: bool,
 ) -> UiCommand {
     match key_code {
-        KeyCode::Char('n') | KeyCode::Esc if matches!(phase, Phase::Confirming(_)) => {
+        KeyCode::Char('n') | KeyCode::Esc
+            if matches!(phase, Phase::Confirming(_))
+                || matches!(phase, Phase::ConfirmingDangerous(_)) =>
+        {
             *phase = Phase::ReadyToClean;
             *status_line = String::from(msg::tui_ready_status(lang));
             UiCommand::None
         }
-        KeyCode::Char('y') if matches!(phase, Phase::Confirming(_)) => {
-            if let Phase::Confirming(selected) = phase {
-                let sel = std::mem::take(selected);
-                *phase = Phase::Cleaning;
-                *status_line = String::from(msg::tui_cleaning_status(lang));
-                return UiCommand::Clean(sel);
-            }
-            UiCommand::None
+        KeyCode::Char('y')
+            if matches!(phase, Phase::Confirming(_))
+                || matches!(phase, Phase::ConfirmingDangerous(_)) =>
+        {
+            let sel = match phase {
+                Phase::Confirming(selected) | Phase::ConfirmingDangerous(selected) => {
+                    std::mem::take(selected)
+                }
+                _ => return UiCommand::None,
+            };
+            *phase = Phase::Cleaning;
+            *status_line = String::from(msg::tui_cleaning_status(lang));
+            UiCommand::Clean(sel)
         }
         KeyCode::Char('q') => {
             if *phase == Phase::Scanning && has_active_scan {
@@ -404,8 +420,16 @@ fn handle_key(
                 *status_line = String::from(msg::tui_no_selection(lang));
                 UiCommand::None
             } else {
-                *status_line = String::from(msg::confirm_prompt(lang));
-                UiCommand::Confirm(selected)
+                let has_dangerous = selected.iter().any(|(t, _, _)| t.is_dangerous());
+                if has_dangerous {
+                    let total_bytes: u64 = selected.iter().map(|(_, b, _)| *b).sum();
+                    *status_line = msg::confirm_dangerous(lang)
+                        .replace("{n}", &selected.len().to_string())
+                        .replace("{size}", &format_bytes(total_bytes));
+                } else {
+                    *status_line = String::from(msg::confirm_prompt(lang));
+                }
+                UiCommand::Confirm(selected, has_dangerous)
             }
         }
         _ => UiCommand::None,
@@ -502,7 +526,7 @@ fn draw_ui(
         Phase::ReadyToClean => {
             msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
         }
-        Phase::Confirming(_) => {
+        Phase::Confirming(_) | Phase::ConfirmingDangerous(_) => {
             msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
         }
         Phase::Cleaning => msg::cleaning_progress(lang).to_string(),
@@ -548,9 +572,11 @@ fn draw_ui(
             };
 
             let cmd_label = if target.is_command() { " [cmd]" } else { "" };
+            let sudo_label = if target.requires_sudo { " [sudo]" } else { "" };
             let text = format!(
-                "{cursor} {sel}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
+                "{cursor} {sel}{}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
                 cmd_label,
+                sudo_label,
                 target.name,
                 format_bytes(state.bytes),
                 state.files,
@@ -842,7 +868,7 @@ mod tests {
         assert_eq!(phase, Phase::ReadyToClean);
         assert!(status.contains("confirmar") || status.contains("y"));
         match cmd {
-            UiCommand::Confirm(selected) => {
+            UiCommand::Confirm(selected, _dangerous) => {
                 assert_eq!(selected.len(), 1);
                 assert_eq!(selected[0].0.name, "A");
                 assert_eq!(selected[0].1, 42);

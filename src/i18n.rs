@@ -302,6 +302,14 @@ pub mod msg {
         )
     }
 
+    pub fn confirm_dangerous(lang: Language) -> &'static str {
+        s(
+            "ATENÇÃO: {n} alvo(s) perigosos (total: {size}). Pressione y para confirmar ou n para cancelar",
+            "WARNING: {n} dangerous target(s) (total: {size}). Press y to confirm or n to cancel",
+            lang,
+        )
+    }
+
     pub fn panel_status(_lang: Language) -> &'static str {
         "Status"
     }
