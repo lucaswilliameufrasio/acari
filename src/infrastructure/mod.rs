@@ -1,5 +1,6 @@
 pub mod cleaner;
 pub mod distro;
+pub mod exec;
 pub mod history;
 pub mod scanner;
 
