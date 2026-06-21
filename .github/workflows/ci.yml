@@ -96,6 +96,11 @@ jobs:
         with:
           toolchain: 1.96.0
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
@@ -103,10 +108,10 @@ jobs:
         run: cargo build --locked --all-targets
 
       - name: Run tests
-        run: cargo test --locked --all-targets
+        run: cargo nextest run --locked --all-targets
 
       - name: Verify headless dry-run flow
-        run: cargo test --locked --test cli headless_dry_run_does_not_remove_files
+        run: cargo nextest run --locked --test cli headless_dry_run_does_not_remove_files
 
       - name: Check branch naming convention
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
