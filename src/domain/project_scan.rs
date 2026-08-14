@@ -28,17 +28,29 @@ const BUILTIN_PATTERNS: &[&str] = &[
     ".tox",
     ".mypy_cache",
     "obj",
-    "packages",
     ".dart_tool",
     ".packages",
     ".pub",
-    "Library",
     "Temp",
     "Obj",
     "coverage",
 ];
 
 const STOP_DIRS: &[&str] = &[".git", ".hg", ".svn"];
+
+/// A junk directory that lives under a `src/` tree is almost always source
+/// code (e.g. `src/bin`, `src/lib/build`, `src/packages`) and must never be
+/// flagged as deletable.
+fn is_under_src(entry_path: &Path) -> bool {
+    entry_path
+        .parent()
+        .map(|parent| {
+            parent.components().any(
+                |c| matches!(c, std::path::Component::Normal(n) if n.to_string_lossy() == "src"),
+            )
+        })
+        .unwrap_or(false)
+}
 
 pub fn builtin_patterns() -> Vec<&'static str> {
     BUILTIN_PATTERNS.to_vec()
@@ -102,7 +114,7 @@ pub fn discover_junk_dirs(
                         if STOP_DIRS.contains(&name.as_str()) {
                             return false;
                         }
-                        if p.iter().any(|pat| pat == &name) {
+                        if !is_under_src(&e.path()) && p.iter().any(|pat| pat == &name) {
                             if s.lock()
                                 .unwrap()
                                 .insert(e.path().to_string_lossy().to_string())
@@ -272,5 +284,61 @@ mod tests {
         assert!(names.contains(&"node_modules"));
         assert!(!names.contains(&"src"), "plain 'src' should not match");
         assert!(names.contains(&".venv"));
+    }
+
+    #[test]
+    fn does_not_flag_source_tree_subdirs_as_junk() {
+        let root = tempfile::tempdir().unwrap();
+        // Real-world layout that must NOT be deleted.
+        fs::create_dir_all(root.path().join("src").join("bin")).unwrap();
+        fs::create_dir_all(root.path().join("src").join("lib").join("build")).unwrap();
+        fs::create_dir_all(root.path().join("src").join("packages")).unwrap();
+        fs::write(
+            root.path().join("src").join("bin").join("main.rs"),
+            b"fn main() {}",
+        )
+        .unwrap();
+        fs::write(
+            root.path()
+                .join("src")
+                .join("lib")
+                .join("build")
+                .join("lib.rs"),
+            b"pub fn x() {}",
+        )
+        .unwrap();
+
+        // A real junk dir at top level must still be found.
+        fs::create_dir_all(root.path().join("node_modules")).unwrap();
+        fs::write(root.path().join("node_modules").join("pkg.js"), b"x").unwrap();
+
+        let results = discover_junk_dirs(&[root.path()], &[], false);
+
+        assert!(
+            results.iter().all(|t| !t.path.as_ref().contains("/src/")),
+            "subdirectories under src/ must never be flagged as junk"
+        );
+        let names: Vec<&str> = results.iter().map(|t| t.name.as_ref()).collect();
+        assert!(
+            names.contains(&"node_modules"),
+            "top-level junk still found"
+        );
+    }
+
+    #[test]
+    fn does_not_flag_monorepo_packages_folder() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("packages").join("pkg-a")).unwrap();
+        fs::write(
+            root.path().join("packages").join("pkg-a").join("index.ts"),
+            b"export const a = 1",
+        )
+        .unwrap();
+
+        let results = discover_junk_dirs(&[root.path()], &[], false);
+        assert!(
+            results.iter().all(|t| t.name != "packages"),
+            "monorepo packages/ folder must not be flagged as junk"
+        );
     }
 }

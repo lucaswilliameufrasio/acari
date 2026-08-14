@@ -161,7 +161,7 @@ fn run_loop(
                 UiCommand::None => {}
                 UiCommand::Quit => break,
                 UiCommand::CancelScan => {
-                    if let Some(res) = scan_res.take() {
+                    if let Some(res) = scan_res.as_mut() {
                         res.handle.abort();
                     }
                     phase = Phase::ReadyToClean;

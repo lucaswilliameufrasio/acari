@@ -82,10 +82,21 @@ fn parse_single_size(s: &str) -> Option<u64> {
 }
 
 /// Parse `tmutil listlocalsnapshots /` output to count snapshots.
+///
+/// On modern macOS the snapshot lines look like:
+///   `com.apple.TimeMachine.2024-03-20-143000.local`
+///   `com.apple.os.update-<UUID>`
+/// Older tooling emitted lines with a `localhost` prefix.
 pub fn parse_tmutil_list_output(output: &str) -> u64 {
     output
         .lines()
-        .filter(|l| l.starts_with("localhost"))
+        .filter(|l| {
+            let l = l.trim();
+            l.starts_with("com.apple.TimeMachine.")
+                || l.starts_with("com.apple.os.update")
+                || l.starts_with("com.apple.")
+                || l.starts_with("localhost")
+        })
         .count() as u64
 }
 
@@ -236,6 +247,15 @@ mod tests {
         let output = "Snapshots for volume group containing disk /:\n\
                        localhost 2025-01-15-123456\n\
                        localhost 2025-01-14-123456\n";
+        assert_eq!(parse_tmutil_list_output(output), 2);
+    }
+
+    #[test]
+    fn tmutil_list_counts_apfs_snapshots() {
+        let output = "Snapshots for volume group containing disk /:\n\
+                       com.apple.TimeMachine.2024-03-20-143000.local\n\
+                       com.apple.os.update-AAD61DF03944D7ECCF4925A8608C939B82777C3FD7B744DAE9A7F5E4CDF32B72\n\
+                       Some unrelated header line\n";
         assert_eq!(parse_tmutil_list_output(output), 2);
     }
 

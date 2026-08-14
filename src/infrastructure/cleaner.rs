@@ -63,6 +63,18 @@ pub fn clean_target(
     }
 
     let raw_path = target.resolved_path();
+
+    // Missing targets are not an error: report zero work done.
+    let raw_exists = fs::symlink_metadata(&raw_path).is_ok();
+    if !raw_exists {
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: 0,
+            removed_entries: 0,
+            errors: 0,
+        };
+    }
+
     let path = match safe_canonicalize(&raw_path, &raw_path) {
         Some(p) => p,
         None => {
@@ -74,15 +86,6 @@ pub fn clean_target(
             };
         }
     };
-
-    if !path.exists() {
-        return CleanResult {
-            target: target.clone(),
-            reclaimed_bytes: 0,
-            removed_entries: 0,
-            errors: 0,
-        };
-    }
 
     if mode == CleanMode::DryRun {
         return CleanResult {
@@ -223,6 +226,27 @@ mod tests {
 
     use super::clean_target;
     use crate::application::cleaner::CleanMode;
+
+    #[test]
+    fn nonexistent_target_returns_zero_errors() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let missing = temp.path().join("does-not-exist");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("Missing Cache"),
+            path: Cow::Owned(missing.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+        };
+
+        let result = clean_target(&target, 0, 0, CleanMode::Execute);
+        assert_eq!(result.errors, 0, "missing path must not count as error");
+        assert_eq!(result.reclaimed_bytes, 0);
+        assert_eq!(result.removed_entries, 0);
+    }
 
     #[test]
     fn cleans_directory_contents() {

@@ -83,14 +83,8 @@ pub fn scan_target(
     }
 }
 
-fn scan_command_target(target: &CleanTarget, tx: &UnboundedSender<AppEvent>) -> ScanResult {
+fn scan_command_target(target: &CleanTarget, _tx: &UnboundedSender<AppEvent>) -> ScanResult {
     let (bytes, count) = estimate_command_target_bytes(&target.name);
-
-    let _ = tx.send(AppEvent::TargetCompleted {
-        target_name: target.name.to_string(),
-        total_bytes: bytes,
-        files_scanned: count,
-    });
 
     ScanResult {
         target: target.clone(),
@@ -256,10 +250,19 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let result = scan_target(&target, &tx, &[], Parallelism::Serial);
 
-        assert_eq!(result.bytes, 0);
-        assert_eq!(result.files_scanned, 0);
+        // Byte estimate is only guaranteed to be zero on non-macOS where the
+        // APFS snapshot estimation is a no-op.
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(result.bytes, 0);
+            assert_eq!(result.files_scanned, 0);
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = result;
 
+        // Command targets no longer emit TargetCompleted from within scan_target;
+        // that event is emitted by the caller (start_background_scan).
         let event = rx.try_recv();
-        assert!(event.is_ok(), "should emit TargetCompleted event");
+        assert!(event.is_err(), "should NOT emit TargetCompleted event");
     }
 }
