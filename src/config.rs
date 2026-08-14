@@ -35,6 +35,10 @@ pub struct Cli {
     #[arg(long = "exclude")]
     pub excludes: Vec<String>,
 
+    /// Emit structured JSON output in headless mode
+    #[arg(long)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -53,6 +57,14 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<ProjectAction>,
     },
+    /// Show the cleanup history log
+    History {
+        /// Remove the history log after showing it
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Show a disk usage overview
+    Df,
 }
 
 #[derive(Debug, Subcommand)]
@@ -129,6 +141,9 @@ pub enum ProjectAction {
         /// Exclude patterns
         #[arg(long = "exclude")]
         excludes: Vec<String>,
+        /// Emit structured JSON output
+        #[arg(long)]
+        json: bool,
     },
 }
 

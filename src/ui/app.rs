@@ -58,6 +58,25 @@ enum UiCommand {
     Clean(Vec<(CleanTarget, u64, u64)>),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SortMode {
+    BytesDesc,
+    BytesAsc,
+    NameAsc,
+    FilesDesc,
+}
+
+impl SortMode {
+    fn next(self) -> Self {
+        match self {
+            SortMode::BytesDesc => SortMode::BytesAsc,
+            SortMode::BytesAsc => SortMode::NameAsc,
+            SortMode::NameAsc => SortMode::FilesDesc,
+            SortMode::FilesDesc => SortMode::BytesDesc,
+        }
+    }
+}
+
 struct ScanResources {
     tx: UnboundedSender<AppEvent>,
     rx: UnboundedReceiver<AppEvent>,
@@ -106,6 +125,8 @@ fn run_loop(
     let mut status_line = String::from(msg::tui_scanning_status(lang));
     let mut dry_run = false;
     let mut target_scroll = 0_usize;
+    let mut sort_mode = SortMode::BytesDesc;
+    let mut search_filter: Option<String> = None;
     let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     let frame_time = Duration::from_millis(16);
@@ -142,6 +163,8 @@ fn run_loop(
                 dry_run,
                 lang,
                 &mut target_scroll,
+                sort_mode,
+                search_filter.as_deref(),
             )
         })?;
 
@@ -157,6 +180,8 @@ fn run_loop(
                 key.code,
                 lang,
                 scan_res.is_some(),
+                &mut sort_mode,
+                &mut search_filter,
             ) {
                 UiCommand::None => {}
                 UiCommand::Quit => break,
@@ -193,12 +218,24 @@ fn run_loop(
                     };
                 }
                 UiCommand::SortBySize => {
-                    rows.sort_by_key(|b| std::cmp::Reverse(b.1.bytes));
+                    match sort_mode {
+                        SortMode::BytesDesc => {
+                            rows.sort_by_key(|b| std::cmp::Reverse(b.1.bytes));
+                        }
+                        SortMode::BytesAsc => {
+                            rows.sort_by_key(|b| b.1.bytes);
+                        }
+                        SortMode::NameAsc => {
+                            rows.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+                        }
+                        SortMode::FilesDesc => {
+                            rows.sort_by_key(|b| std::cmp::Reverse(b.1.files));
+                        }
+                    }
                     for (i, (t, _)) in rows.iter().enumerate() {
                         by_name.insert(t.name.to_string(), i);
                     }
                     selected_idx = 0;
-                    status_line = msg::sorted_by_size(lang).to_string();
                 }
                 UiCommand::Confirm(selected, dangerous) => {
                     let total_bytes: u64 = selected.iter().map(|(_, b, _)| *b).sum();
@@ -349,90 +386,138 @@ fn handle_key(
     key_code: KeyCode,
     lang: Language,
     has_active_scan: bool,
+    sort_mode: &mut SortMode,
+    search_filter: &mut Option<String>,
 ) -> UiCommand {
-    match key_code {
-        KeyCode::Char('n') | KeyCode::Esc
-            if matches!(phase, Phase::Confirming(_))
-                || matches!(phase, Phase::ConfirmingDangerous(_)) =>
-        {
-            *phase = Phase::ReadyToClean;
-            *status_line = String::from(msg::tui_ready_status(lang));
-            UiCommand::None
-        }
-        KeyCode::Char('y')
-            if matches!(phase, Phase::Confirming(_))
-                || matches!(phase, Phase::ConfirmingDangerous(_)) =>
-        {
-            let sel = match phase {
-                Phase::Confirming(selected) | Phase::ConfirmingDangerous(selected) => {
-                    std::mem::take(selected)
-                }
-                _ => return UiCommand::None,
-            };
-            *phase = Phase::Cleaning;
-            *status_line = String::from(msg::tui_cleaning_status(lang));
-            UiCommand::Clean(sel)
-        }
-        KeyCode::Char('q') => {
-            if *phase == Phase::Scanning && has_active_scan {
-                UiCommand::CancelScan
-            } else {
-                UiCommand::Quit
-            }
-        }
-        KeyCode::Esc => UiCommand::Quit,
-        KeyCode::Char('d') if *phase == Phase::ReadyToClean => UiCommand::ToggleDryRun,
-        KeyCode::Char('s') if *phase == Phase::ReadyToClean => UiCommand::SortBySize,
-        KeyCode::Char('r') if *phase != Phase::Scanning && *phase != Phase::Cleaning => {
-            UiCommand::Rescan
-        }
-        KeyCode::Up if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
-            *selected_idx = selected_idx.saturating_sub(1);
-            UiCommand::None
-        }
-        KeyCode::Down if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
-            if *selected_idx + 1 < rows.len() {
-                *selected_idx += 1;
-            }
-            UiCommand::None
-        }
-        KeyCode::Char(' ') if *phase == Phase::ReadyToClean => {
-            if let Some((_, state)) = rows.get_mut(*selected_idx) {
-                state.selected = !state.selected;
-            }
-            UiCommand::None
-        }
-        KeyCode::Char('a') if *phase == Phase::ReadyToClean => {
-            let should_select_all = rows.iter().any(|(_, s)| !s.selected);
-            for (_, state) in rows {
-                state.selected = should_select_all;
-            }
-            UiCommand::None
-        }
-        KeyCode::Enter if *phase == Phase::ReadyToClean => {
-            let selected: Vec<(CleanTarget, u64, u64)> = rows
-                .iter()
-                .filter(|(_, s)| s.selected)
-                .map(|(target, s)| (target.clone(), s.bytes, s.files))
-                .collect();
-
-            if selected.is_empty() {
-                *status_line = String::from(msg::tui_no_selection(lang));
+    // While editing a search filter, route printable/editing keys to the filter.
+    if let Some(filter) = search_filter.as_mut() {
+        match key_code {
+            KeyCode::Char(c) => {
+                filter.push(c);
                 UiCommand::None
-            } else {
-                let has_dangerous = selected.iter().any(|(t, _, _)| t.is_dangerous());
-                if has_dangerous {
-                    let total_bytes: u64 = selected.iter().map(|(_, b, _)| *b).sum();
-                    *status_line = msg::confirm_dangerous(lang)
-                        .replace("{n}", &selected.len().to_string())
-                        .replace("{size}", &format_bytes(total_bytes));
-                } else {
-                    *status_line = String::from(msg::confirm_prompt(lang));
-                }
-                UiCommand::Confirm(selected, has_dangerous)
             }
+            KeyCode::Backspace => {
+                filter.pop();
+                UiCommand::None
+            }
+            KeyCode::Esc | KeyCode::Enter => {
+                *search_filter = None;
+                *status_line = String::from(msg::tui_ready_status(lang));
+                UiCommand::None
+            }
+            _ => UiCommand::None,
         }
-        _ => UiCommand::None,
+    } else {
+        match key_code {
+            KeyCode::Char('/') if *phase == Phase::ReadyToClean => {
+                *search_filter = Some(String::new());
+                *status_line = String::from("Search: ");
+                UiCommand::None
+            }
+            KeyCode::Char('n') | KeyCode::Esc
+                if matches!(phase, Phase::Confirming(_))
+                    || matches!(phase, Phase::ConfirmingDangerous(_)) =>
+            {
+                *phase = Phase::ReadyToClean;
+                *status_line = String::from(msg::tui_ready_status(lang));
+                UiCommand::None
+            }
+            KeyCode::Char('y')
+                if matches!(phase, Phase::Confirming(_))
+                    || matches!(phase, Phase::ConfirmingDangerous(_)) =>
+            {
+                let sel = match phase {
+                    Phase::Confirming(selected) | Phase::ConfirmingDangerous(selected) => {
+                        std::mem::take(selected)
+                    }
+                    _ => return UiCommand::None,
+                };
+                *phase = Phase::Cleaning;
+                *status_line = String::from(msg::tui_cleaning_status(lang));
+                UiCommand::Clean(sel)
+            }
+            KeyCode::Char('q') => {
+                if *phase == Phase::Scanning && has_active_scan {
+                    UiCommand::CancelScan
+                } else {
+                    UiCommand::Quit
+                }
+            }
+            KeyCode::Esc => UiCommand::Quit,
+            KeyCode::Char('d') if *phase == Phase::ReadyToClean => UiCommand::ToggleDryRun,
+            KeyCode::Char('s') if *phase == Phase::ReadyToClean => {
+                *sort_mode = sort_mode.next();
+                *status_line = match sort_mode {
+                    SortMode::BytesDesc => msg::sort_bytes_desc(lang).to_string(),
+                    SortMode::BytesAsc => msg::sort_bytes_asc(lang).to_string(),
+                    SortMode::NameAsc => msg::sort_name_asc(lang).to_string(),
+                    SortMode::FilesDesc => msg::sort_files_desc(lang).to_string(),
+                };
+                UiCommand::SortBySize
+            }
+            KeyCode::Char('r') if *phase != Phase::Scanning && *phase != Phase::Cleaning => {
+                UiCommand::Rescan
+            }
+            KeyCode::Up if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
+                *selected_idx = selected_idx.saturating_sub(1);
+                UiCommand::None
+            }
+            KeyCode::Down if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
+                if *selected_idx + 1 < rows.len() {
+                    *selected_idx += 1;
+                }
+                UiCommand::None
+            }
+            KeyCode::Char(' ') if *phase == Phase::ReadyToClean => {
+                if let Some((_, state)) = rows.get_mut(*selected_idx) {
+                    state.selected = !state.selected;
+                }
+                UiCommand::None
+            }
+            KeyCode::Char('a') if *phase == Phase::ReadyToClean => {
+                let should_select_all = rows.iter().any(|(_, s)| !s.selected);
+                for (_, state) in rows {
+                    state.selected = should_select_all;
+                }
+                UiCommand::None
+            }
+            KeyCode::Char('i') if *phase == Phase::ReadyToClean => {
+                for (_, state) in rows {
+                    state.selected = !state.selected;
+                }
+                UiCommand::None
+            }
+            KeyCode::Char('c') if *phase == Phase::ReadyToClean => {
+                for (_, state) in rows {
+                    state.selected = false;
+                }
+                UiCommand::None
+            }
+            KeyCode::Enter if *phase == Phase::ReadyToClean => {
+                let selected: Vec<(CleanTarget, u64, u64)> = rows
+                    .iter()
+                    .filter(|(_, s)| s.selected)
+                    .map(|(target, s)| (target.clone(), s.bytes, s.files))
+                    .collect();
+
+                if selected.is_empty() {
+                    *status_line = String::from(msg::tui_no_selection(lang));
+                    UiCommand::None
+                } else {
+                    let has_dangerous = selected.iter().any(|(t, _, _)| t.is_dangerous());
+                    if has_dangerous {
+                        let total_bytes: u64 = selected.iter().map(|(_, b, _)| *b).sum();
+                        *status_line = msg::confirm_dangerous(lang)
+                            .replace("{n}", &selected.len().to_string())
+                            .replace("{size}", &format_bytes(total_bytes));
+                    } else {
+                        *status_line = String::from(msg::confirm_prompt(lang));
+                    }
+                    UiCommand::Confirm(selected, has_dangerous)
+                }
+            }
+            _ => UiCommand::None,
+        }
     }
 }
 
@@ -483,7 +568,18 @@ fn draw_ui(
     dry_run: bool,
     lang: Language,
     target_scroll: &mut usize,
+    sort_mode: SortMode,
+    search_filter: Option<&str>,
 ) {
+    let danger = matches!(phase, Phase::ConfirmingDangerous(_));
+    let title_style = if danger {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    };
+
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -496,17 +592,11 @@ fn draw_ui(
 
     let dinfo = distro::detect();
     let title_text = format!("{} | {}", msg::tui_title(lang), dinfo.pretty_name);
-    let title = Paragraph::new(title_text)
-        .style(
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(msg::panel_status(lang)),
-        );
+    let title = Paragraph::new(title_text).style(title_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(msg::panel_status(lang)),
+    );
     frame.render_widget(title, vertical[0]);
 
     let ratio = if total_targets == 0 {
@@ -533,23 +623,45 @@ fn draw_ui(
         Phase::Finished => msg::cleaning_finished_progress(lang).to_string(),
     };
 
+    let gauge_style = if danger {
+        Style::default().fg(Color::Red).bg(Color::Black)
+    } else {
+        Style::default().fg(Color::Yellow).bg(Color::Black)
+    };
     let progress = Gauge::default()
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(msg::panel_progress(lang)),
         )
-        .gauge_style(Style::default().fg(Color::Yellow).bg(Color::Black))
+        .gauge_style(gauge_style)
         .ratio(ratio)
         .label(progress_label);
     frame.render_widget(progress, vertical[1]);
 
-    let all_items: Vec<ListItem> = rows
+    // Determine which rows are visible given the active search filter.
+    let filtered_indices: Vec<usize> = match search_filter {
+        Some(pat) if !pat.is_empty() => {
+            let needle = pat.to_lowercase();
+            rows.iter()
+                .enumerate()
+                .filter(|(_, (t, _))| t.name.to_lowercase().contains(&needle))
+                .map(|(i, _)| i)
+                .collect()
+        }
+        _ => (0..rows.len()).collect(),
+    };
+    let display_sel = filtered_indices
         .iter()
-        .enumerate()
-        .map(|(idx, (target, state))| {
+        .position(|&i| i == selected_idx)
+        .unwrap_or(0);
+
+    let all_items: Vec<ListItem> = filtered_indices
+        .iter()
+        .map(|&row_idx| {
+            let (target, state) = &rows[row_idx];
             let cursor = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)
-                && idx == selected_idx
+                && row_idx == selected_idx
             {
                 ">"
             } else {
@@ -583,7 +695,7 @@ fn draw_ui(
             );
 
             let style = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)
-                && idx == selected_idx
+                && row_idx == selected_idx
             {
                 Style::default().fg(Color::Black).bg(Color::Yellow)
             } else {
@@ -597,15 +709,17 @@ fn draw_ui(
     let list_area = vertical[2];
     let visible_rows = (list_area.height.saturating_sub(2)).max(1) as usize;
     let (new_scroll, visible_items) =
-        visible_target_list(&all_items, selected_idx, *target_scroll, visible_rows);
+        visible_target_list(&all_items, display_sel, *target_scroll, visible_rows);
     *target_scroll = new_scroll;
 
+    let sort_label = match sort_mode {
+        SortMode::BytesDesc => msg::sort_bytes_desc(lang),
+        SortMode::BytesAsc => msg::sort_bytes_asc(lang),
+        SortMode::NameAsc => msg::sort_name_asc(lang),
+        SortMode::FilesDesc => msg::sort_files_desc(lang),
+    };
     let panel_title = if *phase == Phase::ReadyToClean || *phase == Phase::Finished {
-        format!(
-            "{} | {}",
-            msg::panel_targets(lang),
-            msg::sorted_by_size(lang)
-        )
+        format!("{} | {}", msg::panel_targets(lang), sort_label)
     } else {
         msg::panel_targets(lang).to_string()
     };
@@ -630,13 +744,16 @@ fn draw_ui(
         );
     }
 
-    let footer = Paragraph::new(footer_text)
-        .style(Style::default().fg(Color::Green))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(msg::panel_footer(lang)),
-        );
+    let footer_style = if danger {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Green)
+    };
+    let footer = Paragraph::new(footer_text).style(footer_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(msg::panel_footer(lang)),
+    );
     frame.render_widget(footer, vertical[3]);
 }
 
@@ -669,7 +786,7 @@ mod tests {
     use ratatui::widgets::ListItem;
 
     use super::{
-        Phase, TargetState, UiCommand, format_scanning_label, handle_event, handle_key,
+        Phase, SortMode, TargetState, UiCommand, format_scanning_label, handle_event, handle_key,
         visible_target_list,
     };
     use crate::ui::resolve_scroll;
@@ -838,6 +955,8 @@ mod tests {
             KeyCode::Char(' '),
             Language::English,
             false,
+            &mut SortMode::BytesDesc,
+            &mut None,
         );
 
         assert!(matches!(cmd, UiCommand::None));
@@ -863,6 +982,8 @@ mod tests {
             KeyCode::Enter,
             Language::English,
             false,
+            &mut SortMode::BytesDesc,
+            &mut None,
         );
 
         assert_eq!(phase, Phase::ReadyToClean);
@@ -893,6 +1014,8 @@ mod tests {
             KeyCode::Char('q'),
             Language::English,
             true,
+            &mut SortMode::BytesDesc,
+            &mut None,
         );
 
         assert!(matches!(cmd, UiCommand::CancelScan));
@@ -913,6 +1036,8 @@ mod tests {
             KeyCode::Char('q'),
             Language::English,
             false,
+            &mut SortMode::BytesDesc,
+            &mut None,
         );
 
         assert!(matches!(cmd, UiCommand::Quit));
@@ -933,6 +1058,8 @@ mod tests {
             KeyCode::Char('r'),
             Language::English,
             false,
+            &mut SortMode::BytesDesc,
+            &mut None,
         );
 
         assert!(matches!(cmd, UiCommand::Rescan));
@@ -953,9 +1080,114 @@ mod tests {
             KeyCode::Char('r'),
             Language::English,
             true,
+            &mut SortMode::BytesDesc,
+            &mut None,
         );
 
         assert!(matches!(cmd, UiCommand::None));
+    }
+
+    #[test]
+    fn i_inverts_selection() {
+        let mut rows = build_rows();
+        rows[0].1.selected = true;
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('i'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+
+        assert!(matches!(cmd, UiCommand::None));
+        assert!(!rows[0].1.selected, "0 should now be deselected");
+        assert!(rows[1].1.selected, "1 should now be selected");
+    }
+
+    #[test]
+    fn c_clears_selection() {
+        let mut rows = build_rows();
+        for (_, s) in &mut rows {
+            s.selected = true;
+        }
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('c'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+
+        assert!(matches!(cmd, UiCommand::None));
+        assert!(rows.iter().all(|(_, s)| !s.selected));
+    }
+
+    #[test]
+    fn s_cycles_sort_mode() {
+        let mut rows = build_rows();
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+        let mut sort_mode = SortMode::BytesDesc;
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('s'),
+            Language::English,
+            false,
+            &mut sort_mode,
+            &mut None,
+        );
+
+        assert!(matches!(cmd, UiCommand::SortBySize));
+        assert_eq!(sort_mode, SortMode::BytesAsc, "should advance to next mode");
+    }
+
+    #[test]
+    fn search_filter_consumes_typed_chars() {
+        let mut rows = build_rows();
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+        let mut filter = Some(String::from("A"));
+
+        let cmd = handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('x'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut filter,
+        );
+
+        assert!(matches!(cmd, UiCommand::None));
+        assert_eq!(
+            filter.as_deref(),
+            Some("Ax"),
+            "char should be appended to filter"
+        );
     }
 
     // --- format_scanning_label ---

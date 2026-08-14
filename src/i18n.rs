@@ -286,6 +286,34 @@ pub mod msg {
         s("Ordenado por tamanho", "Sorted by size", lang)
     }
 
+    pub fn sort_bytes_desc(lang: Language) -> &'static str {
+        s(
+            "Ordenado: maior tamanho primeiro",
+            "Sorted: largest first",
+            lang,
+        )
+    }
+
+    pub fn sort_bytes_asc(lang: Language) -> &'static str {
+        s(
+            "Ordenado: menor tamanho primeiro",
+            "Sorted: smallest first",
+            lang,
+        )
+    }
+
+    pub fn sort_name_asc(lang: Language) -> &'static str {
+        s("Ordenado: nome (A-Z)", "Sorted: name (A-Z)", lang)
+    }
+
+    pub fn sort_files_desc(lang: Language) -> &'static str {
+        s(
+            "Ordenado: mais arquivos primeiro",
+            "Sorted: most files first",
+            lang,
+        )
+    }
+
     pub fn confirm_prompt(lang: Language) -> &'static str {
         s(
             "Pressione y para confirmar ou n para cancelar",
@@ -592,5 +620,61 @@ pub mod msg {
 
     pub fn custom_layout_label(lang: Language) -> &'static str {
         s("custom", "custom", lang)
+    }
+
+    pub fn history_empty(lang: Language) -> &'static str {
+        s(
+            "Nenhuma entrada de histórico de limpeza encontrada.",
+            "No cleanup history entries found.",
+            lang,
+        )
+    }
+
+    pub fn history_header(lang: Language) -> &'static str {
+        s("Histórico de limpeza:", "Cleanup history:", lang)
+    }
+
+    pub fn history_cleared(lang: Language) -> &'static str {
+        s(
+            "Histórico de limpeza limpo.",
+            "Cleanup history cleared.",
+            lang,
+        )
+    }
+
+    pub fn history_clear_error(lang: Language) -> &'static str {
+        s(
+            "Falha ao limpar o histórico: {err}",
+            "Failed to clear history: {err}",
+            lang,
+        )
+    }
+
+    pub fn df_title(lang: Language) -> &'static str {
+        s("Visão geral do disco:", "Disk overview:", lang)
+    }
+
+    pub fn df_device(lang: Language) -> &'static str {
+        s("Dispositivo/Volume:", "Device/Volume:", lang)
+    }
+
+    pub fn df_total(lang: Language) -> &'static str {
+        s("Total:", "Total:", lang)
+    }
+
+    pub fn df_used(lang: Language) -> &'static str {
+        s("Usado:", "Used:", lang)
+    }
+
+    pub fn df_free(lang: Language) -> &'static str {
+        s("Livre:", "Free:", lang)
+    }
+
+    pub fn df_usage(lang: Language) -> &'static str {
+        s("Uso:", "Usage:", lang)
+    }
+
+    pub fn df_purgeable(lang: Language) -> &'static str {
+        s("Espaço purgável (APFS):", "Purgeable (APFS):", lang)
     }
 }

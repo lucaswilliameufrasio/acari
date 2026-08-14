@@ -49,6 +49,34 @@ pub fn append_entry(line: &str) {
     set_restrictive_permissions(&path);
 }
 
+/// Read all history log entries (most recent last), or an empty vec if none.
+pub fn read_entries() -> Vec<String> {
+    let path = history_path();
+    match fs::read_to_string(&path) {
+        Ok(content) => content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(String::from)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Remove the history log entirely.
+pub fn clear() -> std::io::Result<()> {
+    let path = history_path();
+    if path.exists() {
+        fs::remove_file(&path)
+    } else {
+        Ok(())
+    }
+}
+
+/// Path to the history log (exposed for tests and the `history` command).
+pub fn log_path() -> PathBuf {
+    history_path()
+}
+
 pub fn format_local_time() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -421,7 +421,7 @@ fn project_clear_patterns_removes_all() {
 
     let mut c = cmd();
     c.env("ACARI_CONFIG_HOME", temp.path());
-    c.args(["project", "add-pattern", ".serverless"])
+    c.args(["project", "add-pattern", ".mycustom"])
         .assert()
         .success();
 
@@ -435,8 +435,5 @@ fn project_clear_patterns_removes_all() {
     let config_path = temp.path().join("acari").join("config.toml");
     let content = fs::read_to_string(&config_path).expect("read config");
     assert!(!content.contains(".terraform"), ".terraform should be gone");
-    assert!(
-        !content.contains(".serverless"),
-        ".serverless should be gone"
-    );
+    assert!(!content.contains(".mycustom"), ".mycustom should be gone");
 }

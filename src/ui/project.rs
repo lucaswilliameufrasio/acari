@@ -497,7 +497,7 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
         let patterns = tui.cfg.project_scan.patterns.clone();
         let excludes = merge_excludes(&[], &tui.cfg.scan.exclude_patterns);
 
-        let discovered = project_scan::discover_junk_dirs(&roots, &patterns, false);
+        let discovered = project_scan::discover_junk_dirs(&roots, &patterns, false, &excludes);
 
         if discovered.is_empty() {
             println!("{}", msg::no_junk_found(lang));

@@ -32,5 +32,5 @@ async fn main() -> Result<()> {
     } else {
         CleanMode::Execute
     };
-    run_headless(tx, rx, targets, cli.clean, clean_mode, lang).await
+    run_headless(tx, rx, targets, cli.clean, clean_mode, lang, cli.json).await
 }

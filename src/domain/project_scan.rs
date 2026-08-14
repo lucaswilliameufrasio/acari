@@ -34,6 +34,11 @@ const BUILTIN_PATTERNS: &[&str] = &[
     "Temp",
     "Obj",
     "coverage",
+    ".svelte-kit",
+    ".parcel-cache",
+    ".docusaurus",
+    ".angular",
+    ".serverless",
 ];
 
 const STOP_DIRS: &[&str] = &[".git", ".hg", ".svn"];
@@ -60,6 +65,7 @@ pub fn discover_junk_dirs(
     roots: &[impl AsRef<Path>],
     extra_patterns: &[String],
     no_default: bool,
+    excludes: &[String],
 ) -> Vec<CleanTarget> {
     let patterns: Vec<String> = if no_default {
         extra_patterns.to_vec()
@@ -69,9 +75,12 @@ pub fn discover_junk_dirs(
         all
     };
 
+    let excludes = excludes.to_vec();
+
     let discovered = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::new(Mutex::new(HashSet::<String>::new()));
     let patterns_arc = Arc::new(patterns);
+    let excludes_arc = Arc::new(excludes);
 
     for root in roots {
         let raw = root.as_ref();
@@ -91,6 +100,7 @@ pub fn discover_junk_dirs(
         let d = Arc::clone(&discovered);
         let s = Arc::clone(&seen);
         let p = Arc::clone(&patterns_arc);
+        let ex = Arc::clone(&excludes_arc);
 
         let root_str = path.to_string_lossy().to_string();
         let dir_counter = Arc::new(AtomicU64::new(0));
@@ -112,6 +122,9 @@ pub fn discover_junk_dirs(
                     if let Ok(e) = entry {
                         let name = e.file_name.to_string_lossy().to_string();
                         if STOP_DIRS.contains(&name.as_str()) {
+                            return false;
+                        }
+                        if ex.iter().any(|pat| pat == &name) {
                             return false;
                         }
                         if !is_under_src(&e.path()) && p.iter().any(|pat| pat == &name) {
@@ -172,7 +185,7 @@ mod tests {
         let also = root.path().join("target");
         fs::create_dir_all(also.join("debug")).unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path()], &[], false, &[]);
 
         assert_eq!(results.len(), 2, "should find node_modules and target");
         let names: Vec<&str> = results.iter().map(|t| t.name.as_ref()).collect();
@@ -191,7 +204,7 @@ mod tests {
         )
         .unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path()], &[], false, &[]);
 
         // Only one top-level node_modules should be found,
         // not the nested one (since jwalk prunes the sub-tree)
@@ -209,7 +222,7 @@ mod tests {
         fs::create_dir_all(&junk).unwrap();
         fs::write(junk.join("pkg.js"), b"x").unwrap();
 
-        let results = discover_junk_dirs(&[root.path(), root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path(), root.path()], &[], false, &[]);
 
         let count = results.iter().filter(|t| t.name == "node_modules").count();
         assert_eq!(count, 1, "same path should not appear twice");
@@ -222,7 +235,7 @@ mod tests {
         fs::create_dir_all(&junk).unwrap();
         fs::write(junk.join("state"), b"data").unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[".terraform".into()], false);
+        let results = discover_junk_dirs(&[root.path()], &[".terraform".into()], false, &[]);
 
         let count = results.iter().filter(|t| t.name == ".terraform").count();
         assert_eq!(count, 1, "custom pattern should be matched");
@@ -234,7 +247,7 @@ mod tests {
         fs::create_dir_all(root.path().join("node_modules")).unwrap();
         fs::create_dir_all(root.path().join("custom_junk")).unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &["custom_junk".into()], true);
+        let results = discover_junk_dirs(&[root.path()], &["custom_junk".into()], true, &[]);
 
         let names: Vec<&str> = results.iter().map(|t| t.name.as_ref()).collect();
         assert!(
@@ -249,13 +262,13 @@ mod tests {
 
     #[test]
     fn nonexistent_root_does_not_crash() {
-        let results = discover_junk_dirs(&["/tmp/acari-nonexistent-12345"], &[], false);
+        let results = discover_junk_dirs(&["/tmp/acari-nonexistent-12345"], &[], false, &[]);
         assert!(results.is_empty());
     }
 
     #[test]
     fn expands_tilde_in_roots() {
-        let results = discover_junk_dirs(&["~/.acari-junk-test-unused"], &[], false);
+        let results = discover_junk_dirs(&["~/.acari-junk-test-unused"], &[], false, &[]);
         assert!(results.is_empty());
     }
 
@@ -265,7 +278,7 @@ mod tests {
         fs::create_dir_all(root.path().join(".git")).unwrap();
         fs::write(root.path().join(".git").join("HEAD"), b"ref").unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path()], &[], false, &[]);
         assert!(
             results.iter().all(|t| t.name != ".git"),
             ".git should not appear as junk"
@@ -279,7 +292,7 @@ mod tests {
         fs::create_dir_all(root.path().join("src")).unwrap();
         fs::create_dir_all(root.path().join(".venv")).unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path()], &[], false, &[]);
         let names: Vec<&str> = results.iter().map(|t| t.name.as_ref()).collect();
         assert!(names.contains(&"node_modules"));
         assert!(!names.contains(&"src"), "plain 'src' should not match");
@@ -312,7 +325,7 @@ mod tests {
         fs::create_dir_all(root.path().join("node_modules")).unwrap();
         fs::write(root.path().join("node_modules").join("pkg.js"), b"x").unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path()], &[], false, &[]);
 
         assert!(
             results.iter().all(|t| !t.path.as_ref().contains("/src/")),
@@ -335,10 +348,29 @@ mod tests {
         )
         .unwrap();
 
-        let results = discover_junk_dirs(&[root.path()], &[], false);
+        let results = discover_junk_dirs(&[root.path()], &[], false, &[]);
         assert!(
             results.iter().all(|t| t.name != "packages"),
             "monorepo packages/ folder must not be flagged as junk"
+        );
+    }
+
+    #[test]
+    fn excludes_prune_matching_dirs() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("node_modules")).unwrap();
+        fs::write(root.path().join("node_modules").join("pkg.js"), b"x").unwrap();
+        fs::create_dir_all(root.path().join("target").join("debug")).unwrap();
+        fs::write(root.path().join("target").join("debug").join("out"), b"x").unwrap();
+
+        // Excluding "target" must prevent it (and its subtree) from being flagged,
+        // while "node_modules" is still found.
+        let results = discover_junk_dirs(&[root.path()], &[], false, &["target".into()]);
+        let names: Vec<&str> = results.iter().map(|t| t.name.as_ref()).collect();
+        assert!(names.contains(&"node_modules"), "node_modules still found");
+        assert!(
+            !names.contains(&"target"),
+            "excluded dir must not be flagged as junk"
         );
     }
 }

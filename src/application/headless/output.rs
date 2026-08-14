@@ -1,7 +1,65 @@
+use std::collections::HashMap;
+
 use crate::application::cleaner::CleanMode;
-use crate::domain::format_bytes;
+use crate::domain::{CleanTarget, format_bytes};
 use crate::i18n::Language;
 use crate::i18n::msg;
+
+/// Emit a compact JSON object describing the completed scan.
+/// Shape: {"targets":[{"name":...,"bytes":...,"files":...}],"total_bytes":...}
+pub fn print_scan_finished_json(
+    completed: &HashMap<String, (CleanTarget, u64, u64)>,
+    total_bytes: u64,
+) {
+    let mut out = String::from("{\"targets\":[");
+    let mut first = true;
+    for (name, (_t, bytes, files)) in completed {
+        if !first {
+            out.push(',');
+        }
+        first = false;
+        out.push_str(&format!(
+            "{{\"name\":{},\"bytes\":{},\"files\":{}}}",
+            json_escape(name),
+            bytes,
+            files
+        ));
+    }
+    out.push_str(&format!("],\"total_bytes\":{total_bytes}}}"));
+    println!("{out}");
+}
+
+/// Emit a compact JSON object describing the completed cleaning run.
+pub fn print_cleaning_finished_json(
+    cleaned_targets: u64,
+    reclaimed_bytes: u64,
+    errors: u64,
+    mode: CleanMode,
+) {
+    let dry_run = matches!(mode, CleanMode::DryRun);
+    println!(
+        "{{\"cleaned_targets\":{},\"reclaimed_bytes\":{},\"errors\":{},\"dry_run\":{}}}",
+        cleaned_targets, reclaimed_bytes, errors, dry_run
+    );
+}
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
 
 pub fn print_scan_progress(
     target_name: &str,

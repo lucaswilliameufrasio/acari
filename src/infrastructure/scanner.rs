@@ -4,7 +4,7 @@ use jwalk::Parallelism;
 use jwalk::WalkDir;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::domain::{AppEvent, CleanTarget, ScanResult};
+use crate::domain::{AppEvent, CleanTarget, ScanResult, expand_tilde};
 use crate::infrastructure::exec;
 
 fn is_excluded(name: &str, excludes: &[String]) -> bool {
@@ -99,8 +99,34 @@ fn estimate_command_target_bytes(name: &str) -> (u64, u64) {
         "Docker System Prune" => estimate_docker_reclaimable(),
         "Apt Autoremove" => estimate_apt_autoremove(),
         "Journalctl Vacuum" => estimate_journalctl_usage(),
+        "iOS Simulators Reset" => estimate_simctl_erase(),
         _ => (0, 0),
     }
+}
+
+/// Estimate the reclaimable bytes for `xcrun simctl erase all` by summing the
+/// size of the local simulator devices directory.
+#[cfg(target_os = "macos")]
+fn estimate_simctl_erase() -> (u64, u64) {
+    let path = expand_tilde("~/Library/Developer/CoreSimulator/Devices");
+    let mut bytes = 0_u64;
+    let mut files = 0_u64;
+    let walker = WalkDir::new(&path)
+        .follow_links(false)
+        .parallelism(Parallelism::Serial)
+        .into_iter();
+    for entry in walker.flatten() {
+        if entry.file_type().is_file() {
+            bytes = bytes.saturating_add(entry.metadata().map_or(0, |m| m.len()));
+            files = files.saturating_add(1);
+        }
+    }
+    (bytes, files)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn estimate_simctl_erase() -> (u64, u64) {
+    (0, 0)
 }
 
 #[cfg(target_os = "macos")]

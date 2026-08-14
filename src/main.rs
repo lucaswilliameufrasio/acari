@@ -5,8 +5,8 @@ use acari::application::commands::{
 use acari::application::headless::run_headless;
 use acari::config::target_config::{self, format_modified_time};
 use acari::config::{Cli, Commands, ProjectAction, TargetAction};
-use acari::domain::CleanTarget;
 use acari::domain::project_scan::{self, builtin_patterns};
+use acari::domain::{CleanTarget, format_bytes};
 use acari::i18n::{Language, detect_language, msg};
 use acari::infrastructure::distro;
 use acari::ui::app::run_tui;
@@ -82,11 +82,12 @@ fn collect_project_targets(
     roots: &[String],
     patterns: &[String],
     no_default_patterns: bool,
-    _excludes: &[String],
+    excludes: &[String],
     lang: Language,
 ) -> Result<Vec<CleanTarget>> {
     let roots: Vec<&str> = roots.iter().map(|s| s.as_str()).collect();
-    let discovered = project_scan::discover_junk_dirs(&roots, patterns, no_default_patterns);
+    let discovered =
+        project_scan::discover_junk_dirs(&roots, patterns, no_default_patterns, excludes);
     if discovered.is_empty() {
         println!("{}", msg::no_junk_found(lang));
     } else {
@@ -98,6 +99,45 @@ fn collect_project_targets(
     Ok(discovered)
 }
 
+fn run_history(clear: bool, lang: Language) {
+    use acari::infrastructure::history;
+
+    let entries = history::read_entries();
+    if entries.is_empty() {
+        println!("{}", msg::history_empty(lang));
+    } else {
+        println!("{}", msg::history_header(lang));
+        for entry in &entries {
+            println!("  {entry}");
+        }
+    }
+
+    if clear {
+        if let Err(e) = history::clear() {
+            eprintln!(
+                "{}",
+                msg::history_clear_error(lang).replace("{err}", &e.to_string())
+            );
+        } else {
+            println!("{}", msg::history_cleared(lang));
+        }
+    }
+}
+
+fn print_df(lang: Language) {
+    use acari::infrastructure::df::disk_overview;
+    let overview = disk_overview();
+    println!("{}", msg::df_title(lang));
+    println!("  {} {}", msg::df_device(lang), overview.device);
+    println!("  {} {}", msg::df_total(lang), format_bytes(overview.total));
+    println!("  {} {}", msg::df_used(lang), format_bytes(overview.used));
+    println!("  {} {}", msg::df_free(lang), format_bytes(overview.free));
+    println!("  {} {:.0}%", msg::df_usage(lang), overview.usage_percent);
+    if let Some(purgeable) = overview.purgeable {
+        println!("  {} {}", msg::df_purgeable(lang), format_bytes(purgeable));
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let lang = detect_language();
@@ -105,6 +145,14 @@ async fn main() -> Result<()> {
 
     if let Some(cmd) = &cli.command {
         match cmd {
+            Commands::History { clear } => {
+                run_history(*clear, lang);
+                return Ok(());
+            }
+            Commands::Df => {
+                print_df(lang);
+                return Ok(());
+            }
             Commands::Target { action } => match action {
                 TargetAction::Add {
                     name,
@@ -268,6 +316,7 @@ async fn main() -> Result<()> {
                     dry_run,
                     yes,
                     excludes,
+                    json,
                 }) => {
                     let cfg = target_config::load_config();
                     let io_priority = cfg.scan.io_priority;
@@ -307,7 +356,7 @@ async fn main() -> Result<()> {
                         };
                         let (tx, rx, _scan_handle) =
                             start_scan(discovered.clone(), all_excludes, io_priority);
-                        run_headless(tx, rx, discovered, *clean, clean_mode, lang).await?;
+                        run_headless(tx, rx, discovered, *clean, clean_mode, lang, *json).await?;
                     } else {
                         run_tui(&discovered, all_excludes, lang, io_priority)?;
                     }
@@ -342,7 +391,7 @@ async fn main() -> Result<()> {
         } else {
             CleanMode::Execute
         };
-        run_headless(tx, rx, targets, cli.clean, clean_mode, lang).await
+        run_headless(tx, rx, targets, cli.clean, clean_mode, lang, cli.json).await
     } else {
         run_tui(&targets, excludes, lang, io_priority)
     }

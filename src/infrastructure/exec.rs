@@ -143,6 +143,20 @@ pub fn parse_diskutil_info_output(output: &str) -> Option<u64> {
     parse_purgeable_bytes(output)
 }
 
+/// Query the APFS purgeable space via `diskutil info /` on macOS.
+/// Returns `None` on non-macOS or when the value is unavailable.
+pub fn purgeable_bytes() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let stdout = run_command_get_stdout(&["diskutil", "info", "/"]).ok()?;
+        parse_purgeable_bytes(&stdout)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

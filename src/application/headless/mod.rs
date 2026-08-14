@@ -21,6 +21,7 @@ pub async fn run_headless(
     clean_after_scan: bool,
     clean_mode: CleanMode,
     lang: Language,
+    json: bool,
 ) -> Result<()> {
     let mut total_bytes = 0_u64;
     let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
@@ -38,7 +39,9 @@ pub async fn run_headless(
                 bytes_found,
                 files_scanned,
             } => {
-                print_scan_progress(&target_name, bytes_found, files_scanned, lang);
+                if !json {
+                    print_scan_progress(&target_name, bytes_found, files_scanned, lang);
+                }
             }
             AppEvent::TargetCompleted {
                 target_name,
@@ -46,14 +49,20 @@ pub async fn run_headless(
                 files_scanned,
             } => {
                 total_bytes = total_bytes.saturating_add(bytes);
-                print_target_done(&target_name, bytes, files_scanned, lang);
+                if !json {
+                    print_target_done(&target_name, bytes, files_scanned, lang);
+                }
 
                 if let Some(target) = target_lookup.get(&target_name) {
                     completed.insert(target_name, (target.clone(), bytes, files_scanned));
                 }
             }
             AppEvent::ScanFinished => {
-                print_scan_finished(total_bytes, lang);
+                if json {
+                    output::print_scan_finished_json(&completed, total_bytes);
+                } else {
+                    print_scan_finished(total_bytes, lang);
+                }
 
                 if clean_after_scan {
                     let selected: Vec<(CleanTarget, u64, u64)> =
@@ -62,7 +71,9 @@ pub async fn run_headless(
                         break;
                     }
 
-                    print_start_cleaning(selected.len(), clean_mode, lang);
+                    if !json {
+                        print_start_cleaning(selected.len(), clean_mode, lang);
+                    }
                     let _clean_handle = start_background_clean(tx.clone(), selected, clean_mode);
                     waiting_clean_finish = true;
                 } else {
@@ -75,7 +86,7 @@ pub async fn run_headless(
                 removed_entries,
                 errors,
             } => {
-                if waiting_clean_finish {
+                if waiting_clean_finish && !json {
                     print_target_cleaned(
                         &target_name,
                         reclaimed_bytes,
@@ -92,13 +103,22 @@ pub async fn run_headless(
                 errors,
             } => {
                 if waiting_clean_finish {
-                    print_cleaning_finished(
-                        cleaned_targets,
-                        reclaimed_bytes,
-                        errors,
-                        clean_mode,
-                        lang,
-                    );
+                    if json {
+                        output::print_cleaning_finished_json(
+                            cleaned_targets,
+                            reclaimed_bytes,
+                            errors,
+                            clean_mode,
+                        );
+                    } else {
+                        print_cleaning_finished(
+                            cleaned_targets,
+                            reclaimed_bytes,
+                            errors,
+                            clean_mode,
+                            lang,
+                        );
+                    }
                     if clean_mode == CleanMode::Execute {
                         let time = history::format_local_time();
                         history::append_entry(&format!(
