@@ -151,13 +151,8 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
 }
 
 fn estimate_docker_reclaimable() -> (u64, u64) {
-    match exec::run_command_get_stdout(&[
-        "docker",
-        "system",
-        "df",
-        "--format",
-        "{{.ReclaimableSize}}",
-    ]) {
+    match exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{.Reclaimable}}"])
+    {
         Ok(stdout) => {
             let bytes = exec::parse_docker_df_output(&stdout);
             (bytes, 1)

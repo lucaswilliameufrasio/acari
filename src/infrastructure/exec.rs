@@ -100,8 +100,8 @@ pub fn parse_tmutil_list_output(output: &str) -> u64 {
         .count() as u64
 }
 
-/// Parse `docker system df --format '{{.ReclaimableSize}}'` output.
-/// Each line is a reclaimable size; sum them up.
+/// Parse `docker system df --format '{{.Reclaimable}}'` output.
+/// Each line is a reclaimable size (optionally with a `(NN%)` suffix); sum them.
 pub fn parse_docker_df_output(output: &str) -> u64 {
     output
         .lines()
@@ -110,7 +110,9 @@ pub fn parse_docker_df_output(output: &str) -> u64 {
             if l.is_empty() || l == "<unknown>" {
                 return None;
             }
-            parse_human_size(l)
+            // Strip an optional trailing "(NN%)" portion, e.g. "33.65GB (90%)".
+            let size = l.split('(').next().unwrap_or(l).trim();
+            parse_human_size(size)
         })
         .sum()
 }
@@ -295,6 +297,14 @@ mod tests {
     fn docker_df_all_unknown() {
         let output = "<unknown>\n<unknown>\n";
         assert_eq!(parse_docker_df_output(output), 0);
+    }
+
+    #[test]
+    fn docker_df_handles_percentage_suffix() {
+        // Docker 29.x / OrbStack output includes a "(NN%)" portion on some rows.
+        let output = "33.65GB (90%)\n757.9kB (80%)\n11.97GB (65%)\n20.56GB\n";
+        let expected = 33_650_000_000 + 757_900 + 11_970_000_000 + 20_560_000_000;
+        assert_eq!(parse_docker_df_output(output), expected);
     }
 
     // --- parse_journalctl_output ---
