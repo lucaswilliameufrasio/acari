@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::config::target_config::CustomTargetEntry;
-use crate::domain::CleanTarget;
+use crate::domain::{CleanTarget, TargetOrigin};
 
 pub const DEV_CACHES: &[CleanTarget] = &[
     CleanTarget {
@@ -12,6 +12,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Go Module Cache"),
@@ -21,6 +22,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("NPM Cache"),
@@ -30,6 +32,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Yarn Cache"),
@@ -39,6 +42,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Gradle Caches"),
@@ -48,6 +52,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Maven Repository"),
@@ -57,6 +62,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Docker Build Cache"),
@@ -66,6 +72,7 @@ pub const DEV_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
 ];
 
@@ -78,6 +85,7 @@ pub const EXTRA_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Ollama Models"),
@@ -87,6 +95,7 @@ pub const EXTRA_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
 ];
 
@@ -100,6 +109,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("pnpm Cache"),
@@ -109,6 +119,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Yarn Cache"),
@@ -118,6 +129,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("pip Cache"),
@@ -127,6 +139,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Playwright Browsers"),
@@ -136,6 +149,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("JetBrains IDE Caches"),
@@ -145,6 +159,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Google IDE Caches"),
@@ -154,6 +169,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("VS Code Cache"),
@@ -163,6 +179,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("VS Code CachedData"),
@@ -172,6 +189,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("VS Code ShipIt Cache"),
@@ -181,6 +199,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("iOS Simulators"),
@@ -190,6 +209,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("iOS Simulator Devices"),
@@ -199,6 +219,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: true,
         delete_entire: true,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Xcode DerivedData"),
@@ -208,6 +229,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("User Caches"),
@@ -217,6 +239,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("User Logs"),
@@ -226,6 +249,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Trash"),
@@ -235,6 +259,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Homebrew Cache"),
@@ -244,6 +269,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("iOS DeviceSupport"),
@@ -253,6 +279,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Firefox Cache"),
@@ -262,6 +289,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Chrome Cache"),
@@ -271,6 +299,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Chromium Cache"),
@@ -280,6 +309,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Brave Cache"),
@@ -289,6 +319,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Xcode Archives"),
@@ -298,6 +329,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Xcode Device Logs"),
@@ -307,6 +339,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Xcode Previews Cache"),
@@ -316,6 +349,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: true,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Xcode Caches"),
@@ -325,6 +359,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: true,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("iOS Device Backups"),
@@ -334,6 +369,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("iOS Simulator Runtimes"),
@@ -343,6 +379,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("CocoaPods Cache"),
@@ -352,6 +389,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("SwiftPM Cache"),
@@ -361,6 +399,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("macOS Diagnostic Reports"),
@@ -370,6 +409,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("iOS Simulators Reset"),
@@ -379,6 +419,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Bun Cache"),
@@ -388,6 +429,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Deno Cache"),
@@ -397,6 +439,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("NuGet Cache"),
@@ -406,6 +449,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Cargo Git Checkouts"),
@@ -415,6 +459,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Spotify Cache"),
@@ -424,6 +469,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Slack Cache"),
@@ -433,6 +479,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Discord Cache"),
@@ -442,6 +489,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Time Machine Local Snapshots"),
@@ -451,6 +499,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: true,
         dangerous: true,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Docker System Prune"),
@@ -460,6 +509,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
 ];
 
@@ -473,6 +523,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("pnpm Cache"),
@@ -482,6 +533,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Yarn Cache"),
@@ -491,6 +543,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("pip Cache"),
@@ -500,6 +553,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Playwright Browsers"),
@@ -509,6 +563,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("VS Code Cache"),
@@ -518,6 +573,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("VS Code CachedData"),
@@ -527,6 +583,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("VS Code CachedExtensions"),
@@ -536,6 +593,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("User Caches"),
@@ -545,6 +603,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Thumbnail Cache"),
@@ -554,6 +613,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Systemd Journal Logs"),
@@ -563,6 +623,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Apt Cache"),
@@ -572,6 +633,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Trash"),
@@ -581,6 +643,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Pacman Cache"),
@@ -590,6 +653,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Yay Cache"),
@@ -599,6 +663,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Paru Cache"),
@@ -608,6 +673,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Flatpak Cache"),
@@ -617,6 +683,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Snap Cache"),
@@ -626,6 +693,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Docker Overlay2"),
@@ -635,6 +703,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Firefox Cache"),
@@ -644,6 +713,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Chrome Cache"),
@@ -653,6 +723,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Chromium Cache"),
@@ -662,6 +733,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Brave Cache"),
@@ -671,6 +743,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Docker System Prune"),
@@ -680,6 +753,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Bun Cache"),
@@ -689,6 +763,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Deno Cache"),
@@ -698,6 +773,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("NuGet Cache"),
@@ -707,6 +783,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Cargo Git Checkouts"),
@@ -716,6 +793,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Spotify Cache"),
@@ -725,6 +803,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Discord Cache"),
@@ -734,6 +813,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Apt Autoremove"),
@@ -743,6 +823,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: true,
         dangerous: true,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
     CleanTarget {
         name: Cow::Borrowed("Journalctl Vacuum"),
@@ -752,6 +833,7 @@ pub const OS_CACHES: &[CleanTarget] = &[
         requires_sudo: true,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     },
 ];
 
@@ -764,14 +846,14 @@ pub fn build_targets(
 ) -> Vec<CleanTarget> {
     let custom: Vec<CleanTarget> = custom_targets
         .iter()
-        .map(|ct| CleanTarget {
-            name: Cow::Owned(ct.name.clone()),
-            path: Cow::Owned(ct.path.clone()),
-            description: Cow::Owned(ct.description.clone()),
-            command: &[],
-            requires_sudo: false,
-            dangerous: false,
-            delete_entire: false,
+        .map(|ct| {
+            CleanTarget {
+                name: Cow::Owned(ct.name.clone()),
+                path: Cow::Owned(ct.path.clone()),
+                description: Cow::Owned(ct.description.clone()),
+                ..CleanTarget::default()
+            }
+            .custom()
         })
         .collect();
 
@@ -809,6 +891,7 @@ pub fn build_targets(
 mod tests {
     use super::build_targets;
     use crate::config::target_config::CustomTargetEntry;
+    use crate::domain::TargetOrigin;
 
     #[test]
     fn returns_all_when_filter_is_empty() {
@@ -833,5 +916,10 @@ mod tests {
         let targets = build_targets(&[], &custom);
         assert!(targets.iter().any(|t| t.name == "My Custom"));
         assert!(targets.len() > 1);
+
+        let custom_t = targets.iter().find(|t| t.name == "My Custom").unwrap();
+        assert_eq!(custom_t.origin, TargetOrigin::Custom);
+        // Built-in targets keep Builtin origin.
+        assert!(targets.iter().any(|t| t.origin == TargetOrigin::Builtin));
     }
 }

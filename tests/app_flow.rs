@@ -5,7 +5,7 @@ use std::{borrow::Cow, path::Path};
 use acari::application::cleaner::{CleanMode, start_background_clean};
 use acari::application::scanner::start_background_scan;
 use acari::config::target_config::IoPriority;
-use acari::domain::{AppEvent, CleanTarget};
+use acari::domain::{AppEvent, CleanTarget, TargetOrigin};
 
 fn test_target(name: &'static str, path: &Path) -> CleanTarget {
     CleanTarget {
@@ -16,6 +16,7 @@ fn test_target(name: &'static str, path: &Path) -> CleanTarget {
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     }
 }
 
@@ -135,6 +136,7 @@ async fn command_target_happy_path_scan_and_clean() {
         requires_sudo: false,
         dangerous: false,
         delete_entire: false,
+        origin: TargetOrigin::Builtin,
     };
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();

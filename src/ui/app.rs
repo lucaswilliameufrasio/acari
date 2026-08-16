@@ -780,7 +780,7 @@ mod tests {
 
     use crossterm::event::KeyCode;
 
-    use crate::domain::{AppEvent, CleanTarget};
+    use crate::domain::{AppEvent, CleanTarget, TargetOrigin};
     use crate::i18n::Language;
 
     use ratatui::widgets::ListItem;
@@ -802,6 +802,7 @@ mod tests {
                     requires_sudo: false,
                     dangerous: false,
                     delete_entire: false,
+                    origin: TargetOrigin::Builtin,
                 },
                 TargetState::default(),
             ),
@@ -814,6 +815,7 @@ mod tests {
                     requires_sudo: false,
                     dangerous: false,
                     delete_entire: false,
+                    origin: TargetOrigin::Builtin,
                 },
                 TargetState::default(),
             ),
@@ -1204,6 +1206,7 @@ mod tests {
                         requires_sudo: false,
                         dangerous: false,
                         delete_entire: false,
+                        origin: TargetOrigin::Builtin,
                     },
                     TargetState {
                         bytes: *bytes,

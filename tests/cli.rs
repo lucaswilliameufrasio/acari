@@ -176,6 +176,27 @@ fn target_add_persists_to_config() {
 }
 
 #[test]
+fn list_marks_config_custom_targets_as_custom() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let mut c = cmd();
+    c.env("ACARI_CONFIG_HOME", temp.path());
+    c.args(["target", "add", "My Custom Target", "/tmp/my-custom"])
+        .assert()
+        .success();
+
+    // Config-defined custom targets must be labelled as custom in --list
+    // (previously they were mislabelled as built-in because the check relied
+    // on a description string that only scan-path targets set).
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .arg("--list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("My Custom Target (custom)"));
+}
+
+#[test]
 fn target_add_duplicate_rejected() {
     let temp = tempfile::tempdir().expect("tempdir");
 
@@ -436,4 +457,73 @@ fn project_clear_patterns_removes_all() {
     let content = fs::read_to_string(&config_path).expect("read config");
     assert!(!content.contains(".terraform"), ".terraform should be gone");
     assert!(!content.contains(".mycustom"), ".mycustom should be gone");
+}
+
+#[test]
+fn headless_json_scan_path_emits_json() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().join("cache");
+    fs::create_dir_all(&root).expect("create dir");
+    fs::write(root.join("a.bin"), vec![0u8; 8]).expect("write file");
+
+    cmd()
+        .args(["--headless", "--json", "--scan-path"])
+        .arg(root.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"targets\""))
+        .stdout(predicate::str::contains("\"total_bytes\""));
+}
+
+#[test]
+fn project_scan_json_emits_json() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let proj = temp.path().join("proj");
+    fs::create_dir_all(proj.join("node_modules")).expect("create dir");
+    fs::write(proj.join("node_modules").join("p.js"), b"x").expect("write file");
+
+    cmd()
+        .args(["project", "scan", "--headless", "--json"])
+        .arg(proj.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"targets\""))
+        .stdout(predicate::str::contains("\"total_bytes\""));
+}
+
+#[test]
+fn history_shows_entries_and_clear_removes() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let log = temp.path().join("history.log");
+    fs::write(
+        &log,
+        "2026-01-01 00:00:00 | Clean completed | targets=1 reclaimed=100 errors=0\n",
+    )
+    .expect("write history");
+
+    cmd()
+        .env("ACARI_DATA_HOME", temp.path())
+        .arg("history")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Clean completed"));
+
+    cmd()
+        .env("ACARI_DATA_HOME", temp.path())
+        .args(["history", "--clear"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cleared"));
+
+    assert!(!log.exists(), "history log should be removed after --clear");
+}
+
+#[test]
+fn df_prints_overview() {
+    cmd()
+        .arg("df")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Total:"))
+        .stdout(predicate::str::contains("Free:"));
 }

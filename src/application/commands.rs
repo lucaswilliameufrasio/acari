@@ -66,7 +66,7 @@ pub fn prepare_targets(
 
 pub fn print_targets(targets: &[CleanTarget], lang: Language) {
     for target in targets {
-        let origin = if target.description == "User provided path" {
+        let origin = if target.is_custom() {
             msg::target_list_custom(lang)
         } else {
             msg::target_list_builtin(lang)

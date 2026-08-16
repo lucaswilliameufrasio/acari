@@ -23,7 +23,7 @@ fn print_all_targets(lang: Language) {
     );
     println!();
     for target in &targets {
-        let is_custom = target.description == "User provided path";
+        let is_custom = target.is_custom();
         let origin = if is_custom {
             msg::target_list_custom(lang)
         } else {
@@ -129,6 +129,10 @@ fn print_df(lang: Language) {
     let overview = disk_overview();
     println!("{}", msg::df_title(lang));
     println!("  {} {}", msg::df_device(lang), overview.device);
+    if !overview.available {
+        println!("  {}", msg::df_unavailable(lang));
+        return;
+    }
     println!("  {} {}", msg::df_total(lang), format_bytes(overview.total));
     println!("  {} {}", msg::df_used(lang), format_bytes(overview.used));
     println!("  {} {}", msg::df_free(lang), format_bytes(overview.free));

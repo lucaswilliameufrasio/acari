@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use jwalk::WalkDir;
 
-use crate::domain::{CleanTarget, expand_tilde};
+use crate::domain::{CleanTarget, TargetOrigin, expand_tilde};
 
 const BUILTIN_PATTERNS: &[&str] = &[
     "node_modules",
@@ -146,6 +146,7 @@ pub fn discover_junk_dirs(
                                     requires_sudo: false,
                                     dangerous: false,
                                     delete_entire: true,
+                                    origin: TargetOrigin::Builtin,
                                 });
                             }
                             return false;

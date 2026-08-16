@@ -196,7 +196,7 @@ mod tests {
     use jwalk::Parallelism;
     use tokio::sync::mpsc;
 
-    use crate::domain::CleanTarget;
+    use crate::domain::{CleanTarget, TargetOrigin};
 
     use super::{estimate_command_target_bytes, scan_target};
 
@@ -217,6 +217,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -242,6 +243,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -271,6 +273,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel();

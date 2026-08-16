@@ -222,7 +222,7 @@ mod tests {
     use std::borrow::Cow;
     use std::fs;
 
-    use crate::domain::CleanTarget;
+    use crate::domain::{CleanTarget, TargetOrigin};
 
     use super::clean_target;
     use crate::application::cleaner::CleanMode;
@@ -240,6 +240,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 0, 0, CleanMode::Execute);
@@ -265,6 +266,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 8, 2, CleanMode::Execute);
@@ -291,6 +293,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 3, 1, CleanMode::DryRun);
@@ -324,6 +327,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 3, 1, CleanMode::Execute);
@@ -354,6 +358,7 @@ mod tests {
                 requires_sudo: false,
                 dangerous: false,
                 delete_entire: false,
+                origin: TargetOrigin::Builtin,
             };
 
             let result = clean_target(&target, 1, 1, CleanMode::Execute);
@@ -381,6 +386,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: true,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 4, 1, CleanMode::Execute);
@@ -404,6 +410,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: true,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 100, 5, CleanMode::DryRun);
@@ -425,6 +432,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 42_000_000_000, 5, CleanMode::DryRun);
@@ -444,6 +452,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 1000, 1, CleanMode::Execute);
@@ -468,6 +477,7 @@ mod tests {
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
+            origin: TargetOrigin::Builtin,
         };
 
         let result = clean_target(&target, 4, 1, CleanMode::Execute);

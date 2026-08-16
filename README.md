@@ -38,11 +38,26 @@ macOS's **System Data** (formerly "Other" in older versions) is a catch-all cate
 | **User Caches + Logs** | 1–10 GB | `User Caches`, `User Logs` |
 | **Trash** | 0.1–50 GB | `Trash` |
 | **XDG/Homebrew caches** | 0.5–5 GB | `Homebrew Cache`, etc. |
-| **Android Studio SDK + Caches** | 10–50 GB | `Android Studio Caches` |
+| **Android Studio SDK + Caches** | 10–50 GB | `Google IDE Caches` (all versions) |
 
 Run `acari` — all detected targets appear with their sizes. Select what you want and press Enter to clean. Command targets (like APFS snapshots) show a `[cmd]` badge and execute system commands instead of deleting files.
 
 **Note:** APFS snapshots may require `sudo`. Enter your password when prompted.
+
+### Developer, Apple & App Caches
+
+Beyond the classic caches, Acarí tracks modern toolchain and application caches
+that can silently consume gigabytes:
+
+| Category | Targets |
+|---|---|
+| JS/Python runtimes | `Bun Cache`, `Deno Cache`, `pnpm Cache`, `Yarn Cache`, `pip Cache`, `NPM Cache` |
+| Rust / Go / .NET | `Cargo Registry`, `Cargo Git Checkouts`, `Go Build Cache`, `Go Module Cache`, `NuGet Cache` |
+| Apple toolchain | `CocoaPods Cache`, `SwiftPM Cache`, `macOS Diagnostic Reports`, `iOS Simulator Devices`, `iOS Simulators Reset` |
+| Apps | `Spotify Cache`, `Slack Cache`, `Discord Cache`, `VS Code Cache`, `VS Code ShipIt Cache` |
+
+`iOS Simulators Reset` is a dangerous command target that runs
+`xcrun simctl erase all` to wipe every local simulator device.
 
 ## 🚀 Getting Started
 
@@ -106,6 +121,12 @@ Navigate the interface using your keyboard:
 
 * `<Space>`: Toggle selection of a junk category.
 * `<Enter>`: Confirm and aggressively clean selected targets.
+* `a`: Select / deselect all.
+* `i`: Invert the current selection.
+* `c`: Clear (deselect) all.
+* `s`: Cycle the sort order (size desc/asc, name, file count).
+* `/`: Start an interactive search/filter by name.
+* `d`: Toggle dry-run mode.
 * `q` or `<Esc>`: Exit the application gracefully.
 
 Run headless scan:
@@ -132,6 +153,28 @@ Scan only a custom path:
 acari --headless --target target-that-does-not-exist --scan-path /tmp/my-cache
 ```
 
+### CLI Reference
+
+```bash
+# Disk usage overview (fast, no full scan)
+acari df
+
+# Show the cleanup history log
+acari history
+
+# Clear the cleanup history log
+acari history --clear
+
+# Structured JSON output for scripting (headless)
+acari --headless --json
+```
+
+`acari df` shows the primary volume's total/used/free space plus the APFS
+purgeable space (macOS). Use `acari --headless` to get the full reclaimable
+estimate across all detected caches. `--json` is also available on
+`acari project scan --headless --json` for integration with scripts, status
+bars (Waybar, SwiftBar, Raycast) and CI.
+
 ### Project Junk Scanner
 
 Find and clean build/cache directories across your projects (node_modules, target, build, .venv, __pycache__, etc.):
@@ -146,6 +189,12 @@ acari project scan ~/projects ~/work
 # Scan with patterns and dry-run
 acari project scan --no-default-patterns --pattern .terraform --headless
 
+# Scan with excluded directories (also pruned during discovery)
+acari project scan --exclude node_modules --exclude vendor ~/projects
+
+# Emit JSON for scripting
+acari project scan --headless --json ~/projects
+
 # Manage project roots
 acari project add-root ~/projects
 acari project list-roots
@@ -157,7 +206,7 @@ acari project list-patterns
 acari project remove-pattern .terraform
 ```
 
-The built-in patterns (24 total) include: `node_modules`, `target`, `build`, `.next`, `__pycache__`, `.venv`, `vendor`, `.gradle`, and more. Custom patterns can be added via CLI or the TUI.
+The built-in patterns (30 total) include: `node_modules`, `target`, `build`, `.next`, `__pycache__`, `.venv`, `vendor`, `.gradle`, `.svelte-kit`, `.parcel-cache`, `.docusaurus`, `.angular`, `.serverless`, and more. Custom patterns can be added via CLI or the TUI.
 
 ### Verify Release Checksums
 

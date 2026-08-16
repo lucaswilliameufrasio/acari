@@ -677,4 +677,12 @@ pub mod msg {
     pub fn df_purgeable(lang: Language) -> &'static str {
         s("Espaço purgável (APFS):", "Purgeable (APFS):", lang)
     }
+
+    pub fn df_unavailable(lang: Language) -> &'static str {
+        s(
+            "Não foi possível obter informações de espaço do volume.",
+            "Could not read volume space information.",
+            lang,
+        )
+    }
 }

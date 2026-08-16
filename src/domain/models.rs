@@ -1,6 +1,12 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum TargetOrigin {
+    Builtin,
+    Custom,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CleanTarget {
     pub name: Cow<'static, str>,
@@ -10,6 +16,7 @@ pub struct CleanTarget {
     pub command: &'static [&'static str],
     pub requires_sudo: bool,
     pub dangerous: bool,
+    pub origin: TargetOrigin,
 }
 
 impl CleanTarget {
@@ -19,6 +26,10 @@ impl CleanTarget {
 
     pub fn is_dangerous(&self) -> bool {
         self.dangerous || self.requires_sudo
+    }
+
+    pub fn is_custom(&self) -> bool {
+        self.origin == TargetOrigin::Custom
     }
 }
 
@@ -37,6 +48,7 @@ impl CleanTarget {
             command: &[],
             requires_sudo: false,
             dangerous: false,
+            origin: TargetOrigin::Builtin,
         }
     }
 
@@ -53,6 +65,7 @@ impl CleanTarget {
             command,
             requires_sudo: false,
             dangerous: false,
+            origin: TargetOrigin::Builtin,
         }
     }
 
@@ -63,6 +76,11 @@ impl CleanTarget {
 
     pub const fn dangerous(mut self) -> Self {
         self.dangerous = true;
+        self
+    }
+
+    pub const fn custom(mut self) -> Self {
+        self.origin = TargetOrigin::Custom;
         self
     }
 }
@@ -77,6 +95,7 @@ impl Default for CleanTarget {
             command: &[],
             requires_sudo: false,
             dangerous: false,
+            origin: TargetOrigin::Builtin,
         }
     }
 }

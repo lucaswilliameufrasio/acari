@@ -4,21 +4,21 @@ use crate::domain::CleanTarget;
 
 pub fn append_custom_scan_paths(targets: &mut Vec<CleanTarget>, scan_paths: &[String]) {
     for (idx, path) in scan_paths.iter().enumerate() {
-        targets.push(CleanTarget {
-            name: Cow::Owned(format!("Custom Path {}", idx + 1)),
-            path: Cow::Owned(path.clone()),
-            description: Cow::Borrowed("User provided path"),
-            command: &[],
-            requires_sudo: false,
-            dangerous: false,
-            delete_entire: false,
-        });
+        targets.push(
+            CleanTarget {
+                name: Cow::Owned(format!("Custom Path {}", idx + 1)),
+                path: Cow::Owned(path.clone()),
+                description: Cow::Borrowed("User provided path"),
+                ..CleanTarget::default()
+            }
+            .custom(),
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::CleanTarget;
+    use crate::domain::{CleanTarget, TargetOrigin};
 
     use super::append_custom_scan_paths;
 
@@ -35,5 +35,6 @@ mod tests {
         assert_eq!(targets[1].name, "Custom Path 2");
         assert_eq!(targets[1].path, "/tmp/two");
         assert_eq!(targets[0].description, "User provided path");
+        assert_eq!(targets[0].origin, TargetOrigin::Custom);
     }
 }

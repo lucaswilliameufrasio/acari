@@ -4,6 +4,8 @@
 /// - On Linux the root filesystem is `/`.
 pub struct DiskOverview {
     pub device: String,
+    /// Whether the volume statistics could be read (false if unavailable).
+    pub available: bool,
     pub total: u64,
     pub used: u64,
     pub free: u64,
@@ -41,9 +43,14 @@ pub fn disk_overview() -> DiskOverview {
     let device = path.to_string();
 
     #[cfg(unix)]
-    let (total, used, free) = statvfs(path).unwrap_or((0, 0, 0));
+    let stats = statvfs(path);
     #[cfg(not(unix))]
-    let (total, used, free) = (0, 0, 0);
+    let stats: Option<(u64, u64, u64)> = None;
+
+    let (available, total, used, free) = match stats {
+        Some((total, used, free)) => (true, total, used, free),
+        None => (false, 0, 0, 0),
+    };
 
     let usage_percent = if total > 0 {
         (used as f64 / total as f64) * 100.0
@@ -55,6 +62,7 @@ pub fn disk_overview() -> DiskOverview {
 
     DiskOverview {
         device,
+        available,
         total,
         used,
         free,
