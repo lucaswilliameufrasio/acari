@@ -30,41 +30,48 @@ pub fn parse_purgeable_bytes(output: &str) -> Option<u64> {
     None
 }
 
+/// Case-insensitive check that `s` ends with `suffix`.
+fn ends_with_ci(s: &str, suffix: &str) -> bool {
+    if s.len() < suffix.len() {
+        return false;
+    }
+    s[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+}
+
 /// Parse a single human-readable size string.
 pub fn parse_human_size(s: &str) -> Option<u64> {
     let s = s.trim();
-    let lower = s.to_lowercase();
-    if lower.ends_with("gib") {
+    if ends_with_ci(s, "gib") {
         let n = s[..s.len() - 3].trim().parse::<f64>().ok()?;
         Some((n * 1_073_741_824.0) as u64)
-    } else if lower.ends_with("mib") {
+    } else if ends_with_ci(s, "mib") {
         let n = s[..s.len() - 3].trim().parse::<f64>().ok()?;
         Some((n * 1_048_576.0) as u64)
-    } else if lower.ends_with("kib") {
+    } else if ends_with_ci(s, "kib") {
         let n = s[..s.len() - 3].trim().parse::<f64>().ok()?;
         Some((n * 1_024.0) as u64)
-    } else if lower.ends_with("gb") {
+    } else if ends_with_ci(s, "gb") {
         let n = s[..s.len() - 2].trim().parse::<f64>().ok()?;
         Some((n * 1_000_000_000.0) as u64)
-    } else if lower.ends_with("mb") {
+    } else if ends_with_ci(s, "mb") {
         let n = s[..s.len() - 2].trim().parse::<f64>().ok()?;
         Some((n * 1_000_000.0) as u64)
-    } else if lower.ends_with("kb") {
+    } else if ends_with_ci(s, "kb") {
         let n = s[..s.len() - 2].trim().parse::<f64>().ok()?;
         Some((n * 1_000.0) as u64)
-    } else if lower.ends_with('g') {
-        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
-        Some((n * 1_000_000_000.0) as u64)
-    } else if lower.ends_with('m') {
-        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
-        Some((n * 1_000_000.0) as u64)
-    } else if lower.ends_with('k') {
-        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
-        Some((n * 1_000.0) as u64)
-    } else if lower.ends_with("bytes") {
+    } else if ends_with_ci(s, "bytes") {
         let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
         digits.parse::<u64>().ok()
-    } else if lower.ends_with('b') {
+    } else if ends_with_ci(s, "g") {
+        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
+        Some((n * 1_000_000_000.0) as u64)
+    } else if ends_with_ci(s, "m") {
+        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
+        Some((n * 1_000_000.0) as u64)
+    } else if ends_with_ci(s, "k") {
+        let n = s[..s.len() - 1].trim().parse::<f64>().ok()?;
+        Some((n * 1_000.0) as u64)
+    } else if ends_with_ci(s, "b") {
         // bare "b" suffix often means bytes
         s[..s.len() - 1].trim().parse::<u64>().ok()
     } else {

@@ -1,4 +1,5 @@
 use std::io::ErrorKind;
+use std::sync::OnceLock;
 
 use jwalk::Parallelism;
 use jwalk::WalkDir;
@@ -113,7 +114,9 @@ fn estimate_simctl_erase() -> (u64, u64) {
     let mut files = 0_u64;
     let walker = WalkDir::new(&path)
         .follow_links(false)
-        .parallelism(Parallelism::Serial)
+        .parallelism(Parallelism::RayonDefaultPool {
+            busy_timeout: std::time::Duration::from_secs(1),
+        })
         .into_iter();
     for entry in walker.flatten() {
         if entry.file_type().is_file() {
@@ -136,10 +139,14 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
         Err(_) => return (0, 0),
     };
 
-    let purgeable = match exec::run_command_get_stdout(&["diskutil", "info", "/"]) {
-        Ok(stdout) => exec::parse_diskutil_info_output(&stdout),
-        Err(_) => None,
-    };
+    // Cache the diskutil query per process so concurrent command-target
+    // estimates never re-spawn the (relatively expensive) subprocess.
+    static PURGEABLE: OnceLock<Option<u64>> = OnceLock::new();
+    let purgeable = *PURGEABLE.get_or_init(|| {
+        exec::run_command_get_stdout(&["diskutil", "info", "/"])
+            .ok()
+            .and_then(|stdout| exec::parse_diskutil_info_output(&stdout))
+    });
 
     let bytes = purgeable.unwrap_or(snap_count.saturating_mul(5_000_000_000));
     (bytes, snap_count)
