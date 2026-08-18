@@ -1,8 +1,9 @@
-use std::io::ErrorKind;
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 use jwalk::Parallelism;
 use jwalk::WalkDir;
+use rayon::ThreadPool;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::domain::{AppEvent, CleanTarget, ScanResult, expand_tilde};
@@ -12,14 +13,25 @@ fn is_excluded(name: &str, excludes: &[String]) -> bool {
     excludes.iter().any(|pat| name == pat)
 }
 
+/// Parallelism for a directory walk, routed through the dedicated rayon pool
+/// provided by the scan. `busy_timeout: None` disables jwalk's shared-pool
+/// deadlock check, which is safe here because the pool is dedicated to this scan
+/// and never contended by unrelated work.
+fn dedicated_walk_parallelism(pool: &Arc<ThreadPool>) -> Parallelism {
+    Parallelism::RayonExistingPool {
+        pool: Arc::clone(pool),
+        busy_timeout: None,
+    }
+}
+
 pub fn scan_target(
     target: &CleanTarget,
     tx: &UnboundedSender<AppEvent>,
     excludes: &[String],
-    parallelism: Parallelism,
+    pool: &Arc<ThreadPool>,
 ) -> ScanResult {
     if target.is_command() {
-        return scan_command_target(target, tx);
+        return scan_command_target(target, tx, pool);
     }
 
     let path = target.resolved_path();
@@ -30,12 +42,12 @@ pub fn scan_target(
     let walker = if excludes.is_empty() {
         WalkDir::new(&path)
             .follow_links(false)
-            .parallelism(parallelism)
+            .parallelism(dedicated_walk_parallelism(pool))
     } else {
         let ex = excludes.to_vec();
         WalkDir::new(&path)
             .follow_links(false)
-            .parallelism(parallelism)
+            .parallelism(dedicated_walk_parallelism(pool))
             .process_read_dir(move |_depth, _parent_path, _state, children: &mut Vec<_>| {
                 children.retain(|entry| {
                     if let Ok(entry) = entry {
@@ -51,14 +63,9 @@ pub fn scan_target(
     for entry in walker {
         let entry = match entry {
             Ok(value) => value,
-            Err(err) => {
-                if let Some(io_err) = err.io_error()
-                    && io_err.kind() == ErrorKind::PermissionDenied
-                {
-                    continue;
-                }
-                continue;
-            }
+            // Skip unreadable entries (e.g. permission denied) instead of
+            // failing the whole target scan; the walk is best-effort.
+            Err(_) => continue,
         };
 
         if entry.file_type().is_file() {
@@ -84,8 +91,12 @@ pub fn scan_target(
     }
 }
 
-fn scan_command_target(target: &CleanTarget, _tx: &UnboundedSender<AppEvent>) -> ScanResult {
-    let (bytes, count) = estimate_command_target_bytes(&target.name);
+fn scan_command_target(
+    target: &CleanTarget,
+    _tx: &UnboundedSender<AppEvent>,
+    pool: &Arc<ThreadPool>,
+) -> ScanResult {
+    let (bytes, count) = estimate_command_target_bytes(&target.name, pool);
 
     ScanResult {
         target: target.clone(),
@@ -94,13 +105,13 @@ fn scan_command_target(target: &CleanTarget, _tx: &UnboundedSender<AppEvent>) ->
     }
 }
 
-fn estimate_command_target_bytes(name: &str) -> (u64, u64) {
+fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> (u64, u64) {
     match name {
         "Time Machine Local Snapshots" => estimate_apfs_snapshots(),
         "Docker System Prune" => estimate_docker_reclaimable(),
         "Apt Autoremove" => estimate_apt_autoremove(),
         "Journalctl Vacuum" => estimate_journalctl_usage(),
-        "iOS Simulators Reset" => estimate_simctl_erase(),
+        "iOS Simulators Reset" => estimate_simctl_erase(pool),
         _ => (0, 0),
     }
 }
@@ -108,15 +119,13 @@ fn estimate_command_target_bytes(name: &str) -> (u64, u64) {
 /// Estimate the reclaimable bytes for `xcrun simctl erase all` by summing the
 /// size of the local simulator devices directory.
 #[cfg(target_os = "macos")]
-fn estimate_simctl_erase() -> (u64, u64) {
+fn estimate_simctl_erase(pool: &Arc<ThreadPool>) -> (u64, u64) {
     let path = expand_tilde("~/Library/Developer/CoreSimulator/Devices");
     let mut bytes = 0_u64;
     let mut files = 0_u64;
     let walker = WalkDir::new(&path)
         .follow_links(false)
-        .parallelism(Parallelism::RayonDefaultPool {
-            busy_timeout: std::time::Duration::from_secs(1),
-        })
+        .parallelism(dedicated_walk_parallelism(pool))
         .into_iter();
     for entry in walker.flatten() {
         if entry.file_type().is_file() {
@@ -128,7 +137,7 @@ fn estimate_simctl_erase() -> (u64, u64) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn estimate_simctl_erase() -> (u64, u64) {
+fn estimate_simctl_erase(_pool: &Arc<ThreadPool>) -> (u64, u64) {
     (0, 0)
 }
 
@@ -194,13 +203,23 @@ fn estimate_journalctl_usage() -> (u64, u64) {
 mod tests {
     use std::borrow::Cow;
     use std::fs;
+    use std::sync::Arc;
 
-    use jwalk::Parallelism;
+    use rayon::ThreadPoolBuilder;
     use tokio::sync::mpsc;
 
     use crate::domain::{CleanTarget, TargetOrigin};
 
     use super::{estimate_command_target_bytes, scan_target};
+
+    fn test_pool() -> Arc<rayon::ThreadPool> {
+        Arc::new(
+            ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .expect("build test pool"),
+        )
+    }
 
     #[test]
     fn scans_directory_and_counts_bytes() {
@@ -223,7 +242,8 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
-        let result = scan_target(&target, &tx, &[], Parallelism::Serial);
+        let pool = test_pool();
+        let result = scan_target(&target, &tx, &[], &pool);
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.bytes, 10);
@@ -249,12 +269,8 @@ mod tests {
         };
 
         let (tx, _rx) = mpsc::unbounded_channel();
-        let result = scan_target(
-            &target,
-            &tx,
-            &["node_modules".to_string()],
-            Parallelism::Serial,
-        );
+        let pool = test_pool();
+        let result = scan_target(&target, &tx, &["node_modules".to_string()], &pool);
 
         assert_eq!(result.files_scanned, 1);
         assert_eq!(result.bytes, 4); // "main" = 4 bytes
@@ -262,7 +278,11 @@ mod tests {
 
     #[test]
     fn unknown_command_target_returns_zero() {
-        assert_eq!(estimate_command_target_bytes("Some Unknown Target"), (0, 0));
+        let pool = test_pool();
+        assert_eq!(
+            estimate_command_target_bytes("Some Unknown Target", &pool),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -279,7 +299,8 @@ mod tests {
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let result = scan_target(&target, &tx, &[], Parallelism::Serial);
+        let pool = test_pool();
+        let result = scan_target(&target, &tx, &[], &pool);
 
         // Byte estimate is only guaranteed to be zero on non-macOS where the
         // APFS snapshot estimation is a no-op.
