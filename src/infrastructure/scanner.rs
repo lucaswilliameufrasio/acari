@@ -1,4 +1,5 @@
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
 use std::sync::OnceLock;
 
 use jwalk::Parallelism;
@@ -6,7 +7,9 @@ use jwalk::WalkDir;
 use rayon::ThreadPool;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::domain::{AppEvent, CleanTarget, ScanResult, expand_tilde};
+#[cfg(target_os = "macos")]
+use crate::domain::expand_tilde;
+use crate::domain::{AppEvent, CleanTarget, ScanResult};
 use crate::infrastructure::exec;
 
 fn is_excluded(name: &str, excludes: &[String]) -> bool {
