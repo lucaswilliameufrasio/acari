@@ -32,6 +32,42 @@ fn statvfs(path: &str) -> Option<(u64, u64, u64)> {
     }
 }
 
+/// Windows equivalent of `statvfs`, via `GetDiskFreeSpaceExW`.
+#[cfg(windows)]
+fn disk_usage_windows() -> Option<(u64, u64, u64)> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetDiskFreeSpaceExW(
+            lpDirectoryName: *const u16,
+            lpFreeBytesAvailableToCaller: *mut u64,
+            lpTotalNumberOfBytes: *mut u64,
+            lpTotalNumberOfFreeBytes: *mut u64,
+        ) -> i32;
+    }
+
+    let dir = std::env::current_dir().ok()?;
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+
+    let mut free_available: u64 = 0;
+    let mut total: u64 = 0;
+    let mut free_total: u64 = 0;
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free_available,
+            &mut total,
+            &mut free_total,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let used = total.saturating_sub(free_total);
+    Some((total, used, free_available))
+}
+
 pub fn disk_overview() -> DiskOverview {
     #[cfg(target_os = "macos")]
     let path = "/System/Volumes/Data";
@@ -44,7 +80,9 @@ pub fn disk_overview() -> DiskOverview {
 
     #[cfg(unix)]
     let stats = statvfs(path);
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    let stats = disk_usage_windows();
+    #[cfg(not(any(unix, windows)))]
     let stats: Option<(u64, u64, u64)> = None;
 
     let (available, total, used, free) = match stats {
