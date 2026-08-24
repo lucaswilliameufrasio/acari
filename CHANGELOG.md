@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-08-24
+
+### Bug Fixes
+
+- Shutdown simulators before erase and skip os.update snapshots
 ## [0.7.0] - 2026-08-24
 
 ### Bug Fixes
@@ -19,6 +24,7 @@ All notable changes to this project will be documented in this file.
 ### Chores
 
 - Add Makefile with setup, test, fmt, lint, check, run, release, clean targets
+- Prepare for v0.7.0
 
 ### Documentation
 
