@@ -2,11 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-08-24
+
+### Bug Fixes
+
+- Dedupe command events, protect source dirs, add macOS caches
+- Parse docker system df reclaimable size with 
+- Gate macOS-only imports in scanner to fix non-macOS CI
+- Add Windows GetDiskFreeSpaceExW support so df works on Windows
+
+### CI / Build
+
+- Use cargo-nextest for test execution
+- Allow -rc.N suffix on release branch names
+
+### Chores
+
+- Add Makefile with setup, test, fmt, lint, check, run, release, clean targets
+
+### Documentation
+
+- Add macOS System Data section to README
+- Add ADR 003 dedicated rayon pool for directory traversal
+
+### Features
+
+- Delete_entire flag + tracked bytes in cleaner + 2 tests
+- Add macOS targets for Xcode archives, iOS backups, simulator runtimes, Android Studio caches
+- Add command targets for APFS Time Machine snapshots + new macOS targets
+- Tests for command targets, TUI [cmd] badge, purgeable space parser
+- Add Docker prune, apt autoremove, journalctl vacuum command targets
+- Add requires_sudo and dangerous metadata to CleanTarget
+- Dangerous confirmation phase + [sudo] badge in TUI
+- Json output, history/df commands, TUI search, new caches
+
+### Performance
+
+- Cache diskutil query, parallel simctl scan, avoid alloc in parse_human_size
+- Dedicated rayon pool per scan, avoid jwalk global-pool abort
+
+### Refactor
+
+- Extract exec module with parsers + 25 tests
+- Explicit TargetOrigin for targets, fix custom --list label
+
+### Styling
+
+- Fix fmt and clippy warnings in scanner and tests
 ## [0.6.0] - 2026-06-11
 
 ### Bug Fixes
 
 - Auto-sort targets by size, cursor in Finished phase, sorted indicator
+
+### Chores
+
+- Prepare for v0.6.0
 
 ### Testing
 
@@ -242,7 +293,7 @@ All notable changes to this project will be documented in this file.
 ### Styling
 
 - Cargo fmt on all files
-## [main] - 2026-03-24
+## [0.0.1] - 2026-04-27
 
 ### CI / Build
 
