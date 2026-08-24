@@ -213,12 +213,16 @@ pub const OS_CACHES: &[CleanTarget] = &[
     },
     CleanTarget {
         name: Cow::Borrowed("iOS Simulator Devices"),
-        path: Cow::Borrowed("~/Library/Developer/CoreSimulator/Devices"),
-        description: Cow::Borrowed("Installed simulator devices and their data"),
-        command: &[],
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("Shut down and erase all simulator devices and their data"),
+        command: &[
+            "sh",
+            "-c",
+            "xcrun simctl shutdown all 2>/dev/null; rm -rf \"$HOME/Library/Developer/CoreSimulator/Devices\"",
+        ],
         requires_sudo: false,
         dangerous: true,
-        delete_entire: true,
+        delete_entire: false,
         origin: TargetOrigin::Builtin,
     },
     CleanTarget {
@@ -414,8 +418,12 @@ pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
         name: Cow::Borrowed("iOS Simulators Reset"),
         path: Cow::Borrowed(""),
-        description: Cow::Borrowed("Erase all simulator devices and their data"),
-        command: &["xcrun", "simctl", "erase", "all"],
+        description: Cow::Borrowed("Shut down and erase all simulator devices and their data"),
+        command: &[
+            "sh",
+            "-c",
+            "xcrun simctl shutdown all 2>/dev/null; xcrun simctl erase all",
+        ],
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
@@ -495,7 +503,11 @@ pub const OS_CACHES: &[CleanTarget] = &[
         name: Cow::Borrowed("Time Machine Local Snapshots"),
         path: Cow::Borrowed(""),
         description: Cow::Borrowed("APFS local Time Machine snapshots (may require sudo)"),
-        command: &["tmutil", "deletelocalsnapshots", "/"],
+        command: &[
+            "sh",
+            "-c",
+            "if tmutil listlocalsnapshots / 2>/dev/null | grep -qE \"com.apple.TimeMachine|localhost\"; then tmutil deletelocalsnapshots /; fi",
+        ],
         requires_sudo: true,
         dangerous: true,
         delete_entire: false,
