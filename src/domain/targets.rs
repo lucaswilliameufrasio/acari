@@ -212,20 +212,6 @@ pub const OS_CACHES: &[CleanTarget] = &[
         origin: TargetOrigin::Builtin,
     },
     CleanTarget {
-        name: Cow::Borrowed("iOS Simulator Devices"),
-        path: Cow::Borrowed(""),
-        description: Cow::Borrowed("Shut down and erase all simulator devices and their data"),
-        command: &[
-            "sh",
-            "-c",
-            "xcrun simctl shutdown all 2>/dev/null; rm -rf \"$HOME/Library/Developer/CoreSimulator/Devices\"",
-        ],
-        requires_sudo: false,
-        dangerous: true,
-        delete_entire: false,
-        origin: TargetOrigin::Builtin,
-    },
-    CleanTarget {
         name: Cow::Borrowed("Xcode DerivedData"),
         path: Cow::Borrowed("~/Library/Developer/Xcode/DerivedData"),
         description: Cow::Borrowed("Xcode build artifacts"),
@@ -368,10 +354,10 @@ pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
         name: Cow::Borrowed("iOS Device Backups"),
         path: Cow::Borrowed("~/Library/Application Support/MobileSync/Backup"),
-        description: Cow::Borrowed("iPhone/iPad encrypted backups"),
+        description: Cow::Borrowed("iPhone/iPad encrypted backups (permanent data loss)"),
         command: &[],
         requires_sudo: false,
-        dangerous: false,
+        dangerous: true,
         delete_entire: false,
         origin: TargetOrigin::Builtin,
     },

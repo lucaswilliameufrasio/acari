@@ -115,14 +115,12 @@ fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> (u64, u6
         "Apt Autoremove" => estimate_apt_autoremove(),
         "Journalctl Vacuum" => estimate_journalctl_usage(),
         "iOS Simulators Reset" => estimate_simctl_erase(pool),
-        "iOS Simulator Devices" => estimate_simctl_erase(pool),
         _ => (0, 0),
     }
 }
 
-/// Estimate the reclaimable bytes for `xcrun simctl erase all` (and the
-/// simulator device wipe) by summing the size of the local simulator devices
-/// directory.
+/// Estimate the reclaimable bytes for `xcrun simctl erase all` by summing the
+/// size of the local simulator devices directory.
 #[cfg(target_os = "macos")]
 fn estimate_simctl_erase(pool: &Arc<ThreadPool>) -> (u64, u64) {
     let path = expand_tilde("~/Library/Developer/CoreSimulator/Devices");

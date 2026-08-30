@@ -53,7 +53,7 @@ that can silently consume gigabytes:
 |---|---|
 | JS/Python runtimes | `Bun Cache`, `Deno Cache`, `pnpm Cache`, `Yarn Cache`, `pip Cache`, `NPM Cache` |
 | Rust / Go / .NET | `Cargo Registry`, `Cargo Git Checkouts`, `Go Build Cache`, `Go Module Cache`, `NuGet Cache` |
-| Apple toolchain | `CocoaPods Cache`, `SwiftPM Cache`, `macOS Diagnostic Reports`, `iOS Simulator Devices`, `iOS Simulators Reset` |
+| Apple toolchain | `CocoaPods Cache`, `SwiftPM Cache`, `macOS Diagnostic Reports`, `iOS Simulators Reset` |
 | Apps | `Spotify Cache`, `Slack Cache`, `Discord Cache`, `VS Code Cache`, `VS Code ShipIt Cache` |
 
 `iOS Simulators Reset` is a dangerous command target that runs
