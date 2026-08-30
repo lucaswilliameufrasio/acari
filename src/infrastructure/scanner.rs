@@ -169,7 +169,18 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
     (0, 0)
 }
 
+/// Estimate what `docker system prune -a --force` actually reclaims:
+/// unused images, stopped containers and build cache. Local volumes are
+/// never removed by prune, so they must not be part of the estimate.
 fn estimate_docker_reclaimable() -> (u64, u64) {
+    if let Ok(stdout) =
+        exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{json .}}"])
+        && let Some(bytes) = exec::parse_docker_df_json(&stdout)
+    {
+        return (bytes, 1);
+    }
+    // Fall back to the legacy table format (sums every line, including
+    // volumes) only when the structured output is unavailable.
     match exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{.Reclaimable}}"])
     {
         Ok(stdout) => {

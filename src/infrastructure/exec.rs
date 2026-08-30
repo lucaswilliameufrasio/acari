@@ -124,6 +124,44 @@ pub fn parse_docker_df_output(output: &str) -> u64 {
         .sum()
 }
 
+/// Parse `docker system df --format '{{json .}}'` output: one JSON object per
+/// line with `Type` and a reclaimable size field.
+///
+/// Returns `None` when no line could be parsed as JSON (caller falls back to
+/// the legacy table format). `Local Volumes` are excluded because
+/// `docker system prune -a` never removes volumes, so counting them would
+/// promise bytes the command cannot reclaim.
+pub fn parse_docker_df_json(output: &str) -> Option<u64> {
+    let mut total = 0_u64;
+    let mut parsed_any = false;
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let kind = value.get("Type").and_then(|v| v.as_str());
+        // Docker < 29 exposes `ReclaimableSize`; newer versions expose
+        // `Reclaimable` with an optional trailing "(NN%)" share.
+        let size = value
+            .get("ReclaimableSize")
+            .or_else(|| value.get("Reclaimable"))
+            .and_then(|v| v.as_str());
+        let (Some(kind), Some(size)) = (kind, size) else {
+            continue;
+        };
+        parsed_any = true;
+        if kind.eq_ignore_ascii_case("Local Volumes") {
+            continue;
+        }
+        let size = size.split('(').next().unwrap_or(size).trim();
+        total = total.saturating_add(parse_human_size(size).unwrap_or(0));
+    }
+    parsed_any.then_some(total)
+}
+
 /// Parse `journalctl --disk-usage` output like "Archived and active journals use 1.2G."
 pub fn parse_journalctl_output(output: &str) -> Option<u64> {
     let line = output.lines().find(|l| l.contains("use"))?;
@@ -312,8 +350,50 @@ mod tests {
 
     #[test]
     fn docker_df_all_unknown() {
-        let output = "<unknown>\n<unknown>\n";
-        assert_eq!(parse_docker_df_output(output), 0);
+        assert_eq!(parse_docker_df_output("<unknown>\n<unknown>\n"), 0);
+    }
+
+    // --- parse_docker_df_json ---
+
+    #[test]
+    fn docker_df_json_excludes_local_volumes() {
+        let output = concat!(
+            r#"{"Type":"Images","TotalCount":"5","Active":"2","Size":"37.4GB","ReclaimableSize":"33.65GB","ReclaimablePercent":"90%"}"#,
+            "\n",
+            r#"{"Type":"Containers","TotalCount":"12","Active":"3","Size":"2.1GB","ReclaimableSize":"1.2GB","ReclaimablePercent":"57%"}"#,
+            "\n",
+            r#"{"Type":"Local Volumes","TotalCount":"121","Active":"4","Size":"15.15GB","ReclaimableSize":"15GB","ReclaimablePercent":"99%"}"#,
+            "\n",
+            r#"{"Type":"Build Cache","TotalCount":"40","Active":"0","Size":"1.5GB","ReclaimableSize":"1.5GB","ReclaimablePercent":"100%"}"#,
+            "\n",
+        );
+        // Images + Containers + Build Cache; volumes are NOT reclaimed by
+        // `docker system prune -a`.
+        assert_eq!(parse_docker_df_json(output), Some(36_350_000_000));
+    }
+
+    #[test]
+    fn docker_df_json_modern_field_with_percent_share() {
+        // Docker 29+ emits `Reclaimable` with a "(NN%)" share suffix.
+        let output = concat!(
+            r#"{"Active":"12","Reclaimable":"62.52GB (73%)","Size":"84.91GB","TotalCount":"219","Type":"Images"}"#,
+            "\n",
+            r#"{"Active":"13","Reclaimable":"100.8GB (86%)","Size":"116.3GB","TotalCount":"1393","Type":"Local Volumes"}"#,
+            "\n",
+            r#"{"Active":"0","Reclaimable":"17.42GB","Size":"21.09GB","TotalCount":"282","Type":"Build Cache"}"#,
+            "\n",
+        );
+        assert_eq!(parse_docker_df_json(output), Some(79_940_000_000));
+    }
+
+    #[test]
+    fn docker_df_json_empty_returns_none() {
+        assert_eq!(parse_docker_df_json(""), None);
+    }
+
+    #[test]
+    fn docker_df_json_legacy_table_returns_none() {
+        assert_eq!(parse_docker_df_json("1.5GB\n800MB\n"), None);
     }
 
     #[test]
