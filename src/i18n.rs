@@ -286,6 +286,12 @@ pub mod msg {
         s("Ordenado por tamanho", "Sorted by size", lang)
     }
 
+    /// Suffix shown for broad targets whose nested targets cover part of
+    /// their bytes (e.g. User Caches containing Homebrew Cache).
+    pub fn bytes_remainder(lang: Language) -> &'static str {
+        s("restante", "remainder", lang)
+    }
+
     pub fn sort_bytes_desc(lang: Language) -> &'static str {
         s(
             "Ordenado: maior tamanho primeiro",

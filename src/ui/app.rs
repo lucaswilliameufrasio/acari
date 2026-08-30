@@ -19,7 +19,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::application::cleaner::{CleanMode, start_background_clean};
 use crate::application::commands::start_scan;
 use crate::config::target_config::IoPriority;
-use crate::domain::{AppEvent, CleanTarget, format_bytes};
+use crate::domain::{AppEvent, CleanTarget, aggregate_scan, format_bytes};
 use crate::i18n::{Language, msg};
 use crate::infrastructure::distro;
 use crate::infrastructure::history;
@@ -35,6 +35,9 @@ struct TargetState {
     removed_entries: u64,
     clean_errors: u64,
     reclaimed_bytes: u64,
+    /// True when this target's displayed bytes are only the remainder not
+    /// covered by nested targets (e.g. User Caches minus its children).
+    remainder: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -331,6 +334,7 @@ fn handle_event(
         }
         AppEvent::ScanFinished => {
             *phase = Phase::ReadyToClean;
+            apply_aggregation(rows, total_scanned_bytes);
             rows.sort_by_key(|(_, s)| std::cmp::Reverse(s.bytes));
             for (i, (t, _)) in rows.iter().enumerate() {
                 by_name.insert(t.name.to_string(), i);
@@ -375,6 +379,32 @@ fn handle_event(
         }
         AppEvent::Tick => {}
     }
+}
+
+/// Rewrite per-target bytes once the whole scan finished so overlapping
+/// targets are only counted once towards the grand total: exact duplicates
+/// and nested targets do not add to the total, and broad parents keep only
+/// the remainder their nested targets do not cover.
+fn apply_aggregation(rows: &mut [(CleanTarget, TargetState)], total_scanned_bytes: &mut u64) {
+    let entries: Vec<(String, Option<std::path::PathBuf>, u64)> = rows
+        .iter()
+        .map(|(target, state)| {
+            let path = if target.is_command() {
+                None
+            } else {
+                Some(target.resolved_path())
+            };
+            (target.name.to_string(), path, state.bytes)
+        })
+        .collect();
+    let agg = aggregate_scan(entries);
+    for (target, state) in rows.iter_mut() {
+        if let Some(entry) = agg.entries.iter().find(|e| e.name == target.name.as_ref()) {
+            state.bytes = entry.shown_bytes;
+            state.remainder = entry.remainder;
+        }
+    }
+    *total_scanned_bytes = agg.total_bytes;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -685,13 +715,18 @@ fn draw_ui(
 
             let cmd_label = if target.is_command() { " [cmd]" } else { "" };
             let sudo_label = if target.requires_sudo { " [sudo]" } else { "" };
+            let size_label = if state.remainder {
+                format!(
+                    "{} ({})",
+                    format_bytes(state.bytes),
+                    msg::bytes_remainder(lang)
+                )
+            } else {
+                format_bytes(state.bytes)
+            };
             let text = format!(
                 "{cursor} {sel}{}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
-                cmd_label,
-                sudo_label,
-                target.name,
-                format_bytes(state.bytes),
-                state.files,
+                cmd_label, sudo_label, target.name, size_label, state.files,
             );
 
             let style = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)

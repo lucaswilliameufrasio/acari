@@ -8,7 +8,7 @@ use crate::application::headless::output::{
     print_cleaning_finished, print_scan_finished, print_scan_progress, print_start_cleaning,
     print_target_cleaned, print_target_done,
 };
-use crate::domain::{AppEvent, CleanTarget};
+use crate::domain::{AppEvent, CleanTarget, aggregate_scan};
 use crate::i18n::Language;
 use crate::infrastructure::history;
 
@@ -23,7 +23,6 @@ pub async fn run_headless(
     lang: Language,
     json: bool,
 ) -> Result<()> {
-    let mut total_bytes = 0_u64;
     let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
     let mut waiting_clean_finish = false;
     let target_lookup: HashMap<String, CleanTarget> = targets
@@ -48,7 +47,6 @@ pub async fn run_headless(
                 total_bytes: bytes,
                 files_scanned,
             } => {
-                total_bytes = total_bytes.saturating_add(bytes);
                 if !json {
                     print_target_done(&target_name, bytes, files_scanned, lang);
                 }
@@ -58,10 +56,13 @@ pub async fn run_headless(
                 }
             }
             AppEvent::ScanFinished => {
+                // Recount the grand total so nested targets (e.g. User Caches
+                // and its children) and exact duplicates are counted once.
+                let counted_total = count_non_overlapping_total(&completed);
                 if json {
-                    output::print_scan_finished_json(&completed, total_bytes);
+                    output::print_scan_finished_json(&completed, counted_total);
                 } else {
-                    print_scan_finished(total_bytes, lang);
+                    print_scan_finished(counted_total, lang);
                 }
 
                 if clean_after_scan {
@@ -133,4 +134,22 @@ pub async fn run_headless(
     }
 
     Ok(())
+}
+
+/// Grand total that counts every scanned path exactly once: command targets
+/// always count, duplicates and nested targets do not add on top of the
+/// top-most ancestor that covers them.
+fn count_non_overlapping_total(completed: &HashMap<String, (CleanTarget, u64, u64)>) -> u64 {
+    let entries: Vec<(String, Option<std::path::PathBuf>, u64)> = completed
+        .values()
+        .map(|(target, bytes, _)| {
+            let path = if target.is_command() {
+                None
+            } else {
+                Some(target.resolved_path())
+            };
+            (target.name.to_string(), path, *bytes)
+        })
+        .collect();
+    aggregate_scan(entries).total_bytes
 }
