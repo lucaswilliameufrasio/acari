@@ -341,6 +341,9 @@ mod tests {
             );
             assert_eq!(allocated.bytes % 512, 0);
         }
+        #[cfg(not(unix))]
+        // Non-Unix platforms report apparent size in both modes.
+        assert_eq!(allocated.bytes, 1);
     }
 
     #[test]
