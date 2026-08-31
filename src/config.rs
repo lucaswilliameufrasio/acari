@@ -35,6 +35,11 @@ pub struct Cli {
     #[arg(long = "exclude")]
     pub excludes: Vec<String>,
 
+    /// Count allocated blocks (du-style, st_blocks * 512) instead of the
+    /// apparent file size reported by st_len
+    #[arg(long)]
+    pub allocated_size: bool,
+
     /// Emit structured JSON output in headless mode
     #[arg(long)]
     pub json: bool,
@@ -64,7 +69,24 @@ pub enum Commands {
         clear: bool,
     },
     /// Show a disk usage overview
-    Df,
+    /// Show disk usage overview
+    Df {
+        /// Split the used space into acari junk, project junk and the rest
+        /// (runs a full scan; may take a while)
+        #[arg(long)]
+        breakdown: bool,
+    },
+    /// List the largest directories under a path (du-style)
+    Du {
+        /// Directory to inspect (defaults to the home directory)
+        path: Option<String>,
+        /// How many entries to show
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+        /// Minimum directory size to include (e.g. 100MB)
+        #[arg(long = "min-size", default_value = "100MB")]
+        min_size: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

@@ -51,10 +51,12 @@ that can silently consume gigabytes:
 
 | Category | Targets |
 |---|---|
-| JS/Python runtimes | `Bun Cache`, `Deno Cache`, `pnpm Cache`, `Yarn Cache`, `pip Cache`, `NPM Cache` |
+| JS/Python runtimes | `Bun Cache`, `Bun Install Cache`, `Deno Cache`, `pnpm Cache`, `Yarn Cache`, `pip Cache`, `NPM Cache` |
 | Rust / Go / .NET | `Cargo Registry`, `Cargo Git Checkouts`, `Go Build Cache`, `Go Module Cache`, `NuGet Cache` |
-| Apple toolchain | `CocoaPods Cache`, `SwiftPM Cache`, `macOS Diagnostic Reports`, `iOS Simulator Devices`, `iOS Simulators Reset` |
+| Apple toolchain | `CocoaPods Cache`, `SwiftPM Cache`, `macOS Diagnostic Reports`, `iOS Simulators Reset` |
 | Apps | `Spotify Cache`, `Slack Cache`, `Discord Cache`, `VS Code Cache`, `VS Code ShipIt Cache` |
+| Mobile toolchains | `Android AVD Emulators` (dangerous), `Android SDK System Images`, `FVM Flutter SDKs`, `Dart Analysis Cache` |
+| AI / tool managers | `Hugging Face Cache`, `Ollama Models`, `Mise Toolchains` (dangerous) |
 
 `iOS Simulators Reset` is a dangerous command target that runs
 `xcrun simctl erase all` to wipe every local simulator device.
@@ -153,11 +155,25 @@ Scan only a custom path:
 acari --headless --target target-that-does-not-exist --scan-path /tmp/my-cache
 ```
 
+Count allocated on-disk blocks instead of apparent file size (`du`-style):
+
+```bash
+acari --headless --allocated-size
+```
+
 ### CLI Reference
 
 ```bash
 # Disk usage overview (fast, no full scan)
 acari df
+
+# Disk usage with a used-space breakdown (runs a full scan):
+# used = acari junk + project junk + others
+acari df --breakdown
+
+# Largest directories under a path (du-style, ancestors aggregate children)
+acari du                       # defaults to your home directory
+acari du ~/projects --top 30 --min-size 500MB
 
 # Show the cleanup history log
 acari history

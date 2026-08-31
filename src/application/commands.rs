@@ -82,13 +82,14 @@ pub fn start_scan(
     targets: Vec<CleanTarget>,
     excludes: Vec<String>,
     io_priority: IoPriority,
+    allocated: bool,
 ) -> (
     UnboundedSender<AppEvent>,
     UnboundedReceiver<AppEvent>,
     tokio::task::JoinHandle<()>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_scan(tx.clone(), targets, excludes, io_priority);
+    let handle = start_background_scan(tx.clone(), targets, excludes, io_priority, allocated);
     (tx, rx, handle)
 }
 

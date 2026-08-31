@@ -19,7 +19,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::application::cleaner::{CleanMode, start_background_clean};
 use crate::application::commands::start_scan;
 use crate::config::target_config::IoPriority;
-use crate::domain::{AppEvent, CleanTarget, format_bytes};
+use crate::domain::{AppEvent, CleanTarget, aggregate_scan, format_bytes};
 use crate::i18n::{Language, msg};
 use crate::infrastructure::distro;
 use crate::infrastructure::history;
@@ -35,6 +35,9 @@ struct TargetState {
     removed_entries: u64,
     clean_errors: u64,
     reclaimed_bytes: u64,
+    /// True when this target's displayed bytes are only the remainder not
+    /// covered by nested targets (e.g. User Caches minus its children).
+    remainder: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -88,9 +91,17 @@ pub fn run_tui(
     excludes: Vec<String>,
     lang: Language,
     io_priority: IoPriority,
+    allocated: bool,
 ) -> Result<()> {
     let mut terminal = setup_terminal()?;
-    let result = run_loop(&mut terminal, targets, excludes, lang, io_priority);
+    let result = run_loop(
+        &mut terminal,
+        targets,
+        excludes,
+        lang,
+        io_priority,
+        allocated,
+    );
     restore_terminal(&mut terminal)?;
     result
 }
@@ -101,6 +112,7 @@ fn run_loop(
     excludes: Vec<String>,
     lang: Language,
     io_priority: IoPriority,
+    allocated: bool,
 ) -> Result<()> {
     let targets_owned = targets.to_vec();
     let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
@@ -116,8 +128,12 @@ fn run_loop(
         .collect();
 
     let total_targets = rows.len() as u64;
-    let mut scan_res: Option<ScanResources> =
-        Some(start_new_scan(&targets_owned, &excludes, io_priority));
+    let mut scan_res: Option<ScanResources> = Some(start_new_scan(
+        &targets_owned,
+        &excludes,
+        io_priority,
+        allocated,
+    ));
     let mut finished_targets = 0_u64;
     let mut total_scanned_bytes = 0_u64;
     let mut phase = Phase::Scanning;
@@ -199,7 +215,12 @@ fn run_loop(
                     if let Some(h) = clean_handle.take() {
                         h.abort();
                     }
-                    scan_res = Some(start_new_scan(&targets_owned, &excludes, io_priority));
+                    scan_res = Some(start_new_scan(
+                        &targets_owned,
+                        &excludes,
+                        io_priority,
+                        allocated,
+                    ));
                     for (_, state) in &mut rows {
                         *state = TargetState::default();
                     }
@@ -284,8 +305,9 @@ fn start_new_scan(
     targets: &[CleanTarget],
     excludes: &[String],
     io_priority: IoPriority,
+    allocated: bool,
 ) -> ScanResources {
-    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec(), io_priority);
+    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec(), io_priority, allocated);
     ScanResources { tx, rx, handle }
 }
 
@@ -331,6 +353,7 @@ fn handle_event(
         }
         AppEvent::ScanFinished => {
             *phase = Phase::ReadyToClean;
+            apply_aggregation(rows, total_scanned_bytes);
             rows.sort_by_key(|(_, s)| std::cmp::Reverse(s.bytes));
             for (i, (t, _)) in rows.iter().enumerate() {
                 by_name.insert(t.name.to_string(), i);
@@ -375,6 +398,32 @@ fn handle_event(
         }
         AppEvent::Tick => {}
     }
+}
+
+/// Rewrite per-target bytes once the whole scan finished so overlapping
+/// targets are only counted once towards the grand total: exact duplicates
+/// and nested targets do not add to the total, and broad parents keep only
+/// the remainder their nested targets do not cover.
+fn apply_aggregation(rows: &mut [(CleanTarget, TargetState)], total_scanned_bytes: &mut u64) {
+    let entries: Vec<(String, Option<std::path::PathBuf>, u64)> = rows
+        .iter()
+        .map(|(target, state)| {
+            let path = if target.is_command() {
+                None
+            } else {
+                Some(target.resolved_path())
+            };
+            (target.name.to_string(), path, state.bytes)
+        })
+        .collect();
+    let agg = aggregate_scan(entries);
+    for (target, state) in rows.iter_mut() {
+        if let Some(entry) = agg.entries.iter().find(|e| e.name == target.name.as_ref()) {
+            state.bytes = entry.shown_bytes;
+            state.remainder = entry.remainder;
+        }
+    }
+    *total_scanned_bytes = agg.total_bytes;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -685,13 +734,23 @@ fn draw_ui(
 
             let cmd_label = if target.is_command() { " [cmd]" } else { "" };
             let sudo_label = if target.requires_sudo { " [sudo]" } else { "" };
+            let danger_label = if target.is_dangerous() {
+                " [dangerous]"
+            } else {
+                ""
+            };
+            let size_label = if state.remainder {
+                format!(
+                    "{} ({})",
+                    format_bytes(state.bytes),
+                    msg::bytes_remainder(lang)
+                )
+            } else {
+                format_bytes(state.bytes)
+            };
             let text = format!(
-                "{cursor} {sel}{}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
-                cmd_label,
-                sudo_label,
-                target.name,
-                format_bytes(state.bytes),
-                state.files,
+                "{cursor} {sel}{}{}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
+                cmd_label, sudo_label, danger_label, target.name, size_label, state.files,
             );
 
             let style = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)
