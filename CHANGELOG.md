@@ -2,11 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-08-31
+
+### Bug Fixes
+
+- Drop duplicate rm -rf simulator wipe, flag iOS backups
+- Exclude local volumes from prune estimate
+- Use allocated result on non-Unix test path
+
+### CI / Build
+
+- Add cururu PR review workflow
+- Feed analyzer evidence to cururu review
+
+### Chores
+
+- Bump toolchain to 1.98.0 and install cargo-about via install-action
+
+### Features
+
+- Count nested and duplicate targets once in totals
+- Mark dangerous targets in the target list
+- Add --allocated-size for du-style block counting
+- Used-space breakdown and du-style largest directories
+- Cover Android, mise, FVM, Dart and Bun caches
+- Add XDG user caches target on macOS
 ## [0.7.1] - 2026-08-24
 
 ### Bug Fixes
 
 - Shutdown simulators before erase and skip os.update snapshots
+
+### Chores
+
+- Prepare for v0.7.1
 ## [0.7.0] - 2026-08-24
 
 ### Bug Fixes
