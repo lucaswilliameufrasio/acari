@@ -264,6 +264,16 @@ pub const OS_CACHES: &[CleanTarget] = &[
         origin: TargetOrigin::Builtin,
     },
     CleanTarget {
+        name: Cow::Borrowed("XDG User Caches"),
+        path: Cow::Borrowed("~/.cache"),
+        description: Cow::Borrowed("XDG-style cache dir used by cross-platform dev tools"),
+        command: &[],
+        requires_sudo: false,
+        dangerous: false,
+        delete_entire: false,
+        origin: TargetOrigin::Builtin,
+    },
+    CleanTarget {
         name: Cow::Borrowed("Xcode DerivedData"),
         path: Cow::Borrowed("~/Library/Developer/Xcode/DerivedData"),
         description: Cow::Borrowed("Xcode build artifacts"),
