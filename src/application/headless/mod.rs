@@ -139,7 +139,7 @@ pub async fn run_headless(
 /// Grand total that counts every scanned path exactly once: command targets
 /// always count, duplicates and nested targets do not add on top of the
 /// top-most ancestor that covers them.
-fn count_non_overlapping_total(completed: &HashMap<String, (CleanTarget, u64, u64)>) -> u64 {
+pub fn count_non_overlapping_total(completed: &HashMap<String, (CleanTarget, u64, u64)>) -> u64 {
     let entries: Vec<(String, Option<std::path::PathBuf>, u64)> = completed
         .values()
         .map(|(target, bytes, _)| {

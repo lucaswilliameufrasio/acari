@@ -142,6 +142,120 @@ fn print_df(lang: Language) {
     }
 }
 
+/// Scan the given targets silently and return the grand total that counts
+/// every scanned path exactly once (nested/duplicate targets count once).
+async fn scan_targets_total(targets: Vec<CleanTarget>) -> u64 {
+    use std::collections::HashMap;
+
+    use acari::application::headless::count_non_overlapping_total;
+    use acari::domain::AppEvent;
+
+    let lookup: HashMap<String, CleanTarget> = targets
+        .iter()
+        .cloned()
+        .map(|target| (target.name.to_string(), target))
+        .collect();
+    let (_tx, mut rx, handle) =
+        start_scan(targets, Vec::new(), target_config::IoPriority::Low, false);
+    let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            AppEvent::TargetCompleted {
+                target_name,
+                total_bytes,
+                files_scanned,
+            } => {
+                if let Some(target) = lookup.get(&target_name) {
+                    completed.insert(target_name, (target.clone(), total_bytes, files_scanned));
+                }
+            }
+            AppEvent::ScanFinished => break,
+            _ => {}
+        }
+    }
+    let _ = handle.await;
+    count_non_overlapping_total(&completed)
+}
+
+/// `acari df --breakdown`: explicitly split the used space into acari junk,
+/// project junk and everything else, so the total no longer looks wrong.
+async fn print_df_breakdown(lang: Language) {
+    use acari::infrastructure::df::disk_overview;
+
+    let cfg = target_config::load_config();
+    println!("{}", msg::df_breakdown_scanning(lang));
+
+    let targets = prepare_targets(&[], &[], &cfg.custom_targets);
+    let junk_total = scan_targets_total(targets).await;
+
+    let project_total = if cfg.project_scan.roots.is_empty() {
+        0
+    } else {
+        let roots: Vec<&str> = cfg.project_scan.roots.iter().map(String::as_str).collect();
+        let discovered = project_scan::discover_junk_dirs(&roots, &[], false, &[]);
+        if discovered.is_empty() {
+            0
+        } else {
+            scan_targets_total(discovered).await
+        }
+    };
+
+    let overview = disk_overview();
+    let others = overview
+        .used
+        .saturating_sub(junk_total)
+        .saturating_sub(project_total);
+
+    println!("  {}", msg::df_breakdown_title(lang));
+    for (label, bytes) in [
+        (msg::df_breakdown_junk_targets(lang), junk_total),
+        (msg::df_breakdown_junk_projects(lang), project_total),
+        (msg::df_breakdown_others(lang), others),
+    ] {
+        let pct = if overview.used > 0 {
+            (bytes as f64 / overview.used as f64) * 100.0
+        } else {
+            0.0
+        };
+        println!("    {} {} ({pct:.0}%)", label, format_bytes(bytes));
+    }
+}
+
+/// `acari du [path]`: largest directories under a path, du-style, largest
+/// first. This is what finds the multi-GB stragglers no cache target covers
+/// (emulator images, toolchain stores, stray screenshot folders).
+fn run_du(path: Option<&str>, top: usize, min_size: &str, lang: Language) -> Result<()> {
+    use acari::infrastructure::du;
+    use acari::infrastructure::exec::parse_human_size;
+
+    let root = match path {
+        Some(raw) => acari::domain::expand_tilde(raw),
+        None => dirs::home_dir().context("could not determine home directory")?,
+    };
+    let min_bytes = parse_human_size(min_size)
+        .with_context(|| format!("invalid --min-size value: {min_size}"))?;
+
+    println!(
+        "{}",
+        msg::du_title(lang)
+            .replace("{path}", &root.display().to_string())
+            .replace("{min}", min_size)
+    );
+    let entries = du::largest_dirs(&root, top, min_bytes);
+    if entries.is_empty() {
+        println!("{}", msg::du_empty(lang));
+        return Ok(());
+    }
+    for entry in &entries {
+        println!(
+            "  {:>12}  {}",
+            format_bytes(entry.bytes),
+            entry.path.display()
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let lang = detect_language();
@@ -153,8 +267,19 @@ async fn main() -> Result<()> {
                 run_history(*clear, lang);
                 return Ok(());
             }
-            Commands::Df => {
+            Commands::Df { breakdown } => {
                 print_df(lang);
+                if *breakdown {
+                    print_df_breakdown(lang).await;
+                }
+                return Ok(());
+            }
+            Commands::Du {
+                path,
+                top,
+                min_size,
+            } => {
+                run_du(path.as_deref(), *top, min_size, lang)?;
                 return Ok(());
             }
             Commands::Target { action } => match action {

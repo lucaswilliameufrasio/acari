@@ -691,4 +691,48 @@ pub mod msg {
             lang,
         )
     }
+
+    pub fn df_breakdown_scanning(lang: Language) -> &'static str {
+        s(
+            "Calculando decomposição do espaço usado (pode demorar)...",
+            "Computing used-space breakdown (this may take a while)...",
+            lang,
+        )
+    }
+
+    pub fn df_breakdown_title(lang: Language) -> &'static str {
+        s(
+            "Decomposição do espaço usado:",
+            "Used-space breakdown:",
+            lang,
+        )
+    }
+
+    pub fn df_breakdown_junk_targets(lang: Language) -> &'static str {
+        s("Junk (alvos do acari):", "Junk (acari targets):", lang)
+    }
+
+    pub fn df_breakdown_junk_projects(lang: Language) -> &'static str {
+        s("Junk (projetos):", "Junk (projects):", lang)
+    }
+
+    pub fn df_breakdown_others(lang: Language) -> &'static str {
+        s("Outros:", "Others:", lang)
+    }
+
+    pub fn du_title(lang: Language) -> &'static str {
+        s(
+            "Maiores diretórios em {path} (mínimo {min}):",
+            "Largest directories under {path} (minimum {min}):",
+            lang,
+        )
+    }
+
+    pub fn du_empty(lang: Language) -> &'static str {
+        s(
+            "Nenhum diretório acima do tamanho mínimo.",
+            "No directory above the minimum size.",
+            lang,
+        )
+    }
 }
