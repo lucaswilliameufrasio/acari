@@ -715,6 +715,11 @@ fn draw_ui(
 
             let cmd_label = if target.is_command() { " [cmd]" } else { "" };
             let sudo_label = if target.requires_sudo { " [sudo]" } else { "" };
+            let danger_label = if target.is_dangerous() {
+                " [dangerous]"
+            } else {
+                ""
+            };
             let size_label = if state.remainder {
                 format!(
                     "{} ({})",
@@ -725,8 +730,8 @@ fn draw_ui(
                 format_bytes(state.bytes)
             };
             let text = format!(
-                "{cursor} {sel}{}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
-                cmd_label, sudo_label, target.name, size_label, state.files,
+                "{cursor} {sel}{}{}{}{} | {scan_mark} | {} | {} files | {clean_mark}",
+                cmd_label, sudo_label, danger_label, target.name, size_label, state.files,
             );
 
             let style = if (*phase == Phase::ReadyToClean || *phase == Phase::Finished)
