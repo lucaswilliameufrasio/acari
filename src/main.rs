@@ -358,11 +358,21 @@ async fn main() -> Result<()> {
                         } else {
                             CleanMode::Execute
                         };
-                        let (tx, rx, _scan_handle) =
-                            start_scan(discovered.clone(), all_excludes, io_priority);
+                        let (tx, rx, _scan_handle) = start_scan(
+                            discovered.clone(),
+                            all_excludes,
+                            io_priority,
+                            cli.allocated_size,
+                        );
                         run_headless(tx, rx, discovered, *clean, clean_mode, lang, *json).await?;
                     } else {
-                        run_tui(&discovered, all_excludes, lang, io_priority)?;
+                        run_tui(
+                            &discovered,
+                            all_excludes,
+                            lang,
+                            io_priority,
+                            cli.allocated_size,
+                        )?;
                     }
                 }
             },
@@ -387,7 +397,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let (tx, rx, _scan_handle) = start_scan(targets.clone(), excludes.clone(), io_priority);
+    let (tx, rx, _scan_handle) = start_scan(
+        targets.clone(),
+        excludes.clone(),
+        io_priority,
+        cli.allocated_size,
+    );
 
     if cli.headless {
         let clean_mode = if cli.dry_run {
@@ -397,6 +412,6 @@ async fn main() -> Result<()> {
         };
         run_headless(tx, rx, targets, cli.clean, clean_mode, lang, cli.json).await
     } else {
-        run_tui(&targets, excludes, lang, io_priority)
+        run_tui(&targets, excludes, lang, io_priority, cli.allocated_size)
     }
 }

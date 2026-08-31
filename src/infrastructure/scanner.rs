@@ -32,6 +32,7 @@ pub fn scan_target(
     tx: &UnboundedSender<AppEvent>,
     excludes: &[String],
     pool: &Arc<ThreadPool>,
+    allocated: bool,
 ) -> ScanResult {
     if target.is_command() {
         return scan_command_target(target, tx, pool);
@@ -72,7 +73,9 @@ pub fn scan_target(
         };
 
         if entry.file_type().is_file() {
-            let file_size = entry.metadata().map_or(0, |meta| meta.len());
+            let file_size = entry
+                .metadata()
+                .map_or(0, |meta| file_size_bytes(&meta, allocated));
 
             total_bytes = total_bytes.saturating_add(file_size);
             files_scanned = files_scanned.saturating_add(1);
@@ -92,6 +95,21 @@ pub fn scan_target(
         bytes: total_bytes,
         files_scanned,
     }
+}
+
+/// Size of a file according to the requested mode: apparent size (`st_len`,
+/// the default) or allocated on-disk blocks (`st_blocks * 512`, what `df` and
+/// `du` report). On platforms without `st_blocks` both modes are apparent.
+fn file_size_bytes(meta: &std::fs::Metadata, allocated: bool) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if allocated {
+            return meta.blocks().saturating_mul(512);
+        }
+    }
+    let _ = allocated;
+    meta.len()
 }
 
 fn scan_command_target(
@@ -257,7 +275,7 @@ mod tests {
 
         let (tx, _rx) = mpsc::unbounded_channel();
         let pool = test_pool();
-        let result = scan_target(&target, &tx, &[], &pool);
+        let result = scan_target(&target, &tx, &[], &pool, false);
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.bytes, 10);
@@ -284,10 +302,45 @@ mod tests {
 
         let (tx, _rx) = mpsc::unbounded_channel();
         let pool = test_pool();
-        let result = scan_target(&target, &tx, &["node_modules".to_string()], &pool);
+        let result = scan_target(&target, &tx, &["node_modules".to_string()], &pool, false);
 
         assert_eq!(result.files_scanned, 1);
         assert_eq!(result.bytes, 4); // "main" = 4 bytes
+    }
+
+    #[test]
+    fn allocated_size_counts_blocks() {
+        // A 1-byte file reports apparent size 1, while its allocated size is
+        // rounded up to full 512-byte sectors (what du/df report).
+        let temp = tempfile::tempdir().expect("create tempdir");
+        fs::write(temp.path().join("tiny.bin"), b"x").expect("write file");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("Tiny"),
+            path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let pool = test_pool();
+        let apparent = scan_target(&target, &tx, &[], &pool, false);
+        let allocated = scan_target(&target, &tx, &[], &pool, true);
+
+        assert_eq!(apparent.bytes, 1);
+        #[cfg(unix)]
+        {
+            assert!(
+                allocated.bytes >= 512,
+                "allocated {} < 512",
+                allocated.bytes
+            );
+            assert_eq!(allocated.bytes % 512, 0);
+        }
     }
 
     #[test]
@@ -314,7 +367,7 @@ mod tests {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         let pool = test_pool();
-        let result = scan_target(&target, &tx, &[], &pool);
+        let result = scan_target(&target, &tx, &[], &pool, false);
 
         // Byte estimate is only guaranteed to be zero on non-macOS where the
         // APFS snapshot estimation is a no-op.

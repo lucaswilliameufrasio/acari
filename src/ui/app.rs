@@ -91,9 +91,17 @@ pub fn run_tui(
     excludes: Vec<String>,
     lang: Language,
     io_priority: IoPriority,
+    allocated: bool,
 ) -> Result<()> {
     let mut terminal = setup_terminal()?;
-    let result = run_loop(&mut terminal, targets, excludes, lang, io_priority);
+    let result = run_loop(
+        &mut terminal,
+        targets,
+        excludes,
+        lang,
+        io_priority,
+        allocated,
+    );
     restore_terminal(&mut terminal)?;
     result
 }
@@ -104,6 +112,7 @@ fn run_loop(
     excludes: Vec<String>,
     lang: Language,
     io_priority: IoPriority,
+    allocated: bool,
 ) -> Result<()> {
     let targets_owned = targets.to_vec();
     let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
@@ -119,8 +128,12 @@ fn run_loop(
         .collect();
 
     let total_targets = rows.len() as u64;
-    let mut scan_res: Option<ScanResources> =
-        Some(start_new_scan(&targets_owned, &excludes, io_priority));
+    let mut scan_res: Option<ScanResources> = Some(start_new_scan(
+        &targets_owned,
+        &excludes,
+        io_priority,
+        allocated,
+    ));
     let mut finished_targets = 0_u64;
     let mut total_scanned_bytes = 0_u64;
     let mut phase = Phase::Scanning;
@@ -202,7 +215,12 @@ fn run_loop(
                     if let Some(h) = clean_handle.take() {
                         h.abort();
                     }
-                    scan_res = Some(start_new_scan(&targets_owned, &excludes, io_priority));
+                    scan_res = Some(start_new_scan(
+                        &targets_owned,
+                        &excludes,
+                        io_priority,
+                        allocated,
+                    ));
                     for (_, state) in &mut rows {
                         *state = TargetState::default();
                     }
@@ -287,8 +305,9 @@ fn start_new_scan(
     targets: &[CleanTarget],
     excludes: &[String],
     io_priority: IoPriority,
+    allocated: bool,
 ) -> ScanResources {
-    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec(), io_priority);
+    let (tx, rx, handle) = start_scan(targets.to_vec(), excludes.to_vec(), io_priority, allocated);
     ScanResources { tx, rx, handle }
 }
 

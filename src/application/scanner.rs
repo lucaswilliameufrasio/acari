@@ -34,6 +34,7 @@ pub fn start_background_scan(
     targets: Vec<CleanTarget>,
     excludes: Vec<String>,
     io_priority: IoPriority,
+    allocated: bool,
 ) -> tokio::task::JoinHandle<()> {
     // Concurrency between targets is bounded by chunk_size, using dedicated OS
     // threads (std::thread::scope). Each walk then parallelises *within* its
@@ -66,7 +67,8 @@ pub fn start_background_scan(
                     let pool = Arc::clone(&pool);
                     let target = target.clone();
                     s.spawn(move || {
-                        let result = infra_scanner::scan_target(&target, &tx, &excludes, &pool);
+                        let result =
+                            infra_scanner::scan_target(&target, &tx, &excludes, &pool, allocated);
                         let _ = tx.send(AppEvent::TargetCompleted {
                             target_name: result.target.name.to_string(),
                             total_bytes: result.bytes,

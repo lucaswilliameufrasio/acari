@@ -30,7 +30,7 @@ async fn scanner_emits_target_and_finished_events() {
     let target = test_target("Scan Flow", &root);
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_scan(tx, vec![target], vec![], IoPriority::Normal);
+    let handle = start_background_scan(tx, vec![target], vec![], IoPriority::Normal, false);
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let mut saw_completed = false;
@@ -141,8 +141,13 @@ async fn command_target_happy_path_scan_and_clean() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
 
-    let scan_handle =
-        start_background_scan(tx.clone(), vec![target.clone()], vec![], IoPriority::Normal);
+    let scan_handle = start_background_scan(
+        tx.clone(),
+        vec![target.clone()],
+        vec![],
+        IoPriority::Normal,
+        false,
+    );
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let mut saw_completed = false;

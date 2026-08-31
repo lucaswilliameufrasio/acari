@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let (tx, rx, _scan_handle) = start_scan(targets.clone(), excludes, io_priority);
+    let (tx, rx, _scan_handle) = start_scan(targets.clone(), excludes, io_priority, false);
 
     let clean_mode = if cli.dry_run {
         CleanMode::DryRun

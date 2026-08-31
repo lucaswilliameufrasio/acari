@@ -153,6 +153,12 @@ Scan only a custom path:
 acari --headless --target target-that-does-not-exist --scan-path /tmp/my-cache
 ```
 
+Count allocated on-disk blocks instead of apparent file size (`du`-style):
+
+```bash
+acari --headless --allocated-size
+```
+
 ### CLI Reference
 
 ```bash

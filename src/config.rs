@@ -35,6 +35,11 @@ pub struct Cli {
     #[arg(long = "exclude")]
     pub excludes: Vec<String>,
 
+    /// Count allocated blocks (du-style, st_blocks * 512) instead of the
+    /// apparent file size reported by st_len
+    #[arg(long)]
+    pub allocated_size: bool,
+
     /// Emit structured JSON output in headless mode
     #[arg(long)]
     pub json: bool,
