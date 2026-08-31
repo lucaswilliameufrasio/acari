@@ -12,14 +12,74 @@ permissions:
   issues: write
 
 concurrency:
-  group: cururu-${{ github.event.pull_request.number }}
+  group: cururu-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
-  review:
+  analyzers:
     if: (github.event_name == 'issue_comment' || github.event.pull_request.draft == false) && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run analyzers
+        run: |
+          mkdir -p artifacts
+          set +e
+          cargo check --message-format json > artifacts/check.log 2>&1
+          echo $? > artifacts/check.exit
+          cargo clippy --message-format json > artifacts/clippy.log 2>&1
+          echo $? > artifacts/clippy.exit
+      - name: Emit manifest
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+          tools = []
+          for name in ("check", "clippy"):
+              exit_path = f"artifacts/{name}.exit"
+              log_path = f"artifacts/{name}.log"
+              if not os.path.exists(exit_path):
+                  tools.append({"name": f"cargo-{name}", "status": "not_run", "exit_code": 0, "message": None})
+                  continue
+              code = int(open(exit_path).read().strip() or 1)
+              message = None
+              if code != 0 and os.path.exists(log_path):
+                  message = open(log_path, errors="replace").read().strip()[-400:]
+              tools.append({"name": f"cargo-{name}", "status": "passed" if code == 0 else "failed",
+                            "exit_code": code, "message": message})
+          with open("artifacts/analysis.json", "w") as f:
+              json.dump({"schema_version": 1, "commit_sha": head, "tools": tools}, f, indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: analysis
+          path: artifacts/
+          retention-days: 3
+
+  review:
+    needs: analyzers
+    if: (github.event_name == 'issue_comment' || github.event.pull_request.draft == false) && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: analysis
+          path: artifacts
       - name: Check LLM API key
         id: llm_key
         env:

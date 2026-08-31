@@ -1,0 +1,47 @@
+version = 1
+
+[provider]
+name = "openrouter"
+model = "openai/gpt-5.6-luna"
+
+[review]
+max_diff_bytes = 180000
+chunk_bytes = 45000
+ignore = ["**/Cargo.lock"]
+language = "pt-BR"
+comment_mode = "inline"
+profile = "balanced"
+
+[policy]
+minimum_confidence = 0.65
+max_findings = 30
+fail_on = "off"
+allowed_severities = ["critical", "high", "medium", "low"]
+suggested_changes = false
+incremental = false
+synthesis = true
+focus = []
+
+[context]
+conventions = ["CONTRIBUTING.md", "project-structure.md"]
+max_bytes = 15000
+
+[context.auto]
+enabled = false
+max_bytes = 50000
+max_files = 20
+per_file_bytes = 12000
+include = ["src/**", "tests/**"]
+exclude = ["**/generated/**", "**/*.min.js"]
+
+[summary]
+show_cost = true
+show_usage = true
+
+[analysis]
+enabled = true
+manifest = "artifacts/analysis.json"
+max_findings = 100
+require_current_head = true
+check_runs = true
+check_run_names = []
