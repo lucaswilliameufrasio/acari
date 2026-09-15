@@ -6,23 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
-- Never recursively delete Docker daemon storage such as `overlay2`
-- Exclude Docker volumes from legacy system-prune estimates
-- Reject custom paths that target system roots, home, or parent traversal
-- Return a failure exit code when headless cleanup reports errors
-- Keep privileged Linux targets marked as dangerous
-- Report cancellation separately from command failures
+- Harden Docker cleanup and path validation
+- Return failure when headless cleaning has errors
+
+### Documentation
+
+- Complete v0.8.0 changelog
 
 ### Features
 
-- Add separate Docker volume and builder prune targets
-- Show progress while long-running cleanup commands execute
-- Allow cooperative cancellation of long-running cleanup commands
-- Preserve command error details while keeping command output out of the UI
-- Discover and estimate all named Docker Buildx builders
-- Add a configurable timeout for command targets via `ACARI_COMMAND_TIMEOUT_SECS`
-- Add integration coverage for successful and failed headless cleanup flows
-
+- Cancel long-running cleanup commands
+- Expand Docker cleanup targets
+- Harden cleanup flows and coverage
 ## [0.7.2] - 2026-08-31
 
 ### Bug Fixes
@@ -39,6 +34,7 @@ All notable changes to this project will be documented in this file.
 ### Chores
 
 - Bump toolchain to 1.98.0 and install cargo-about via install-action
+- Prepare for v0.7.2
 
 ### Features
 
