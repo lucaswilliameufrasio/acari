@@ -16,7 +16,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::application::cleaner::{CleanMode, start_background_clean};
+use crate::application::cleaner::{
+    CancellationToken, CleanMode, new_cancellation_token, start_background_clean_with_cancel,
+};
 use crate::application::commands::start_scan;
 use crate::config::target_config::IoPriority;
 use crate::domain::{AppEvent, CleanTarget, aggregate_scan, format_bytes};
@@ -58,6 +60,7 @@ enum UiCommand {
     None,
     Quit,
     CancelScan,
+    CancelCleaning,
     Rescan,
     ToggleDryRun,
     SortBySize,
@@ -148,6 +151,7 @@ fn run_loop(
     let mut sort_mode = SortMode::BytesDesc;
     let mut search_filter: Option<String> = None;
     let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut clean_cancel: Option<CancellationToken> = None;
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
@@ -212,6 +216,12 @@ fn run_loop(
                     phase = Phase::ReadyToClean;
                     status_line = String::from(msg::tui_cancelled_status(lang));
                 }
+                UiCommand::CancelCleaning => {
+                    if let Some(cancel) = &clean_cancel {
+                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        status_line = msg::cleaning_cancel_requested(lang).to_string();
+                    }
+                }
                 UiCommand::Rescan => {
                     if let Some(ref res) = scan_res {
                         res.handle.abort();
@@ -219,6 +229,7 @@ fn run_loop(
                     if let Some(h) = clean_handle.take() {
                         h.abort();
                     }
+                    clean_cancel = None;
                     scan_res = Some(start_new_scan(
                         &targets_owned,
                         &excludes,
@@ -284,8 +295,15 @@ fn run_loop(
                         } else {
                             CleanMode::Execute
                         };
-                        let h = start_background_clean(res.tx.clone(), selected, mode);
+                        let cancel = new_cancellation_token();
+                        let h = start_background_clean_with_cancel(
+                            res.tx.clone(),
+                            selected,
+                            mode,
+                            cancel.clone(),
+                        );
                         clean_handle = Some(h);
+                        clean_cancel = Some(cancel);
                     }
                 }
             }
@@ -512,10 +530,13 @@ fn handle_key(
             KeyCode::Char('q') => {
                 if *phase == Phase::Scanning && has_active_scan {
                     UiCommand::CancelScan
+                } else if matches!(phase, Phase::Cleaning { .. }) {
+                    UiCommand::CancelCleaning
                 } else {
                     UiCommand::Quit
                 }
             }
+            KeyCode::Esc if matches!(phase, Phase::Cleaning { .. }) => UiCommand::CancelCleaning,
             KeyCode::Esc => UiCommand::Quit,
             KeyCode::Char('d') if *phase == Phase::ReadyToClean => UiCommand::ToggleDryRun,
             KeyCode::Char('s') if *phase == Phase::ReadyToClean => {

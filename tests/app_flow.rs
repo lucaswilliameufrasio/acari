@@ -2,7 +2,9 @@ use std::fs;
 use std::time::Duration;
 use std::{borrow::Cow, path::Path};
 
-use acari::application::cleaner::{CleanMode, start_background_clean};
+use acari::application::cleaner::{
+    CleanMode, new_cancellation_token, start_background_clean, start_background_clean_with_cancel,
+};
 use acari::application::scanner::start_background_scan;
 use acari::config::target_config::IoPriority;
 use acari::domain::{AppEvent, CleanTarget, TargetOrigin};
@@ -129,6 +131,36 @@ async fn cleaner_dry_run_keeps_entries() {
     let remaining = fs::read_dir(&root).expect("read root").count();
     assert_eq!(remaining, 1, "dry-run must keep files");
     assert!(saw_finished);
+}
+
+#[tokio::test]
+async fn cleaner_cancellation_stops_long_running_command() {
+    let target = CleanTarget {
+        name: Cow::Borrowed("Slow Command"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("test"),
+        command: &["sh", "-c", "sleep 5"],
+        requires_sudo: false,
+        dangerous: false,
+        delete_entire: false,
+        origin: TargetOrigin::Builtin,
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+    let cancel = new_cancellation_token();
+    let handle = start_background_clean_with_cancel(
+        tx,
+        vec![(target, 0, 0)],
+        CleanMode::Execute,
+        cancel.clone(),
+    );
+
+    assert!(matches!(
+        rx.recv().await,
+        Some(AppEvent::CleaningProgress { .. })
+    ));
+    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    assert!(result.is_ok(), "cancellation should stop the child process");
 }
 
 #[tokio::test]

@@ -198,6 +198,10 @@ pub mod msg {
         s("Limpando", "Cleaning", lang)
     }
 
+    pub fn cleaning_cancel_requested(lang: Language) -> &'static str {
+        s("Cancelamento solicitado", "Cancellation requested", lang)
+    }
+
     pub fn cleaning_finished_progress(lang: Language) -> &'static str {
         s("Limpeza concluída", "Cleaning finished", lang)
     }

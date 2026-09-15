@@ -1,3 +1,7 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::domain::{AppEvent, CleanTarget};
@@ -9,10 +13,25 @@ pub enum CleanMode {
     DryRun,
 }
 
+pub type CancellationToken = Arc<AtomicBool>;
+
+pub fn new_cancellation_token() -> CancellationToken {
+    Arc::new(AtomicBool::new(false))
+}
+
 pub fn start_background_clean(
     tx: UnboundedSender<AppEvent>,
     targets: Vec<(CleanTarget, u64, u64)>,
     mode: CleanMode,
+) -> tokio::task::JoinHandle<()> {
+    start_background_clean_with_cancel(tx, targets, mode, new_cancellation_token())
+}
+
+pub fn start_background_clean_with_cancel(
+    tx: UnboundedSender<AppEvent>,
+    targets: Vec<(CleanTarget, u64, u64)>,
+    mode: CleanMode,
+    cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let mut cleaned_targets = 0_u64;
@@ -21,6 +40,9 @@ pub fn start_background_clean(
 
         let total_targets = targets.len() as u64;
         for (target, estimated_bytes, estimated_entries) in targets {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
             let target_name = target.name.to_string();
             let _ = tx.send(AppEvent::CleaningProgress {
                 target_name: target_name.clone(),
@@ -43,6 +65,7 @@ pub fn start_background_clean(
                     estimated_entries,
                     mode,
                     &mut report_progress,
+                    &cancel,
                 )
             };
             cleaned_targets = cleaned_targets.saturating_add(1);

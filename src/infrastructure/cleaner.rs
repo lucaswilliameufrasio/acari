@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, atomic::AtomicBool};
 
 use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
@@ -64,6 +65,7 @@ pub fn clean_target(
         estimated_entries,
         mode,
         &mut |_| {},
+        &Arc::new(AtomicBool::new(false)),
     )
 }
 
@@ -73,9 +75,17 @@ pub fn clean_target_with_progress(
     estimated_entries: u64,
     mode: CleanMode,
     progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
 ) -> CleanResult {
     if target.is_command() {
-        return clean_command_target(target, estimated_bytes, estimated_entries, mode, progress);
+        return clean_command_target(
+            target,
+            estimated_bytes,
+            estimated_entries,
+            mode,
+            progress,
+            cancel,
+        );
     }
 
     let raw_path = target.resolved_path();
@@ -140,6 +150,10 @@ pub fn clean_target_with_progress(
         match fs::read_dir(&path) {
             Ok(read_dir) => {
                 for entry in read_dir.flatten() {
+                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        errors = errors.saturating_add(1);
+                        break;
+                    }
                     let entry_path = entry.path();
                     let safe_path = safe_canonicalize(&entry_path, &path);
                     match safe_path {
@@ -185,6 +199,7 @@ fn clean_command_target(
     estimated_entries: u64,
     mode: CleanMode,
     progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
 ) -> CleanResult {
     if mode == CleanMode::DryRun {
         return CleanResult {
@@ -233,6 +248,16 @@ fn clean_command_target(
 
     let started = std::time::Instant::now();
     let status = loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return CleanResult {
+                target: target.clone(),
+                reclaimed_bytes: 0,
+                removed_entries: 0,
+                errors: 1,
+            };
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
