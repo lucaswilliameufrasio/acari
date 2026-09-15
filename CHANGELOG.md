@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Reject custom paths that target system roots, home, or parent traversal
 - Return a failure exit code when headless cleanup reports errors
 - Keep privileged Linux targets marked as dangerous
+- Report cancellation separately from command failures
 
 ### Features
 
@@ -18,6 +19,9 @@ All notable changes to this project will be documented in this file.
 - Show progress while long-running cleanup commands execute
 - Allow cooperative cancellation of long-running cleanup commands
 - Preserve command error details while keeping command output out of the UI
+- Discover and estimate all named Docker Buildx builders
+- Add a configurable timeout for command targets via `ACARI_COMMAND_TIMEOUT_SECS`
+- Add integration coverage for successful and failed headless cleanup flows
 
 ## [0.7.2] - 2026-08-31
 
