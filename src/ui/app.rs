@@ -46,7 +46,11 @@ enum Phase {
     ReadyToClean,
     Confirming(Vec<(CleanTarget, u64, u64)>),
     ConfirmingDangerous(Vec<(CleanTarget, u64, u64)>),
-    Cleaning,
+    Cleaning {
+        completed_targets: u64,
+        total_targets: u64,
+        elapsed_seconds: u64,
+    },
     Finished,
 }
 
@@ -378,6 +382,22 @@ fn handle_event(
                 state.clean_errors = errors;
             }
         }
+        AppEvent::CleaningProgress {
+            target_name,
+            completed_targets,
+            total_targets,
+            elapsed_seconds,
+        } => {
+            *phase = Phase::Cleaning {
+                completed_targets,
+                total_targets,
+                elapsed_seconds,
+            };
+            *status_line = format!(
+                "{} {completed_targets}/{total_targets}: {target_name} ({elapsed_seconds}s)",
+                msg::cleaning_progress_detail(lang)
+            );
+        }
         AppEvent::CleaningFinished {
             cleaned_targets: done,
             reclaimed_bytes,
@@ -481,7 +501,11 @@ fn handle_key(
                     }
                     _ => return UiCommand::None,
                 };
-                *phase = Phase::Cleaning;
+                *phase = Phase::Cleaning {
+                    completed_targets: 0,
+                    total_targets: sel.len() as u64,
+                    elapsed_seconds: 0,
+                };
                 *status_line = String::from(msg::tui_cleaning_status(lang));
                 UiCommand::Clean(sel)
             }
@@ -504,7 +528,9 @@ fn handle_key(
                 };
                 UiCommand::SortBySize
             }
-            KeyCode::Char('r') if *phase != Phase::Scanning && *phase != Phase::Cleaning => {
+            KeyCode::Char('r')
+                if *phase != Phase::Scanning && !matches!(phase, Phase::Cleaning { .. }) =>
+            {
                 UiCommand::Rescan
             }
             KeyCode::Up if *phase == Phase::ReadyToClean || *phase == Phase::Finished => {
@@ -648,10 +674,15 @@ fn draw_ui(
     );
     frame.render_widget(title, vertical[0]);
 
-    let ratio = if total_targets == 0 {
-        0.0
-    } else {
-        finished_targets as f64 / total_targets as f64
+    let ratio = match phase {
+        Phase::Cleaning {
+            completed_targets,
+            total_targets,
+            ..
+        } if *total_targets > 0 => *completed_targets as f64 / *total_targets as f64,
+        Phase::Cleaning { .. } => 0.0,
+        _ if total_targets > 0 => finished_targets as f64 / total_targets as f64,
+        _ => 0.0,
     };
 
     let progress_label = match phase {
@@ -668,7 +699,7 @@ fn draw_ui(
         Phase::Confirming(_) | Phase::ConfirmingDangerous(_) => {
             msg::scan_done_progress(lang).replace("{size}", &format_bytes(total_scanned_bytes))
         }
-        Phase::Cleaning => msg::cleaning_progress(lang).to_string(),
+        Phase::Cleaning { .. } => status_line.to_string(),
         Phase::Finished => msg::cleaning_finished_progress(lang).to_string(),
     };
 

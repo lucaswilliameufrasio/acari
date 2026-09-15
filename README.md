@@ -2,13 +2,13 @@
 
 > A blazing-fast, fearless disk cleaner for macOS and Linux, built in Rust.
 
-Standard disk analyzers often choke on macOS System Integrity Protection (SIP) errors or fail to calculate the true size of Docker virtual disks and APFS snapshots. Acarí is built differently. It dives deep into your system's hidden directories, utilizing parallel traversal to instantly find and purge gigabytes of dead cache, orphaned containers, and build artifacts.
+Standard disk analyzers often choke on macOS System Integrity Protection (SIP) errors or fail to estimate reclaimable Docker and APFS data. Acarí is built differently. It dives deep into user-owned cache directories, utilizing parallel traversal to find and purge dead cache and build artifacts while delegating runtime-owned cleanup to supported system commands.
 
 ## 🤔 Why "Acarí"?
 
 In the Amazon basin, the **Acarí** (also known as the armored catfish or *cascudo*) is a resilient bottom-dwelling fish. It naturally clings to the deepest, most inaccessible parts of its environment, relentlessly vacuuming up dirt, algae, and waste that nothing else will touch.
 
-This TUI does exactly the same thing to your SSD. It ignores the superficial files and dives straight into the dark, forgotten depths of `~/Library/Caches`, `.cargo/registry`, and orphaned Docker volumes to suck up the junk holding your storage hostage.
+This TUI does exactly the same thing to your SSD. It ignores the superficial files and dives straight into the dark, forgotten depths of `~/Library/Caches` and `.cargo/registry` while keeping Docker's runtime storage under Docker's own control.
 
 ## ✨ Features
 
@@ -18,6 +18,7 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
 * **Safe Cleaning Controls:** `--clean` now requires `--yes` for destructive runs, with `--dry-run` to simulate cleanup without deleting anything.
 * **Custom Scan Paths:** Add ad-hoc directories with `--scan-path` for focused scans and tests.
 * **Permission-Aware:** Handles permission failures safely and reports cleanup errors per target.
+* **Docker-Safe:** Uses Docker's supported prune command and never recursively deletes Docker's live storage directories.
 * **Environment Variables:**
   - `ACARI_CONFIG_HOME`: override config directory (`$ACARI_CONFIG_HOME/acari/config.toml`)
   - `ACARI_DATA_HOME`: override data directory (`$ACARI_DATA_HOME/acari/history.log`)
@@ -43,6 +44,23 @@ macOS's **System Data** (formerly "Other" in older versions) is a catch-all cate
 Run `acari` — all detected targets appear with their sizes. Select what you want and press Enter to clean. Command targets (like APFS snapshots) show a `[cmd]` badge and execute system commands instead of deleting files.
 
 **Note:** APFS snapshots may require `sudo`. Enter your password when prompted.
+
+### Docker cleanup semantics
+
+`Docker System Prune` runs `docker system prune -a --force`. It removes unused containers,
+images, networks, and the default builder cache, but it does **not** remove volumes or the
+cache of separate `docker-container` Buildx builders. Those categories must be inspected and
+cleaned with their own Docker commands:
+
+```bash
+docker volume prune
+docker buildx prune -a --builder <builder>
+```
+
+Acarí never recursively deletes `/var/lib/docker`, `overlay2`, or another Docker data root.
+Those directories are owned by the Docker daemon and direct deletion can corrupt containers
+and images. Docker Desktop and rootless Docker may store data outside the default paths, so
+their virtual-machine or data-root usage is not inferred from a host directory scan.
 
 ### Developer, Apple & App Caches
 

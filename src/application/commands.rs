@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use std::path::Component;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::scanner::start_background_scan;
@@ -12,16 +13,28 @@ pub fn is_safe_path(path: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    if trimmed.contains("..") {
+    if trimmed == "~" || trimmed == "/" {
         return false;
     }
-    if trimmed == "/" {
+    if std::path::Path::new(trimmed)
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
         return false;
     }
     let sensitive = [
         "/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64",
+        "/usr", "/run",
     ];
-    if sensitive.contains(&trimmed) {
+    if sensitive
+        .iter()
+        .any(|root| trimmed == *root || trimmed.starts_with(&format!("{root}/")))
+    {
+        return false;
+    }
+    if let Some(home) = dirs::home_dir()
+        && std::path::Path::new(trimmed) == home
+    {
         return false;
     }
     true
@@ -145,7 +158,7 @@ pub fn enforce_headless_clean_safety_l10n(
 
 #[cfg(test)]
 mod tests {
-    use super::{enforce_headless_clean_safety_l10n, prepare_targets};
+    use super::{enforce_headless_clean_safety_l10n, is_safe_path, prepare_targets};
     use crate::i18n::Language;
 
     #[test]
@@ -171,5 +184,18 @@ mod tests {
     fn safety_allows_dry_run_without_yes() {
         let result = enforce_headless_clean_safety_l10n(true, true, true, false, Language::English);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_system_and_root_paths() {
+        for path in ["/", "/var/lib/docker/overlay2", "/usr/local", "~"] {
+            assert!(!is_safe_path(path), "path should be rejected: {path}");
+        }
+    }
+
+    #[test]
+    fn rejects_parent_path_components() {
+        assert!(!is_safe_path("/tmp/cache/../other"));
+        assert!(is_safe_path("/tmp/cache.v2"));
     }
 }

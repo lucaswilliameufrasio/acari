@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-Acari is a disk cleaner that operates on your filesystem. While we take precautions (path validation, `0o600` permissions, TOCTOU mitigation), no software is perfect.
+Acari is a disk cleaner that operates on your filesystem. While we take precautions (path validation, protected system paths, symlink checks, `0o600` permissions, and TOCTOU mitigation), no software is perfect.
 
 If you find a security vulnerability:
 
@@ -29,6 +29,7 @@ The following are **in scope**:
 - Symlink / TOCTOU attacks during scan or clean
 - Privilege escalation via the CLI
 - CI/CD supply-chain attacks (unpinned actions, compromised dependencies)
+- Direct deletion of Docker daemon storage or container runtime state
 
 The following are **out of scope**:
 - Attacks requiring physical access

@@ -19,9 +19,32 @@ pub fn start_background_clean(
         let mut reclaimed_bytes = 0_u64;
         let mut errors = 0_u64;
 
+        let total_targets = targets.len() as u64;
         for (target, estimated_bytes, estimated_entries) in targets {
-            let result =
-                infra_cleaner::clean_target(&target, estimated_bytes, estimated_entries, mode);
+            let target_name = target.name.to_string();
+            let _ = tx.send(AppEvent::CleaningProgress {
+                target_name: target_name.clone(),
+                completed_targets: cleaned_targets,
+                total_targets,
+                elapsed_seconds: 0,
+            });
+            let result = {
+                let mut report_progress = |elapsed_seconds: u64| {
+                    let _ = tx.send(AppEvent::CleaningProgress {
+                        target_name: target_name.clone(),
+                        completed_targets: cleaned_targets,
+                        total_targets,
+                        elapsed_seconds,
+                    });
+                };
+                infra_cleaner::clean_target_with_progress(
+                    &target,
+                    estimated_bytes,
+                    estimated_entries,
+                    mode,
+                    &mut report_progress,
+                )
+            };
             cleaned_targets = cleaned_targets.saturating_add(1);
             reclaimed_bytes = reclaimed_bytes.saturating_add(result.reclaimed_bytes);
             errors = errors.saturating_add(result.errors);

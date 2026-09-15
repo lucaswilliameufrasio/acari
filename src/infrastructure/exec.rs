@@ -124,6 +124,21 @@ pub fn parse_docker_df_output(output: &str) -> u64 {
         .sum()
 }
 
+/// Parse legacy Docker output formatted as `Type|Reclaimable`, excluding
+/// local volumes because `docker system prune` does not remove them.
+pub fn parse_docker_df_legacy_by_type(output: &str) -> u64 {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (kind, size) = line.split_once('|')?;
+            if kind.trim().eq_ignore_ascii_case("Local Volumes") {
+                return None;
+            }
+            parse_human_size(size.trim().split('(').next()?.trim())
+        })
+        .sum()
+}
+
 /// Parse `docker system df --format '{{json .}}'` output: one JSON object per
 /// line with `Type` and a reclaimable size field.
 ///
@@ -402,6 +417,12 @@ mod tests {
         let output = "33.65GB (90%)\n757.9kB (80%)\n11.97GB (65%)\n20.56GB\n";
         let expected = 33_650_000_000 + 757_900 + 11_970_000_000 + 20_560_000_000;
         assert_eq!(parse_docker_df_output(output), expected);
+    }
+
+    #[test]
+    fn docker_df_legacy_by_type_excludes_volumes() {
+        let output = "Images|10GB (50%)\nLocal Volumes|150GB (76%)\nBuild Cache|30GB\n";
+        assert_eq!(parse_docker_df_legacy_by_type(output), 40_000_000_000);
     }
 
     // --- parse_journalctl_output ---

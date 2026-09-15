@@ -70,12 +70,16 @@ async fn cleaner_emits_cleaning_finished_and_removes_entries() {
     let handle = start_background_clean(tx, vec![(target, 64, 1)], CleanMode::Execute);
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut saw_progress = false;
     let mut saw_target_cleaned = false;
     let mut saw_finished = false;
 
     while tokio::time::Instant::now() < deadline {
         if let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
             match event {
+                AppEvent::CleaningProgress { target_name, .. } if target_name == "Clean Flow" => {
+                    saw_progress = true;
+                }
                 AppEvent::TargetCleaned { target_name, .. } if target_name == "Clean Flow" => {
                     saw_target_cleaned = true;
                 }
@@ -92,6 +96,7 @@ async fn cleaner_emits_cleaning_finished_and_removes_entries() {
 
     let remaining = fs::read_dir(&root).expect("read root").count();
     assert_eq!(remaining, 0, "expected cache directory to be emptied");
+    assert!(saw_progress, "expected CleaningProgress event");
     assert!(saw_target_cleaned, "expected TargetCleaned event");
     assert!(saw_finished, "expected CleaningFinished event");
 }

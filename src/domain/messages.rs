@@ -18,6 +18,12 @@ pub enum AppEvent {
         removed_entries: u64,
         errors: u64,
     },
+    CleaningProgress {
+        target_name: String,
+        completed_targets: u64,
+        total_targets: u64,
+        elapsed_seconds: u64,
+    },
     CleaningFinished {
         cleaned_targets: u64,
         reclaimed_bytes: u64,

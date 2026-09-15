@@ -197,12 +197,17 @@ fn estimate_docker_reclaimable() -> (u64, u64) {
     {
         return (bytes, 1);
     }
-    // Fall back to the legacy table format (sums every line, including
-    // volumes) only when the structured output is unavailable.
-    match exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{.Reclaimable}}"])
-    {
+    // Keep the type in the fallback so local volumes are not counted: the
+    // selected `system prune` command intentionally leaves them untouched.
+    match exec::run_command_get_stdout(&[
+        "docker",
+        "system",
+        "df",
+        "--format",
+        "{{.Type}}|{{.Reclaimable}}",
+    ]) {
         Ok(stdout) => {
-            let bytes = exec::parse_docker_df_output(&stdout);
+            let bytes = exec::parse_docker_df_legacy_by_type(&stdout);
             (bytes, 1)
         }
         Err(_) => (0, 0),

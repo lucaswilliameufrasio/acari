@@ -194,6 +194,10 @@ pub mod msg {
         "Cleaning selected targets"
     }
 
+    pub fn cleaning_progress_detail(lang: Language) -> &'static str {
+        s("Limpando", "Cleaning", lang)
+    }
+
     pub fn cleaning_finished_progress(lang: Language) -> &'static str {
         s("Limpeza concluída", "Cleaning finished", lang)
     }

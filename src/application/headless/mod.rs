@@ -98,6 +98,19 @@ pub async fn run_headless(
                     );
                 }
             }
+            AppEvent::CleaningProgress {
+                target_name,
+                completed_targets,
+                total_targets,
+                elapsed_seconds,
+            } => {
+                if waiting_clean_finish && !json {
+                    println!(
+                        "{} {completed_targets}/{total_targets}: {target_name} ({elapsed_seconds}s)",
+                        crate::i18n::msg::cleaning_progress_detail(lang)
+                    );
+                }
+            }
             AppEvent::CleaningFinished {
                 cleaned_targets,
                 reclaimed_bytes,

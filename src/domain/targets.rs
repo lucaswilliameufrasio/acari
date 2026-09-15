@@ -766,16 +766,6 @@ pub const OS_CACHES: &[CleanTarget] = &[
         origin: TargetOrigin::Builtin,
     },
     CleanTarget {
-        name: Cow::Borrowed("Docker Overlay2"),
-        path: Cow::Borrowed("/var/lib/docker/overlay2"),
-        description: Cow::Borrowed("Docker container layers (Requires sudo)"),
-        command: &[],
-        requires_sudo: false,
-        dangerous: false,
-        delete_entire: false,
-        origin: TargetOrigin::Builtin,
-    },
-    CleanTarget {
         name: Cow::Borrowed("Firefox Cache"),
         path: Cow::Borrowed("~/.cache/mozilla/firefox"),
         description: Cow::Borrowed("Browser cache"),

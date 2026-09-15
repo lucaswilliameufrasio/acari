@@ -58,8 +58,24 @@ pub fn clean_target(
     estimated_entries: u64,
     mode: CleanMode,
 ) -> CleanResult {
+    clean_target_with_progress(
+        target,
+        estimated_bytes,
+        estimated_entries,
+        mode,
+        &mut |_| {},
+    )
+}
+
+pub fn clean_target_with_progress(
+    target: &CleanTarget,
+    estimated_bytes: u64,
+    estimated_entries: u64,
+    mode: CleanMode,
+    progress: &mut dyn FnMut(u64),
+) -> CleanResult {
     if target.is_command() {
-        return clean_command_target(target, estimated_bytes, estimated_entries, mode);
+        return clean_command_target(target, estimated_bytes, estimated_entries, mode, progress);
     }
 
     let raw_path = target.resolved_path();
@@ -140,6 +156,9 @@ pub fn clean_target(
                             errors = errors.saturating_add(1);
                         }
                     }
+                    if removed_entries.is_multiple_of(128) {
+                        progress(0);
+                    }
                 }
             }
             Err(_) => {
@@ -165,6 +184,7 @@ fn clean_command_target(
     estimated_bytes: u64,
     estimated_entries: u64,
     mode: CleanMode,
+    progress: &mut dyn FnMut(u64),
 ) -> CleanResult {
     if mode == CleanMode::DryRun {
         return CleanResult {
@@ -185,8 +205,13 @@ fn clean_command_target(
         };
     }
 
-    let output = match std::process::Command::new(cmd[0]).args(&cmd[1..]).output() {
-        Ok(o) => o,
+    let mut child = match std::process::Command::new(cmd[0])
+        .args(&cmd[1..])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
         Err(e) => {
             eprintln!("error running {}: {e}", cmd[0]);
             return CleanResult {
@@ -197,8 +222,36 @@ fn clean_command_target(
             };
         }
     };
+    let stderr = child.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut output = String::new();
+            let _ = stderr.read_to_string(&mut output);
+            output
+        })
+    });
 
-    if output.status.success() {
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                progress(started.elapsed().as_secs());
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(e) => {
+                eprintln!("error waiting for {}: {e}", cmd[0]);
+                return CleanResult {
+                    target: target.clone(),
+                    reclaimed_bytes: 0,
+                    removed_entries: 0,
+                    errors: 1,
+                };
+            }
+        }
+    };
+
+    if status.success() {
         CleanResult {
             target: target.clone(),
             reclaimed_bytes: estimated_bytes,
@@ -206,8 +259,15 @@ fn clean_command_target(
             errors: 0,
         }
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("command failed: {stderr}");
+        let details = stderr
+            .and_then(|handle| handle.join().ok())
+            .filter(|output| !output.trim().is_empty())
+            .unwrap_or_default();
+        if details.is_empty() {
+            eprintln!("command failed: {}", cmd[0]);
+        } else {
+            eprintln!("command failed: {details}");
+        }
         CleanResult {
             target: target.clone(),
             reclaimed_bytes: 0,
