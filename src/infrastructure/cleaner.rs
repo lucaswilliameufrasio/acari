@@ -1,9 +1,20 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, atomic::AtomicBool};
+use std::time::{Duration, Instant};
 
 use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
+
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+fn command_timeout() -> Duration {
+    std::env::var("ACARI_COMMAND_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_COMMAND_TIMEOUT)
+}
 
 fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
     if fs::symlink_metadata(entry).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -285,11 +296,23 @@ fn clean_command_target(
         })
     });
 
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let status = loop {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
+            return CleanResult {
+                target: target.clone(),
+                reclaimed_bytes: 0,
+                removed_entries: 0,
+                errors: 1,
+            };
+        }
+        if started.elapsed() >= command_timeout() {
+            let timeout_seconds = command_timeout().as_secs();
+            let _ = child.kill();
+            let _ = child.wait();
+            eprintln!("command timed out after {timeout_seconds}s: {}", cmd[0]);
             return CleanResult {
                 target: target.clone(),
                 reclaimed_bytes: 0,

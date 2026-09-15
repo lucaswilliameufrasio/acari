@@ -585,8 +585,12 @@ pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
         name: Cow::Borrowed("Docker Builder Prune"),
         path: Cow::Borrowed(""),
-        description: Cow::Borrowed("Remove unused cache from the default Docker builder"),
-        command: &["docker", "builder", "prune", "--all", "--force"],
+        description: Cow::Borrowed("Remove unused cache from all Docker Buildx builders"),
+        command: &[
+            "sh",
+            "-c",
+            "docker buildx ls --format '{{.Name}}' | while IFS= read -r builder; do [ -z \"$builder\" ] || [ \"$builder\" = default ] || docker buildx prune -a -f --builder \"$builder\" || exit; done",
+        ],
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
@@ -809,8 +813,12 @@ pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
         name: Cow::Borrowed("Docker Builder Prune"),
         path: Cow::Borrowed(""),
-        description: Cow::Borrowed("Remove unused cache from the default Docker builder"),
-        command: &["docker", "builder", "prune", "--all", "--force"],
+        description: Cow::Borrowed("Remove unused cache from all Docker Buildx builders"),
+        command: &[
+            "sh",
+            "-c",
+            "docker buildx ls --format '{{.Name}}' | while IFS= read -r builder; do [ -z \"$builder\" ] || [ \"$builder\" = default ] || docker buildx prune -a -f --builder \"$builder\" || exit; done",
+        ],
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
@@ -992,5 +1000,24 @@ mod tests {
         assert_eq!(custom_t.origin, TargetOrigin::Custom);
         // Built-in targets keep Builtin origin.
         assert!(targets.iter().any(|t| t.origin == TargetOrigin::Builtin));
+    }
+
+    #[test]
+    fn docker_cleanup_targets_use_supported_commands() {
+        let targets = build_targets(
+            &[
+                "Docker System Prune".to_string(),
+                "Docker Volumes Prune".to_string(),
+                "Docker Builder Prune".to_string(),
+            ],
+            &[],
+        );
+        assert_eq!(targets.len(), 3);
+        assert!(
+            targets
+                .iter()
+                .all(|target| target.is_command() && target.dangerous)
+        );
+        assert!(targets.iter().all(|target| target.path.is_empty()));
     }
 }

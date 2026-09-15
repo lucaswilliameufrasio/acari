@@ -420,6 +420,7 @@ fn handle_event(
             cleaned_targets: done,
             reclaimed_bytes,
             errors,
+            cancelled,
         } => {
             *phase = Phase::Finished;
             let tmpl = msg::tui_finished_status(lang);
@@ -427,6 +428,9 @@ fn handle_event(
                 .replace("{done}", &done.to_string())
                 .replace("{reclaimed}", &format_bytes(reclaimed_bytes))
                 .replace("{errors}", &errors.to_string());
+            if cancelled {
+                *status_line = format!("{} ({})", status_line, msg::cleaning_cancelled(lang));
+            }
             if !is_dry_run {
                 let time = history::format_local_time();
                 history::append_entry(&format!(

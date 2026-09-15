@@ -84,6 +84,7 @@ pub fn start_background_clean_with_cancel(
             cleaned_targets,
             reclaimed_bytes,
             errors,
+            cancelled: cancel.load(Ordering::Relaxed),
         });
     })
 }

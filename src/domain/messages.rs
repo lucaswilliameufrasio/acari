@@ -28,5 +28,6 @@ pub enum AppEvent {
         cleaned_targets: u64,
         reclaimed_bytes: u64,
         errors: u64,
+        cancelled: bool,
     },
 }

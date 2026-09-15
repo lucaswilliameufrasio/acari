@@ -202,6 +202,10 @@ pub mod msg {
         s("Cancelamento solicitado", "Cancellation requested", lang)
     }
 
+    pub fn cleaning_cancelled(lang: Language) -> &'static str {
+        s("cancelada", "cancelled", lang)
+    }
+
     pub fn cleaning_finished_progress(lang: Language) -> &'static str {
         s("Limpeza concluída", "Cleaning finished", lang)
     }

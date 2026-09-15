@@ -131,7 +131,7 @@ fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> (u64, u6
         "Time Machine Local Snapshots" => estimate_apfs_snapshots(),
         "Docker System Prune" => estimate_docker_reclaimable(),
         "Docker Volumes Prune" => estimate_docker_category("Local Volumes"),
-        "Docker Builder Prune" => estimate_docker_category("Build Cache"),
+        "Docker Builder Prune" => estimate_docker_builders(),
         "Apt Autoremove" => estimate_apt_autoremove(),
         "Journalctl Vacuum" => estimate_journalctl_usage(),
         "iOS Simulators Reset" => estimate_simctl_erase(pool),
@@ -146,6 +146,29 @@ fn estimate_docker_category(category: &str) -> (u64, u64) {
             Err(_) => return (0, 0),
         };
     (exec::parse_docker_df_json_category(&stdout, category), 1)
+}
+
+fn estimate_docker_builders() -> (u64, u64) {
+    let builders =
+        match exec::run_command_get_stdout(&["docker", "buildx", "ls", "--format", "{{.Name}}"]) {
+            Ok(output) => output,
+            Err(_) => return (0, 0),
+        };
+    let mut total = 0_u64;
+    let mut count = 0_u64;
+    for builder in builders
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && *name != "default")
+    {
+        if let Ok(output) =
+            exec::run_command_get_stdout(&["docker", "buildx", "du", "--builder", builder])
+        {
+            total = total.saturating_add(exec::parse_buildx_du_total(&output));
+            count = count.saturating_add(1);
+        }
+    }
+    (total, count)
 }
 
 /// Estimate the reclaimable bytes for `xcrun simctl erase all` by summing the

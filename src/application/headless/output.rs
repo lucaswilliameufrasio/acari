@@ -35,11 +35,12 @@ pub fn print_cleaning_finished_json(
     reclaimed_bytes: u64,
     errors: u64,
     mode: CleanMode,
+    cancelled: bool,
 ) {
     let dry_run = matches!(mode, CleanMode::DryRun);
     println!(
-        "{{\"cleaned_targets\":{},\"reclaimed_bytes\":{},\"errors\":{},\"dry_run\":{}}}",
-        cleaned_targets, reclaimed_bytes, errors, dry_run
+        "{{\"cleaned_targets\":{},\"reclaimed_bytes\":{},\"errors\":{},\"cancelled\":{},\"dry_run\":{}}}",
+        cleaned_targets, reclaimed_bytes, errors, cancelled, dry_run
     );
 }
 
@@ -130,6 +131,7 @@ pub fn print_cleaning_finished(
     errors: u64,
     mode: CleanMode,
     lang: Language,
+    cancelled: bool,
 ) {
     let tmpl = match mode {
         CleanMode::Execute => msg::cleaning_finished(lang),
@@ -139,5 +141,9 @@ pub fn print_cleaning_finished(
         .replace("{n}", &cleaned_targets.to_string())
         .replace("{size}", &format_bytes(reclaimed_bytes))
         .replace("{errors}", &errors.to_string());
-    println!("{fmt}");
+    if cancelled {
+        println!("{fmt} ({})", msg::cleaning_cancelled(lang));
+    } else {
+        println!("{fmt}");
+    }
 }

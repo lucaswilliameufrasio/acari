@@ -23,6 +23,7 @@ This TUI does exactly the same thing to your SSD. It ignores the superficial fil
   - `ACARI_CONFIG_HOME`: override config directory (`$ACARI_CONFIG_HOME/acari/config.toml`)
   - `ACARI_DATA_HOME`: override data directory (`$ACARI_DATA_HOME/acari/history.log`)
   - `XDG_CONFIG_HOME`: fallback config directory (Linux, if `ACARI_CONFIG_HOME` not set)
+   - `ACARI_COMMAND_TIMEOUT_SECS`: timeout for command targets (default: 1800 seconds)
 
 ## 🍎 macOS "System Data"
 

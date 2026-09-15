@@ -198,6 +198,14 @@ pub fn parse_docker_df_json_category(output: &str, category: &str) -> u64 {
         .sum()
 }
 
+pub fn parse_buildx_du_total(output: &str) -> u64 {
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Total:"))
+        .and_then(parse_human_size)
+        .unwrap_or(0)
+}
+
 /// Parse `journalctl --disk-usage` output like "Archived and active journals use 1.2G."
 pub fn parse_journalctl_output(output: &str) -> Option<u64> {
     let line = output.lines().find(|l| l.contains("use"))?;
@@ -437,6 +445,14 @@ mod tests {
         assert_eq!(
             parse_docker_df_json_category(output, "Build Cache"),
             30_000_000_000
+        );
+    }
+
+    #[test]
+    fn buildx_du_parses_total() {
+        assert_eq!(
+            parse_buildx_du_total("Reclaimable: 2GB\nTotal: 3.5GB\n"),
+            3_500_000_000
         );
     }
 

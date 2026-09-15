@@ -115,6 +115,7 @@ pub async fn run_headless(
                 cleaned_targets,
                 reclaimed_bytes,
                 errors,
+                cancelled,
             } => {
                 if waiting_clean_finish {
                     if json {
@@ -123,6 +124,7 @@ pub async fn run_headless(
                             reclaimed_bytes,
                             errors,
                             clean_mode,
+                            cancelled,
                         );
                     } else {
                         print_cleaning_finished(
@@ -131,6 +133,7 @@ pub async fn run_headless(
                             errors,
                             clean_mode,
                             lang,
+                            cancelled,
                         );
                     }
                     if clean_mode == CleanMode::Execute {
@@ -138,6 +141,9 @@ pub async fn run_headless(
                         history::append_entry(&format!(
                             "{time} | Clean completed | targets={cleaned_targets} reclaimed={reclaimed_bytes} errors={errors}"
                         ));
+                    }
+                    if cancelled {
+                        bail!("cleaning was cancelled after {cleaned_targets} target(s)");
                     }
                     if errors > 0 {
                         bail!(

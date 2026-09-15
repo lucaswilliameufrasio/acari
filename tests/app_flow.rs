@@ -5,9 +5,11 @@ use std::{borrow::Cow, path::Path};
 use acari::application::cleaner::{
     CleanMode, new_cancellation_token, start_background_clean, start_background_clean_with_cancel,
 };
+use acari::application::headless::run_headless;
 use acari::application::scanner::start_background_scan;
 use acari::config::target_config::IoPriority;
 use acari::domain::{AppEvent, CleanTarget, TargetOrigin};
+use acari::i18n::Language;
 
 fn test_target(name: &'static str, path: &Path) -> CleanTarget {
     CleanTarget {
@@ -161,6 +163,58 @@ async fn cleaner_cancellation_stops_long_running_command() {
     cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
     assert!(result.is_ok(), "cancellation should stop the child process");
+    let mut saw_cancelled = false;
+    while let Ok(Some(event)) = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
+        if matches!(
+            event,
+            AppEvent::CleaningFinished {
+                cancelled: true,
+                ..
+            }
+        ) {
+            saw_cancelled = true;
+            break;
+        }
+    }
+    assert!(saw_cancelled, "expected a cancelled final event");
+}
+
+#[tokio::test]
+async fn headless_clean_returns_error_for_failed_command() {
+    let target = CleanTarget {
+        name: Cow::Borrowed("Failing Command"),
+        path: Cow::Borrowed(""),
+        description: Cow::Borrowed("test command"),
+        command: &["sh", "-c", "printf failure >&2; exit 7"],
+        requires_sudo: false,
+        dangerous: false,
+        delete_entire: false,
+        origin: TargetOrigin::Builtin,
+    };
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+    tx.send(AppEvent::TargetCompleted {
+        target_name: String::from("Failing Command"),
+        total_bytes: 0,
+        files_scanned: 0,
+    })
+    .expect("send scan completion");
+    tx.send(AppEvent::ScanFinished).expect("send scan finished");
+
+    let result = run_headless(
+        tx,
+        rx,
+        vec![target],
+        true,
+        CleanMode::Execute,
+        Language::English,
+        true,
+    )
+    .await;
+
+    assert!(
+        result.is_err(),
+        "headless cleanup failures must fail the run"
+    );
 }
 
 #[tokio::test]
