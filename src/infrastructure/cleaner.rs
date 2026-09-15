@@ -21,9 +21,11 @@ fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Remove a single entry (file, dir, or symlink). Returns the number of bytes freed,
-/// or None on failure.
-fn remove_entry(path: &Path) -> Option<u64> {
+fn remove_entry_with_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
     let metadata = fs::symlink_metadata(path).ok()?;
     let is_sym = metadata.file_type().is_symlink();
 
@@ -31,26 +33,63 @@ fn remove_entry(path: &Path) -> Option<u64> {
         let size = if is_sym { 0 } else { metadata.len() };
         fs::remove_file(path).ok().map(|_| size)
     } else if metadata.is_dir() {
-        fs::remove_dir_all(path).ok().map(|_| 0)
+        let mut stack = vec![(path.to_path_buf(), false)];
+        let mut reclaimed = 0_u64;
+        while let Some((current, is_post_order)) = stack.pop() {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            if is_post_order {
+                fs::remove_dir(&current).ok()?;
+                continue;
+            }
+
+            stack.push((current.clone(), true));
+            for entry in fs::read_dir(&current).ok()?.flatten() {
+                let child = entry.path();
+                let child_metadata = fs::symlink_metadata(&child).ok()?;
+                if child_metadata.file_type().is_symlink() || child_metadata.is_file() {
+                    let size = if child_metadata.is_file() {
+                        child_metadata.len()
+                    } else {
+                        0
+                    };
+                    fs::remove_file(&child).ok()?;
+                    reclaimed = reclaimed.saturating_add(size);
+                    progress(0);
+                } else if child_metadata.is_dir() {
+                    stack.push((child, false));
+                }
+            }
+        }
+        Some(reclaimed)
     } else {
         None
     }
 }
 
 #[cfg(target_os = "macos")]
-fn force_remove(path: &Path) -> Option<u64> {
-    remove_entry(path).or_else(|| {
+fn force_remove_with_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
+    remove_entry_with_progress(path, progress, cancel).or_else(|| {
         let _ = std::process::Command::new("chflags")
             .arg("nouchg")
             .arg(path)
             .output();
-        remove_entry(path)
+        remove_entry_with_progress(path, progress, cancel)
     })
 }
 
 #[cfg(not(target_os = "macos"))]
-fn force_remove(path: &Path) -> Option<u64> {
-    remove_entry(path)
+fn force_remove_with_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
+    remove_entry_with_progress(path, progress, cancel)
 }
 
 pub fn clean_target(
@@ -123,7 +162,7 @@ pub fn clean_target_with_progress(
     }
 
     if target.delete_entire {
-        let ok = force_remove(&path).is_some();
+        let ok = force_remove_with_progress(&path, progress, cancel).is_some();
         return CleanResult {
             target: target.clone(),
             reclaimed_bytes: if ok { estimated_bytes } else { 0 },
@@ -137,7 +176,7 @@ pub fn clean_target_with_progress(
     let mut reclaimed_bytes = 0_u64;
 
     if path.is_file() {
-        match force_remove(&path) {
+        match force_remove_with_progress(&path, progress, cancel) {
             Some(freed) => {
                 removed_entries = 1;
                 reclaimed_bytes = freed;
@@ -157,7 +196,7 @@ pub fn clean_target_with_progress(
                     let entry_path = entry.path();
                     let safe_path = safe_canonicalize(&entry_path, &path);
                     match safe_path {
-                        Some(p) => match force_remove(&p) {
+                        Some(p) => match force_remove_with_progress(&p, progress, cancel) {
                             Some(freed) => {
                                 removed_entries = removed_entries.saturating_add(1);
                                 reclaimed_bytes = reclaimed_bytes.saturating_add(freed);

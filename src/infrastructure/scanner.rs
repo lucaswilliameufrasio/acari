@@ -130,11 +130,22 @@ fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> (u64, u6
     match name {
         "Time Machine Local Snapshots" => estimate_apfs_snapshots(),
         "Docker System Prune" => estimate_docker_reclaimable(),
+        "Docker Volumes Prune" => estimate_docker_category("Local Volumes"),
+        "Docker Builder Prune" => estimate_docker_category("Build Cache"),
         "Apt Autoremove" => estimate_apt_autoremove(),
         "Journalctl Vacuum" => estimate_journalctl_usage(),
         "iOS Simulators Reset" => estimate_simctl_erase(pool),
         _ => (0, 0),
     }
+}
+
+fn estimate_docker_category(category: &str) -> (u64, u64) {
+    let stdout =
+        match exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{json .}}"]) {
+            Ok(stdout) => stdout,
+            Err(_) => return (0, 0),
+        };
+    (exec::parse_docker_df_json_category(&stdout, category), 1)
 }
 
 /// Estimate the reclaimable bytes for `xcrun simctl erase all` by summing the

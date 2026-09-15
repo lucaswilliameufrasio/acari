@@ -177,6 +177,27 @@ pub fn parse_docker_df_json(output: &str) -> Option<u64> {
     parsed_any.then_some(total)
 }
 
+pub fn parse_docker_df_json_category(output: &str, category: &str) -> u64 {
+    output
+        .lines()
+        .filter_map(|line| {
+            let value = serde_json::from_str::<serde_json::Value>(line.trim()).ok()?;
+            if !value
+                .get("Type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|kind| kind.eq_ignore_ascii_case(category))
+            {
+                return None;
+            }
+            let size = value
+                .get("ReclaimableSize")
+                .or_else(|| value.get("Reclaimable"))
+                .and_then(|v| v.as_str())?;
+            parse_human_size(size.split('(').next()?.trim())
+        })
+        .sum()
+}
+
 /// Parse `journalctl --disk-usage` output like "Archived and active journals use 1.2G."
 pub fn parse_journalctl_output(output: &str) -> Option<u64> {
     let line = output.lines().find(|l| l.contains("use"))?;
@@ -404,6 +425,19 @@ mod tests {
     #[test]
     fn docker_df_json_empty_returns_none() {
         assert_eq!(parse_docker_df_json(""), None);
+    }
+
+    #[test]
+    fn docker_df_json_category_selects_only_requested_type() {
+        let output = concat!(
+            r#"{"Type":"Local Volumes","ReclaimableSize":"150GB"}"#,
+            "\n",
+            r#"{"Type":"Build Cache","ReclaimableSize":"30GB"}"#,
+        );
+        assert_eq!(
+            parse_docker_df_json_category(output, "Build Cache"),
+            30_000_000_000
+        );
     }
 
     #[test]

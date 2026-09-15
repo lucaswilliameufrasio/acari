@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-09-15
+
+### Bug Fixes
+
+- Never recursively delete Docker daemon storage such as `overlay2`
+- Exclude Docker volumes from legacy system-prune estimates
+- Reject custom paths that target system roots, home, or parent traversal
+- Return a failure exit code when headless cleanup reports errors
+- Keep privileged Linux targets marked as dangerous
+
+### Features
+
+- Add separate Docker volume and builder prune targets
+- Show progress while long-running cleanup commands execute
+- Allow cooperative cancellation of long-running cleanup commands
+- Preserve command error details while keeping command output out of the UI
+
 ## [0.7.2] - 2026-08-31
 
 ### Bug Fixes
