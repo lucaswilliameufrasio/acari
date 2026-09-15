@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::cleaner::{CleanMode, start_background_clean};
@@ -138,6 +138,11 @@ pub async fn run_headless(
                         history::append_entry(&format!(
                             "{time} | Clean completed | targets={cleaned_targets} reclaimed={reclaimed_bytes} errors={errors}"
                         ));
+                    }
+                    if errors > 0 {
+                        bail!(
+                            "cleaning finished with {errors} error(s) after reclaiming {reclaimed_bytes} bytes"
+                        );
                     }
                 }
                 break;
