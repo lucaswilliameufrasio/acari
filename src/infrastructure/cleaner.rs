@@ -375,6 +375,7 @@ fn clean_command_target(
     } else {
         let details = stderr
             .and_then(|handle| handle.join().ok())
+            .map(|output| output.trim_end().to_string())
             .filter(|output| !output.trim().is_empty())
             .unwrap_or_default();
         let error_detail = if details.is_empty() {
