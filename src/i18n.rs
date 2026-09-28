@@ -170,6 +170,22 @@ pub mod msg {
         )
     }
 
+    pub fn sudo_terminal_cleaning(lang: Language) -> &'static str {
+        s(
+            "Executando com o terminal liberado:",
+            "Running with the terminal restored:",
+            lang,
+        )
+    }
+
+    pub fn tui_error_title(lang: Language) -> &'static str {
+        s("Falha na operação", "Operation failed", lang)
+    }
+
+    pub fn tui_error_dismiss(lang: Language) -> &'static str {
+        s("Enter/Esc para fechar", "Enter/Esc to close", lang)
+    }
+
     pub fn tui_rescan_hint(lang: Language) -> &'static str {
         s("Pressione r para re-escanear", "Press r to rescan", lang)
     }

@@ -17,6 +17,7 @@ pub enum AppEvent {
         reclaimed_bytes: u64,
         removed_entries: u64,
         errors: u64,
+        error_detail: Option<String>,
     },
     CleaningProgress {
         target_name: String,

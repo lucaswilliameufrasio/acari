@@ -8,6 +8,16 @@ fn cmd() -> Command {
     c
 }
 
+#[cfg(target_os = "macos")]
+fn safe_scan_tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in("/tmp").expect("tempdir")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn safe_scan_tempdir() -> tempfile::TempDir {
+    tempfile::tempdir().expect("tempdir")
+}
+
 #[test]
 fn list_prints_known_targets() {
     cmd()
@@ -43,7 +53,7 @@ fn headless_bin_with_unknown_target_shows_message() {
 
 #[test]
 fn headless_scan_path_scans_custom_directory() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
     let scan_root = temp.path().join("scan-root");
     fs::create_dir_all(&scan_root).expect("create root");
     fs::write(scan_root.join("a.txt"), b"abc").expect("write file");
@@ -68,7 +78,7 @@ fn headless_scan_path_scans_custom_directory() {
 
 #[test]
 fn headless_scan_path_with_clean_empties_directory() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
     let scan_root = temp.path().join("clean-root");
     fs::create_dir_all(&scan_root).expect("create root");
     fs::write(scan_root.join("a.txt"), b"abc").expect("write file");
@@ -97,7 +107,7 @@ fn headless_scan_path_with_clean_empties_directory() {
 
 #[test]
 fn headless_clean_without_yes_is_rejected() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
     let scan_root = temp.path().join("clean-root");
     fs::create_dir_all(&scan_root).expect("create root");
     fs::write(scan_root.join("a.txt"), b"abc").expect("write file");
@@ -120,7 +130,7 @@ fn headless_clean_without_yes_is_rejected() {
 
 #[test]
 fn headless_dry_run_does_not_remove_files() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
     let scan_root = temp.path().join("dry-run-root");
     fs::create_dir_all(&scan_root).expect("create root");
     fs::write(scan_root.join("a.txt"), b"abc").expect("write file");
@@ -461,7 +471,7 @@ fn project_clear_patterns_removes_all() {
 
 #[test]
 fn headless_json_scan_path_emits_json() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
     let root = temp.path().join("cache");
     fs::create_dir_all(&root).expect("create dir");
     fs::write(root.join("a.bin"), vec![0u8; 8]).expect("write file");

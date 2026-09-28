@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, Stdout};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::application::cleaner::{
@@ -152,6 +152,7 @@ fn run_loop(
     let mut search_filter: Option<String> = None;
     let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
     let mut clean_cancel: Option<CancellationToken> = None;
+    let mut error_popups = VecDeque::new();
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
@@ -169,6 +170,7 @@ fn run_loop(
                     event,
                     dry_run,
                     lang,
+                    &mut error_popups,
                 );
             }
         }
@@ -189,6 +191,7 @@ fn run_loop(
                 &mut target_scroll,
                 sort_mode,
                 search_filter.as_deref(),
+                error_popups.front().map(String::as_str),
             )
         })?;
 
@@ -196,12 +199,13 @@ fn run_loop(
             && let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {
+            let key_code = handle_error_popup_key(&mut error_popups, key.code);
             match handle_key(
                 &mut rows,
                 &mut selected_idx,
                 &mut phase,
                 &mut status_line,
-                key.code,
+                key_code,
                 lang,
                 scan_res.is_some(),
                 &mut sort_mode,
@@ -295,15 +299,81 @@ fn run_loop(
                         } else {
                             CleanMode::Execute
                         };
-                        let cancel = new_cancellation_token();
-                        let h = start_background_clean_with_cancel(
-                            res.tx.clone(),
-                            selected,
+                        dispatch_clean_execution(
+                            &selected,
                             mode,
-                            cancel.clone(),
-                        );
-                        clean_handle = Some(h);
-                        clean_cancel = Some(cancel);
+                            || -> Result<()> {
+                                restore_terminal(terminal)?;
+                                let mut reclaimed_bytes = 0_u64;
+                                let mut errors = 0_u64;
+                                println!("{}", msg::sudo_terminal_cleaning(lang));
+                                for (target, bytes, files) in &selected {
+                                    println!("  {}", target.name);
+                                    let mut progress = |_| {};
+                                    let result =
+                                        crate::infrastructure::cleaner::clean_target_with_progress(
+                                            target,
+                                            *bytes,
+                                            *files,
+                                            mode,
+                                            &mut progress,
+                                            &new_cancellation_token(),
+                                        );
+                                    reclaimed_bytes =
+                                        reclaimed_bytes.saturating_add(result.reclaimed_bytes);
+                                    errors = errors.saturating_add(result.errors);
+                                    handle_event(
+                                        &mut rows,
+                                        &mut by_name,
+                                        &mut finished_targets,
+                                        &mut total_scanned_bytes,
+                                        &mut phase,
+                                        &mut status_line,
+                                        AppEvent::TargetCleaned {
+                                            target_name: result.target.name.to_string(),
+                                            reclaimed_bytes: result.reclaimed_bytes,
+                                            removed_entries: result.removed_entries,
+                                            errors: result.errors,
+                                            error_detail: result.error_detail,
+                                        },
+                                        dry_run,
+                                        lang,
+                                        &mut error_popups,
+                                    );
+                                }
+                                *terminal = setup_terminal()?;
+                                handle_event(
+                                    &mut rows,
+                                    &mut by_name,
+                                    &mut finished_targets,
+                                    &mut total_scanned_bytes,
+                                    &mut phase,
+                                    &mut status_line,
+                                    AppEvent::CleaningFinished {
+                                        cleaned_targets: selected.len() as u64,
+                                        reclaimed_bytes,
+                                        errors,
+                                        cancelled: false,
+                                    },
+                                    dry_run,
+                                    lang,
+                                    &mut error_popups,
+                                );
+                                Ok(())
+                            },
+                            || {
+                                let cancel = new_cancellation_token();
+                                let h = start_background_clean_with_cancel(
+                                    res.tx.clone(),
+                                    selected.clone(),
+                                    mode,
+                                    cancel.clone(),
+                                );
+                                clean_handle = Some(h);
+                                clean_cancel = Some(cancel);
+                                Ok(())
+                            },
+                        )?;
                     }
                 }
             }
@@ -321,6 +391,34 @@ fn run_loop(
     }
 
     Ok(())
+}
+
+fn handle_error_popup_key(error_popups: &mut VecDeque<String>, key_code: KeyCode) -> KeyCode {
+    if error_popups.is_empty() {
+        key_code
+    } else {
+        if matches!(key_code, KeyCode::Enter | KeyCode::Esc) {
+            error_popups.pop_front();
+        }
+        KeyCode::Null
+    }
+}
+
+fn should_suspend_terminal_for_sudo(selected: &[(CleanTarget, u64, u64)], mode: CleanMode) -> bool {
+    mode == CleanMode::Execute && selected.iter().any(|(target, _, _)| target.requires_sudo)
+}
+
+fn dispatch_clean_execution<T>(
+    selected: &[(CleanTarget, u64, u64)],
+    mode: CleanMode,
+    run_interactive: impl FnOnce() -> T,
+    run_background: impl FnOnce() -> T,
+) -> T {
+    if should_suspend_terminal_for_sudo(selected, mode) {
+        run_interactive()
+    } else {
+        run_background()
+    }
 }
 
 fn start_new_scan(
@@ -344,6 +442,7 @@ fn handle_event(
     event: AppEvent,
     is_dry_run: bool,
     lang: Language,
+    error_popups: &mut VecDeque<String>,
 ) {
     match event {
         AppEvent::ScanProgress {
@@ -391,6 +490,7 @@ fn handle_event(
             reclaimed_bytes,
             removed_entries,
             errors,
+            error_detail,
         } => {
             if let Some(idx) = by_name.get(&target_name).copied() {
                 let (_, state) = &mut rows[idx];
@@ -398,6 +498,9 @@ fn handle_event(
                 state.reclaimed_bytes = reclaimed_bytes;
                 state.removed_entries = removed_entries;
                 state.clean_errors = errors;
+            }
+            if let Some(detail) = error_detail {
+                error_popups.push_back(detail);
             }
         }
         AppEvent::CleaningProgress {
@@ -670,6 +773,7 @@ fn draw_ui(
     target_scroll: &mut usize,
     sort_mode: SortMode,
     search_filter: Option<&str>,
+    error_popup: Option<&str>,
 ) {
     let danger = matches!(phase, Phase::ConfirmingDangerous(_));
     let title_style = if danger {
@@ -870,6 +974,37 @@ fn draw_ui(
             .title(msg::panel_footer(lang)),
     );
     frame.render_widget(footer, vertical[3]);
+
+    if let Some(detail) = error_popup {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(31),
+                Constraint::Percentage(38),
+                Constraint::Percentage(31),
+            ])
+            .split(area);
+        let popup_area = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(14),
+                Constraint::Percentage(72),
+                Constraint::Percentage(14),
+            ])
+            .split(rows[1])[1];
+        frame.render_widget(Clear, popup_area);
+        let popup = Paragraph::new(detail)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::White))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red))
+                    .title(msg::tui_error_title(lang))
+                    .title_bottom(msg::tui_error_dismiss(lang)),
+            );
+        frame.render_widget(popup, popup_area);
+    }
 }
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -891,18 +1026,22 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
 
     use crossterm::event::KeyCode;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
+    use crate::application::cleaner::CleanMode;
     use crate::domain::{AppEvent, CleanTarget, TargetOrigin};
     use crate::i18n::Language;
 
     use ratatui::widgets::ListItem;
 
     use super::{
-        Phase, SortMode, TargetState, UiCommand, format_scanning_label, handle_event, handle_key,
-        visible_target_list,
+        Phase, SortMode, TargetState, UiCommand, dispatch_clean_execution, draw_ui,
+        format_scanning_label, handle_error_popup_key, handle_event, handle_key,
+        should_suspend_terminal_for_sudo, visible_target_list,
     };
     use crate::ui::resolve_scroll;
 
@@ -957,10 +1096,205 @@ mod tests {
             AppEvent::ScanFinished,
             false,
             Language::English,
+            &mut VecDeque::new(),
         );
 
         assert_eq!(phase, Phase::ReadyToClean);
         assert!(status.contains("arrows") || status.contains("↑/↓"));
+    }
+
+    #[test]
+    fn target_clean_error_is_queued_for_modal_display() {
+        let mut rows = build_rows();
+        let mut by_name = HashMap::from([(String::from("A"), 0_usize)]);
+        let mut finished_targets = 0_u64;
+        let mut total_bytes = 0_u64;
+        let mut phase = Phase::Cleaning {
+            completed_targets: 0,
+            total_targets: 1,
+            elapsed_seconds: 0,
+        };
+        let mut status = String::new();
+        let mut popups = VecDeque::new();
+
+        handle_event(
+            &mut rows,
+            &mut by_name,
+            &mut finished_targets,
+            &mut total_bytes,
+            &mut phase,
+            &mut status,
+            AppEvent::TargetCleaned {
+                target_name: String::from("A"),
+                reclaimed_bytes: 0,
+                removed_entries: 0,
+                errors: 1,
+                error_detail: Some(String::from("permission denied")),
+            },
+            false,
+            Language::English,
+            &mut popups,
+        );
+
+        assert_eq!(
+            popups.front().map(String::as_str),
+            Some("permission denied")
+        );
+        assert_eq!(rows[0].1.clean_errors, 1);
+
+        handle_event(
+            &mut rows,
+            &mut by_name,
+            &mut finished_targets,
+            &mut total_bytes,
+            &mut phase,
+            &mut status,
+            AppEvent::TargetCleaned {
+                target_name: String::from("A"),
+                reclaimed_bytes: 10,
+                removed_entries: 1,
+                errors: 0,
+                error_detail: None,
+            },
+            false,
+            Language::English,
+            &mut popups,
+        );
+        assert_eq!(popups.len(), 1);
+    }
+
+    #[test]
+    fn error_popup_is_dismissed_only_by_enter_or_escape() {
+        let mut popups = VecDeque::from([String::from("failure")]);
+
+        assert_eq!(
+            handle_error_popup_key(&mut popups, KeyCode::Char('x')),
+            KeyCode::Null
+        );
+        assert_eq!(popups.len(), 1);
+        assert_eq!(
+            handle_error_popup_key(&mut popups, KeyCode::Enter),
+            KeyCode::Null
+        );
+        assert!(popups.is_empty());
+        assert_eq!(
+            handle_error_popup_key(&mut popups, KeyCode::Esc),
+            KeyCode::Esc
+        );
+    }
+
+    #[test]
+    fn sudo_targets_suspend_tui_only_for_real_cleaning() {
+        let mut selected = build_rows()
+            .into_iter()
+            .map(|(target, _)| (target, 0, 0))
+            .collect::<Vec<_>>();
+        selected[0].0.requires_sudo = true;
+
+        assert!(should_suspend_terminal_for_sudo(
+            &selected,
+            CleanMode::Execute
+        ));
+        assert!(!should_suspend_terminal_for_sudo(
+            &selected,
+            CleanMode::DryRun
+        ));
+        selected[0].0.requires_sudo = false;
+        assert!(!should_suspend_terminal_for_sudo(
+            &selected,
+            CleanMode::Execute
+        ));
+
+        selected[0].0.requires_sudo = true;
+        assert_eq!(
+            dispatch_clean_execution(
+                &selected,
+                CleanMode::Execute,
+                || "interactive",
+                || "background"
+            ),
+            "interactive"
+        );
+        assert_eq!(
+            dispatch_clean_execution(
+                &selected,
+                CleanMode::DryRun,
+                || "interactive",
+                || "background"
+            ),
+            "background"
+        );
+    }
+
+    #[test]
+    fn error_popup_renders_details_over_the_tui() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        let rows = build_rows();
+        let mut scroll = 0;
+
+        terminal
+            .draw(|frame| {
+                draw_ui(
+                    frame.area(),
+                    frame,
+                    &rows,
+                    0,
+                    0,
+                    1,
+                    0,
+                    &Phase::Finished,
+                    "finished",
+                    false,
+                    Language::English,
+                    &mut scroll,
+                    SortMode::BytesDesc,
+                    None,
+                    Some("docker daemon failed"),
+                )
+            })
+            .expect("render error popup");
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Operation failed"));
+        assert!(rendered.contains("docker daemon failed"));
+        assert!(rendered.contains("Enter/Esc to close"));
+
+        terminal
+            .draw(|frame| {
+                draw_ui(
+                    frame.area(),
+                    frame,
+                    &rows,
+                    0,
+                    0,
+                    1,
+                    0,
+                    &Phase::Finished,
+                    "finished",
+                    false,
+                    Language::English,
+                    &mut scroll,
+                    SortMode::BytesDesc,
+                    None,
+                    None,
+                )
+            })
+            .expect("render without error popup");
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(!rendered.contains("Operation failed"));
     }
 
     #[test]
@@ -985,6 +1319,7 @@ mod tests {
             AppEvent::ScanFinished,
             false,
             Language::English,
+            &mut VecDeque::new(),
         );
 
         assert_eq!(rows[0].0.name, "B", "500 bytes should be first");
@@ -1013,6 +1348,7 @@ mod tests {
             AppEvent::ScanFinished,
             false,
             Language::English,
+            &mut VecDeque::new(),
         );
 
         assert!(
@@ -1043,6 +1379,7 @@ mod tests {
             AppEvent::ScanFinished,
             false,
             Language::English,
+            &mut VecDeque::new(),
         );
 
         assert_eq!(
