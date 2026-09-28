@@ -404,6 +404,16 @@ fn handle_error_popup_key(error_popups: &mut VecDeque<String>, key_code: KeyCode
     }
 }
 
+fn clean_target_status(state: &TargetState) -> String {
+    if !state.cleaned {
+        String::from("clean:--")
+    } else if state.clean_errors > 0 {
+        String::from("clean:err")
+    } else {
+        format!("clean:{}", format_bytes(state.reclaimed_bytes))
+    }
+}
+
 fn should_suspend_terminal_for_sudo(selected: &[(CleanTarget, u64, u64)], mode: CleanMode) -> bool {
     mode == CleanMode::Execute && selected.iter().any(|(target, _, _)| target.requires_sudo)
 }
@@ -882,15 +892,7 @@ fn draw_ui(
             } else {
                 "scan:.."
             };
-            let clean_mark = if state.cleaned {
-                if state.clean_errors == 0 {
-                    "clean:ok"
-                } else {
-                    "clean:err"
-                }
-            } else {
-                "clean:--"
-            };
+            let clean_mark = clean_target_status(state);
 
             let cmd_label = if target.is_command() { " [cmd]" } else { "" };
             let sudo_label = if target.requires_sudo { " [sudo]" } else { "" };
@@ -1039,8 +1041,8 @@ mod tests {
     use ratatui::widgets::ListItem;
 
     use super::{
-        Phase, SortMode, TargetState, UiCommand, dispatch_clean_execution, draw_ui,
-        format_scanning_label, handle_error_popup_key, handle_event, handle_key,
+        Phase, SortMode, TargetState, UiCommand, clean_target_status, dispatch_clean_execution,
+        draw_ui, format_scanning_label, handle_error_popup_key, handle_event, handle_key,
         should_suspend_terminal_for_sudo, visible_target_list,
     };
     use crate::ui::resolve_scroll;
@@ -1180,6 +1182,35 @@ mod tests {
         assert_eq!(
             handle_error_popup_key(&mut popups, KeyCode::Esc),
             KeyCode::Esc
+        );
+    }
+
+    #[test]
+    fn clean_status_distinguishes_noop_from_reclaimed_space() {
+        assert_eq!(clean_target_status(&TargetState::default()), "clean:--");
+        assert_eq!(
+            clean_target_status(&TargetState {
+                cleaned: true,
+                ..TargetState::default()
+            }),
+            "clean:0 B"
+        );
+        assert_eq!(
+            clean_target_status(&TargetState {
+                cleaned: true,
+                reclaimed_bytes: 12_500_000_000,
+                removed_entries: 2,
+                ..TargetState::default()
+            }),
+            "clean:11.64 GB"
+        );
+        assert_eq!(
+            clean_target_status(&TargetState {
+                cleaned: true,
+                clean_errors: 1,
+                ..TargetState::default()
+            }),
+            "clean:err"
         );
     }
 

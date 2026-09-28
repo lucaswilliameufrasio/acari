@@ -575,8 +575,10 @@ pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
         name: Cow::Borrowed("Docker Volumes Prune"),
         path: Cow::Borrowed(""),
-        description: Cow::Borrowed("Remove unused Docker volumes (data loss)"),
-        command: &["docker", "volume", "prune", "--force"],
+        description: Cow::Borrowed(
+            "Remove all unused Docker volumes, including named volumes (data loss)",
+        ),
+        command: &["docker", "volume", "prune", "--all", "--force"],
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
@@ -803,8 +805,10 @@ pub const OS_CACHES: &[CleanTarget] = &[
     CleanTarget {
         name: Cow::Borrowed("Docker Volumes Prune"),
         path: Cow::Borrowed(""),
-        description: Cow::Borrowed("Remove unused Docker volumes (data loss)"),
-        command: &["docker", "volume", "prune", "--force"],
+        description: Cow::Borrowed(
+            "Remove all unused Docker volumes, including named volumes (data loss)",
+        ),
+        command: &["docker", "volume", "prune", "--all", "--force"],
         requires_sudo: false,
         dangerous: true,
         delete_entire: false,
@@ -1020,5 +1024,11 @@ mod tests {
                 .all(|target| target.is_command() && target.dangerous)
         );
         assert!(targets.iter().all(|target| target.path.is_empty()));
+        let volume_prune = targets
+            .iter()
+            .find(|target| target.name == "Docker Volumes Prune")
+            .expect("volume prune target exists");
+        assert!(volume_prune.command.contains(&"--all"));
+        assert!(volume_prune.command.contains(&"--force"));
     }
 }

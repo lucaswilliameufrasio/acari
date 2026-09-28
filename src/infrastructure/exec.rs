@@ -198,6 +198,25 @@ pub fn parse_docker_df_json_category(output: &str, category: &str) -> u64 {
         .sum()
 }
 
+/// Parse Docker's `volume prune` summary into (reclaimed bytes, removed volumes).
+/// Returns `None` if the command output does not contain its reclaim summary.
+pub fn parse_docker_volume_prune_output(output: &str) -> Option<(u64, u64)> {
+    let mut in_deleted_volumes = false;
+    let mut removed_volumes = 0_u64;
+
+    for line in output.lines().map(str::trim) {
+        if line.eq_ignore_ascii_case("Deleted Volumes:") {
+            in_deleted_volumes = true;
+        } else if let Some(size) = line.strip_prefix("Total reclaimed space:") {
+            return parse_human_size(size.trim()).map(|bytes| (bytes, removed_volumes));
+        } else if in_deleted_volumes && !line.is_empty() {
+            removed_volumes = removed_volumes.saturating_add(1);
+        }
+    }
+
+    None
+}
+
 pub fn parse_buildx_du_total(output: &str) -> u64 {
     output
         .lines()
@@ -445,6 +464,31 @@ mod tests {
         assert_eq!(
             parse_docker_df_json_category(output, "Build Cache"),
             30_000_000_000
+        );
+    }
+
+    #[test]
+    fn docker_volume_prune_output_parses_removed_volume_count_and_bytes() {
+        let output = "Prune report:\nDeleted Volumes:\nvolume-one\nvolume-two\nTotal reclaimed space: 12.5GB\n";
+        assert_eq!(
+            parse_docker_volume_prune_output(output),
+            Some((12_500_000_000, 2))
+        );
+    }
+
+    #[test]
+    fn docker_volume_prune_output_parses_success_without_reclaimed_space() {
+        assert_eq!(
+            parse_docker_volume_prune_output("Deleted Volumes:\n\nTotal reclaimed space: 0B\n"),
+            Some((0, 0))
+        );
+    }
+
+    #[test]
+    fn docker_volume_prune_output_rejects_missing_reclaim_summary() {
+        assert_eq!(
+            parse_docker_volume_prune_output("Deleted Volumes:\nvolume-one\n"),
+            None
         );
     }
 
