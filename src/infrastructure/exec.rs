@@ -200,21 +200,25 @@ pub fn parse_docker_df_json_category(output: &str, category: &str) -> u64 {
 
 /// Parse Docker's `volume prune` summary into (reclaimed bytes, removed volumes).
 /// Returns `None` if the command output does not contain its reclaim summary.
-pub fn parse_docker_volume_prune_output(output: &str) -> Option<(u64, u64)> {
+pub fn parse_docker_volume_prune_output<R: std::io::BufRead>(reader: R) -> Option<(u64, u64)> {
     let mut in_deleted_volumes = false;
     let mut removed_volumes = 0_u64;
+    let mut summary = None;
 
-    for line in output.lines().map(str::trim) {
+    for line in reader.lines() {
+        let line = line.ok()?;
+        let line = line.trim();
         if line.eq_ignore_ascii_case("Deleted Volumes:") {
             in_deleted_volumes = true;
         } else if let Some(size) = line.strip_prefix("Total reclaimed space:") {
-            return parse_human_size(size.trim()).map(|bytes| (bytes, removed_volumes));
+            summary = parse_human_size(size.trim()).map(|bytes| (bytes, removed_volumes));
+            in_deleted_volumes = false;
         } else if in_deleted_volumes && !line.is_empty() {
             removed_volumes = removed_volumes.saturating_add(1);
         }
     }
 
-    None
+    summary
 }
 
 pub fn parse_buildx_du_total(output: &str) -> u64 {
@@ -471,7 +475,7 @@ mod tests {
     fn docker_volume_prune_output_parses_removed_volume_count_and_bytes() {
         let output = "Prune report:\nDeleted Volumes:\nvolume-one\nvolume-two\nTotal reclaimed space: 12.5GB\n";
         assert_eq!(
-            parse_docker_volume_prune_output(output),
+            parse_docker_volume_prune_output(output.as_bytes()),
             Some((12_500_000_000, 2))
         );
     }
@@ -479,7 +483,9 @@ mod tests {
     #[test]
     fn docker_volume_prune_output_parses_success_without_reclaimed_space() {
         assert_eq!(
-            parse_docker_volume_prune_output("Deleted Volumes:\n\nTotal reclaimed space: 0B\n"),
+            parse_docker_volume_prune_output(
+                "Deleted Volumes:\n\nTotal reclaimed space: 0B\n".as_bytes(),
+            ),
             Some((0, 0))
         );
     }
@@ -487,7 +493,7 @@ mod tests {
     #[test]
     fn docker_volume_prune_output_rejects_missing_reclaim_summary() {
         assert_eq!(
-            parse_docker_volume_prune_output("Deleted Volumes:\nvolume-one\n"),
+            parse_docker_volume_prune_output("Deleted Volumes:\nvolume-one\n".as_bytes()),
             None
         );
     }

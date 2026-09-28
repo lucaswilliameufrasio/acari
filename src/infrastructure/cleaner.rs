@@ -313,12 +313,11 @@ fn clean_command_target(
             };
         }
     };
-    let stdout = child.stdout.take().map(|mut stdout| {
+    let stdout = child.stdout.take().map(|stdout| {
         std::thread::spawn(move || {
-            use std::io::Read;
-            let mut output = String::new();
-            let _ = stdout.read_to_string(&mut output);
-            output
+            crate::infrastructure::exec::parse_docker_volume_prune_output(std::io::BufReader::new(
+                stdout,
+            ))
         })
     });
     let stderr = child.stderr.take().map(|mut stderr| {
@@ -380,9 +379,7 @@ fn clean_command_target(
         let (reclaimed_bytes, removed_entries) = if captures_docker_volume_prune_output {
             stdout
                 .and_then(|handle| handle.join().ok())
-                .and_then(|output| {
-                    crate::infrastructure::exec::parse_docker_volume_prune_output(&output)
-                })
+                .flatten()
                 .unwrap_or((0, 0))
         } else {
             (estimated_bytes, estimated_entries)
