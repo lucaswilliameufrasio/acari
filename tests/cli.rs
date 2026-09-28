@@ -8,6 +8,16 @@ fn cmd() -> Command {
     c
 }
 
+#[cfg(target_os = "macos")]
+fn safe_scan_tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in("/tmp").expect("tempdir")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn safe_scan_tempdir() -> tempfile::TempDir {
+    tempfile::tempdir().expect("tempdir")
+}
+
 #[test]
 fn list_prints_known_targets() {
     cmd()
@@ -120,7 +130,7 @@ fn headless_clean_without_yes_is_rejected() {
 
 #[test]
 fn headless_dry_run_does_not_remove_files() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
     let scan_root = temp.path().join("dry-run-root");
     fs::create_dir_all(&scan_root).expect("create root");
     fs::write(scan_root.join("a.txt"), b"abc").expect("write file");

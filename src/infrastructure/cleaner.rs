@@ -402,6 +402,46 @@ mod tests {
     use super::clean_target;
     use crate::application::cleaner::CleanMode;
 
+    #[cfg(unix)]
+    fn command_with_stderr_failure() -> &'static [&'static str] {
+        &["sh", "-c", "printf 'docker daemon failed' >&2; exit 7"]
+    }
+
+    #[cfg(windows)]
+    fn command_with_stderr_failure() -> &'static [&'static str] {
+        &["cmd", "/C", "echo docker daemon failed 1>&2 & exit /B 7"]
+    }
+
+    #[cfg(unix)]
+    fn command_without_stderr_failure() -> &'static [&'static str] {
+        &["sh", "-c", "exit 7"]
+    }
+
+    #[cfg(windows)]
+    fn command_without_stderr_failure() -> &'static [&'static str] {
+        &["cmd", "/C", "exit 7"]
+    }
+
+    #[cfg(unix)]
+    fn successful_interactive_command() -> &'static [&'static str] {
+        &["sh", "-c", "exit 0"]
+    }
+
+    #[cfg(windows)]
+    fn successful_interactive_command() -> &'static [&'static str] {
+        &["cmd", "/C", "exit 0"]
+    }
+
+    #[cfg(unix)]
+    fn expected_silent_failure_detail() -> &'static str {
+        "command failed: sh (exit status: 7)"
+    }
+
+    #[cfg(windows)]
+    fn expected_silent_failure_detail() -> &'static str {
+        "command failed: cmd (exit code: 7)"
+    }
+
     #[test]
     fn nonexistent_target_returns_zero_errors() {
         let temp = tempfile::tempdir().expect("create tempdir");
@@ -642,7 +682,7 @@ mod tests {
             name: Cow::Borrowed("Failing Command"),
             path: Cow::Borrowed(""),
             description: Cow::Borrowed("test"),
-            command: &["sh", "-c", "printf 'docker daemon failed' >&2; exit 7"],
+            command: command_with_stderr_failure(),
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
@@ -664,7 +704,7 @@ mod tests {
             name: Cow::Borrowed("Silent Failure"),
             path: Cow::Borrowed(""),
             description: Cow::Borrowed("test"),
-            command: &["sh", "-c", "exit 7"],
+            command: command_without_stderr_failure(),
             requires_sudo: false,
             dangerous: false,
             delete_entire: false,
@@ -675,7 +715,7 @@ mod tests {
 
         assert_eq!(
             result.error_detail.as_deref(),
-            Some("command failed: sh (exit status: 7)")
+            Some(expected_silent_failure_detail())
         );
     }
 
@@ -685,7 +725,7 @@ mod tests {
             name: Cow::Borrowed("Interactive Command"),
             path: Cow::Borrowed(""),
             description: Cow::Borrowed("test"),
-            command: &["sh", "-c", "exit 0"],
+            command: successful_interactive_command(),
             requires_sudo: true,
             dangerous: false,
             delete_entire: false,

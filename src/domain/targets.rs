@@ -1003,6 +1003,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn docker_cleanup_targets_use_supported_commands() {
         let targets = build_targets(
             &[
