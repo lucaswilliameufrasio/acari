@@ -376,20 +376,28 @@ fn clean_command_target(
     };
 
     if status.success() {
-        let (reclaimed_bytes, removed_entries) = if captures_docker_volume_prune_output {
-            stdout
-                .and_then(|handle| handle.join().ok())
-                .flatten()
-                .unwrap_or((0, 0))
-        } else {
-            (estimated_bytes, estimated_entries)
+        let docker_prune_result = captures_docker_volume_prune_output
+            .then(|| stdout.and_then(|handle| handle.join().ok()).flatten());
+        let (reclaimed_bytes, removed_entries, errors, error_detail) = match docker_prune_result {
+            Some(Some((reclaimed_bytes, removed_entries))) => {
+                (reclaimed_bytes, removed_entries, 0, None)
+            }
+            Some(None) => (
+                0,
+                0,
+                1,
+                Some(String::from(
+                    "docker volume prune completed, but its reclaimed-space summary could not be read",
+                )),
+            ),
+            None => (estimated_bytes, estimated_entries, 0, None),
         };
         CleanResult {
             target: target.clone(),
             reclaimed_bytes,
             removed_entries,
-            errors: 0,
-            error_detail: None,
+            errors,
+            error_detail,
         }
     } else {
         let details = stderr
@@ -478,6 +486,16 @@ mod tests {
     #[cfg(windows)]
     fn docker_volume_prune_noop_command() -> &'static [&'static str] {
         &["cmd", "/C", "echo Total reclaimed space: 0B"]
+    }
+
+    #[cfg(unix)]
+    fn docker_volume_prune_unparseable_command() -> &'static [&'static str] {
+        &["sh", "-c", "printf 'prune finished without a summary\\n'"]
+    }
+
+    #[cfg(windows)]
+    fn docker_volume_prune_unparseable_command() -> &'static [&'static str] {
+        &["cmd", "/C", "echo prune finished without a summary"]
     }
 
     #[cfg(unix)]
@@ -824,6 +842,32 @@ mod tests {
         assert_eq!(result.errors, 0);
         assert_eq!(result.reclaimed_bytes, 0);
         assert_eq!(result.removed_entries, 0);
+    }
+
+    #[test]
+    fn docker_volume_prune_unparseable_output_is_reported_as_measurement_error() {
+        let target = CleanTarget {
+            name: Cow::Borrowed("Docker Volumes Prune"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: docker_volume_prune_unparseable_command(),
+            requires_sudo: false,
+            dangerous: true,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+
+        let result = clean_target(&target, 16_680_000_000, 1, CleanMode::Execute);
+
+        assert_eq!(result.reclaimed_bytes, 0);
+        assert_eq!(result.removed_entries, 0);
+        assert_eq!(result.errors, 1);
+        assert_eq!(
+            result.error_detail.as_deref(),
+            Some(
+                "docker volume prune completed, but its reclaimed-space summary could not be read"
+            )
+        );
     }
 
     #[test]
