@@ -2,11 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.3] - 2026-09-28
+
+### Bug Fixes
+
+- Report actual volume prune results
+- Stream prune output parsing
+- Surface volume prune metric errors
+
+### Documentation
+
+- Add Acari release workflow skill
 ## [0.8.2] - 2026-09-28
 
 ### Bug Fixes
 
 - Isolate errors and restore sudo terminal
+
+### Chores
+
+- Prepare for v0.8.2
 
 ### Testing
 
