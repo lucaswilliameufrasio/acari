@@ -77,6 +77,7 @@ pub fn start_background_clean_with_cancel(
                 reclaimed_bytes: result.reclaimed_bytes,
                 removed_entries: result.removed_entries,
                 errors: result.errors,
+                error_detail: result.error_detail.clone(),
             });
         }
 

@@ -86,7 +86,11 @@ pub async fn run_headless(
                 reclaimed_bytes,
                 removed_entries,
                 errors,
+                error_detail,
             } => {
+                if let Some(detail) = error_detail {
+                    eprintln!("{target_name}: {detail}");
+                }
                 if waiting_clean_finish && !json {
                     print_target_cleaned(
                         &target_name,

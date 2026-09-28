@@ -16,7 +16,8 @@ The app runs in user space by default and scans paths the current user can acces
 
 - macOS SIP paths may produce `EACCES`; scanner skips them.
 - Linux system paths (`/var/log/journal`, `/var/cache/apt/archives`) may require root.
-- Cleanup may fail per target on permission-denied paths; these failures are reported in output as non-zero errors.
+- Cleanup may fail per target on permission-denied paths; the TUI shows command and filesystem failure details in a dismissible popup.
+- TUI operations marked as requiring `sudo` temporarily restore the normal terminal so the standard authentication prompt can read input and display output, then return to the TUI.
 
 ## Data Privacy
 

@@ -119,6 +119,7 @@ pub struct CleanResult {
     pub reclaimed_bytes: u64,
     pub removed_entries: u64,
     pub errors: u64,
+    pub error_detail: Option<String>,
 }
 
 pub fn expand_tilde(path: &str) -> PathBuf {

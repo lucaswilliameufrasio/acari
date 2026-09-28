@@ -148,6 +148,7 @@ pub fn clean_target_with_progress(
             reclaimed_bytes: 0,
             removed_entries: 0,
             errors: 0,
+            error_detail: None,
         };
     }
 
@@ -159,6 +160,7 @@ pub fn clean_target_with_progress(
                 reclaimed_bytes: 0,
                 removed_entries: 0,
                 errors: 1,
+                error_detail: Some("target path could not be safely resolved".into()),
             };
         }
     };
@@ -169,6 +171,7 @@ pub fn clean_target_with_progress(
             reclaimed_bytes: estimated_bytes,
             removed_entries: estimated_entries,
             errors: 0,
+            error_detail: None,
         };
     }
 
@@ -179,6 +182,8 @@ pub fn clean_target_with_progress(
             reclaimed_bytes: if ok { estimated_bytes } else { 0 },
             removed_entries: if ok { estimated_entries } else { 0 },
             errors: if ok { 0 } else { 1 },
+            error_detail: (!ok)
+                .then(|| "one or more filesystem entries could not be removed".into()),
         };
     }
 
@@ -240,6 +245,8 @@ pub fn clean_target_with_progress(
         },
         removed_entries,
         errors,
+        error_detail: (errors > 0)
+            .then(|| "one or more filesystem entries could not be removed".into()),
     }
 }
 
@@ -257,6 +264,7 @@ fn clean_command_target(
             reclaimed_bytes: estimated_bytes,
             removed_entries: estimated_entries,
             errors: 0,
+            error_detail: None,
         };
     }
 
@@ -267,23 +275,37 @@ fn clean_command_target(
             reclaimed_bytes: 0,
             removed_entries: 0,
             errors: 1,
+            error_detail: Some("command target has no command configured".into()),
         };
     }
 
     let mut child = match std::process::Command::new(cmd[0])
         .args(&cmd[1..])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stdin(if target.requires_sudo {
+            std::process::Stdio::inherit()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(if target.requires_sudo {
+            std::process::Stdio::inherit()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stderr(if target.requires_sudo {
+            std::process::Stdio::inherit()
+        } else {
+            std::process::Stdio::piped()
+        })
         .spawn()
     {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("error running {}: {e}", cmd[0]);
             return CleanResult {
                 target: target.clone(),
                 reclaimed_bytes: 0,
                 removed_entries: 0,
                 errors: 1,
+                error_detail: Some(format!("failed to run {}: {e}", cmd[0])),
             };
         }
     };
@@ -306,18 +328,22 @@ fn clean_command_target(
                 reclaimed_bytes: 0,
                 removed_entries: 0,
                 errors: 1,
+                error_detail: Some("command was cancelled".into()),
             };
         }
         if started.elapsed() >= command_timeout() {
             let timeout_seconds = command_timeout().as_secs();
             let _ = child.kill();
             let _ = child.wait();
-            eprintln!("command timed out after {timeout_seconds}s: {}", cmd[0]);
             return CleanResult {
                 target: target.clone(),
                 reclaimed_bytes: 0,
                 removed_entries: 0,
                 errors: 1,
+                error_detail: Some(format!(
+                    "command timed out after {timeout_seconds}s: {}",
+                    cmd[0]
+                )),
             };
         }
         match child.try_wait() {
@@ -327,12 +353,12 @@ fn clean_command_target(
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             Err(e) => {
-                eprintln!("error waiting for {}: {e}", cmd[0]);
                 return CleanResult {
                     target: target.clone(),
                     reclaimed_bytes: 0,
                     removed_entries: 0,
                     errors: 1,
+                    error_detail: Some(format!("error waiting for {}: {e}", cmd[0])),
                 };
             }
         }
@@ -344,22 +370,24 @@ fn clean_command_target(
             reclaimed_bytes: estimated_bytes,
             removed_entries: estimated_entries,
             errors: 0,
+            error_detail: None,
         }
     } else {
         let details = stderr
             .and_then(|handle| handle.join().ok())
             .filter(|output| !output.trim().is_empty())
             .unwrap_or_default();
-        if details.is_empty() {
-            eprintln!("command failed: {}", cmd[0]);
+        let error_detail = if details.is_empty() {
+            format!("command failed: {} ({status})", cmd[0])
         } else {
-            eprintln!("command failed: {details}");
-        }
+            format!("command failed: {details}")
+        };
         CleanResult {
             target: target.clone(),
             reclaimed_bytes: 0,
             removed_entries: 0,
             errors: 1,
+            error_detail: Some(error_detail),
         }
     }
 }
@@ -606,6 +634,68 @@ mod tests {
         assert_eq!(result.errors, 0);
         assert_eq!(result.reclaimed_bytes, 1000);
         assert_eq!(result.removed_entries, 1);
+    }
+
+    #[test]
+    fn failed_command_returns_stderr_for_the_ui() {
+        let target = CleanTarget {
+            name: Cow::Borrowed("Failing Command"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &["sh", "-c", "printf 'docker daemon failed' >&2; exit 7"],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+
+        let result = clean_target(&target, 0, 0, CleanMode::Execute);
+
+        assert_eq!(result.errors, 1);
+        assert_eq!(
+            result.error_detail.as_deref(),
+            Some("command failed: docker daemon failed")
+        );
+    }
+
+    #[test]
+    fn failed_command_without_stderr_includes_exit_status() {
+        let target = CleanTarget {
+            name: Cow::Borrowed("Silent Failure"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &["sh", "-c", "exit 7"],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+
+        let result = clean_target(&target, 0, 0, CleanMode::Execute);
+
+        assert_eq!(
+            result.error_detail.as_deref(),
+            Some("command failed: sh (exit status: 7)")
+        );
+    }
+
+    #[test]
+    fn privileged_command_inherits_terminal_streams() {
+        let target = CleanTarget {
+            name: Cow::Borrowed("Interactive Command"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &["sh", "-c", "exit 0"],
+            requires_sudo: true,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+
+        let result = clean_target(&target, 0, 0, CleanMode::Execute);
+
+        assert_eq!(result.errors, 0);
+        assert_eq!(result.error_detail, None);
     }
 
     #[test]
