@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-09-28
+
+### Bug Fixes
+
+- Isolate errors and restore sudo terminal
+
+### Testing
+
+- Make cleanup fixtures portable across platforms
+- Use safe paths for macOS scan fixtures
+## [0.8.1] - 2026-09-15
+
+### Chores
+
+- Prepare for v0.8.1
+- Prepare for v0.8.1
 ## [0.8.0] - 2026-09-15
 
 ### Bug Fixes
