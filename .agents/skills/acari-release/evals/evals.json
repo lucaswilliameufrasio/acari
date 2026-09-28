@@ -1,0 +1,23 @@
+{
+  "skill_name": "acari-release",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Acari's latest stable release is v0.8.2. We merged a bug fix to main; release it using the repo's normal workflow.",
+      "expected_output": "Classifies the release as patch 0.8.3, uses Prepare Release on main, reviews and merges the generated release PR, then tags/pushes v0.8.3 and verifies the published assets.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "There's a backward-compatible Acari feature after v0.8.2. What version should the release workflow prepare, and what sequence does this repo require?",
+      "expected_output": "Recommends 0.9.0 under SemVer and describes Prepare Release PR review/merge followed by a v0.9.0 tag and release workflow verification.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Tag and publish Acari v0.8.3 now; I think the release-prep PR might still be open.",
+      "expected_output": "Checks the release PR and main/tag state first; does not tag before the release-preparation PR is reviewed and merged, and does not overwrite an existing tag.",
+      "files": []
+    }
+  ]
+}
