@@ -30,39 +30,68 @@ fn remove_entry_with_progress(
         let size = if is_sym { 0 } else { metadata.len() };
         fs::remove_file(path).ok().map(|_| size)
     } else if metadata.is_dir() {
-        let mut stack = vec![(path.to_path_buf(), false)];
-        let mut reclaimed = 0_u64;
-        while let Some((current, is_post_order)) = stack.pop() {
-            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return None;
-            }
-            if is_post_order {
-                fs::remove_dir(&current).ok()?;
-                continue;
-            }
-
-            stack.push((current.clone(), true));
-            for entry in fs::read_dir(&current).ok()?.flatten() {
-                let child = entry.path();
-                let child_metadata = fs::symlink_metadata(&child).ok()?;
-                if child_metadata.file_type().is_symlink() || child_metadata.is_file() {
-                    let size = if child_metadata.is_file() {
-                        child_metadata.len()
-                    } else {
-                        0
-                    };
-                    fs::remove_file(&child).ok()?;
-                    reclaimed = reclaimed.saturating_add(size);
-                    progress(0);
-                } else if child_metadata.is_dir() {
-                    stack.push((child, false));
-                }
-            }
-        }
-        Some(reclaimed)
+        remove_directory_contents(path, true, progress, cancel)
     } else {
         None
     }
+}
+
+fn remove_entry_contents_with_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if metadata.file_type().is_symlink() || metadata.is_file() {
+        return remove_entry_with_progress(path, progress, cancel);
+    }
+    if metadata.is_dir() {
+        return remove_directory_contents(path, false, progress, cancel);
+    }
+    None
+}
+
+fn remove_directory_contents(
+    path: &Path,
+    remove_root: bool,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
+    let mut stack = vec![(path.to_path_buf(), false)];
+    let mut reclaimed = 0_u64;
+    while let Some((current, is_post_order)) = stack.pop() {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        if is_post_order {
+            if remove_root || current != path {
+                fs::remove_dir(&current).ok()?;
+            }
+            continue;
+        }
+
+        stack.push((current.clone(), true));
+        for entry in fs::read_dir(&current).ok()?.flatten() {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            let child = entry.path();
+            let child_metadata = fs::symlink_metadata(&child).ok()?;
+            if child_metadata.file_type().is_symlink() || child_metadata.is_file() {
+                let size = if child_metadata.is_file() {
+                    child_metadata.len()
+                } else {
+                    0
+                };
+                fs::remove_file(&child).ok()?;
+                reclaimed = reclaimed.saturating_add(size);
+                progress(0);
+            } else if child_metadata.is_dir() {
+                stack.push((child, false));
+            }
+        }
+    }
+    Some(reclaimed)
 }
 
 #[cfg(target_os = "macos")]
@@ -78,6 +107,31 @@ fn force_remove_with_progress(
             .output();
         remove_entry_with_progress(path, progress, cancel)
     })
+}
+
+#[cfg(target_os = "macos")]
+fn force_remove_contents_with_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
+    remove_entry_contents_with_progress(path, progress, cancel).or_else(|| {
+        let _ = std::process::Command::new("chflags")
+            .arg("-R")
+            .arg("nouchg")
+            .arg(path)
+            .output();
+        remove_entry_contents_with_progress(path, progress, cancel)
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn force_remove_contents_with_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+) -> Option<u64> {
+    remove_entry_contents_with_progress(path, progress, cancel)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -219,36 +273,15 @@ pub fn clean_target_with_progress(
             }
         }
     } else if path.is_dir() {
-        match fs::read_dir(&path) {
-            Ok(read_dir) => {
-                for entry in read_dir.flatten() {
-                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        errors = errors.saturating_add(1);
-                        break;
-                    }
-                    let entry_path = entry.path();
-                    let safe_path = canonicalize_child_cleanup_entry(&entry_path, &path);
-                    match safe_path {
-                        Some(p) => match force_remove_with_progress(&p, progress, cancel) {
-                            Some(freed) => {
-                                removed_entries = removed_entries.saturating_add(1);
-                                reclaimed_bytes = reclaimed_bytes.saturating_add(freed);
-                            }
-                            None => {
-                                errors = errors.saturating_add(1);
-                            }
-                        },
-                        None => {
-                            errors = errors.saturating_add(1);
-                        }
-                    }
-                    if removed_entries.is_multiple_of(128) {
-                        progress(0);
-                    }
-                }
+        match force_remove_contents_with_progress(&path, progress, cancel) {
+            Some(freed) => {
+                reclaimed_bytes = freed;
+                removed_entries = estimated_entries;
             }
-            Err(_) => {
-                errors = errors.saturating_add(1);
+            None => {
+                errors = 1;
+                reclaimed_bytes = 0;
+                removed_entries = 0;
             }
         }
     }
@@ -276,17 +309,6 @@ fn canonicalize_cleanup_target(raw_path: &Path) -> Option<(PathBuf, bool)> {
     }
     let canonical = fs::canonicalize(raw_path).ok()?;
     Some((canonical, false))
-}
-
-fn canonicalize_child_cleanup_entry(entry: &Path, root: &Path) -> Option<PathBuf> {
-    let metadata = fs::symlink_metadata(entry).ok()?;
-    if metadata.file_type().is_symlink() {
-        // The link is inside the selected root. Return its path (not its
-        // destination) so removal cannot traverse outside the root.
-        return entry.starts_with(root).then(|| entry.to_path_buf());
-    }
-    let canonical = fs::canonicalize(entry).ok()?;
-    canonical.starts_with(root).then_some(canonical)
 }
 
 fn is_builtin_ios_simulator_reset(target: &CleanTarget) -> bool {
@@ -768,7 +790,10 @@ mod tests {
 
     use crate::domain::{CleanTarget, TargetOrigin};
 
-    use super::{clean_docker_builder_prune, clean_ios_simulator_reset, clean_target};
+    use super::{
+        clean_docker_builder_prune, clean_ios_simulator_reset, clean_target,
+        clean_target_with_progress,
+    };
     use crate::application::cleaner::CleanMode;
 
     #[cfg(unix)]
@@ -1349,6 +1374,103 @@ mod tests {
         let result = clean_target(&target, 4, 1, CleanMode::Execute);
         assert_eq!(result.errors, 0);
         assert_eq!(result.reclaimed_bytes, 4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ordinary_directory_target_removes_contents_but_keeps_target_directory() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("cache");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("nested/data.bin"), b"data").unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("Cache contents"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Custom,
+        };
+
+        let result = clean_target(&target, 4, 1, CleanMode::Execute);
+
+        assert_eq!(result.errors, 0, "{:?}", result.error_detail);
+        assert!(root.is_dir(), "the target root must be preserved");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        assert_eq!(result.reclaimed_bytes, 4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_cleanup_does_not_follow_nested_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("cache");
+        let outside = temp.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), b"safe").unwrap();
+        symlink(&outside, root.join("external-link")).unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("Cache contents"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Custom,
+        };
+
+        let result = clean_target(&target, 0, 1, CleanMode::Execute);
+
+        assert_eq!(result.errors, 0, "{:?}", result.error_detail);
+        assert!(root.is_dir());
+        assert!(!root.join("external-link").exists());
+        assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"safe");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancelled_directory_cleanup_reports_partial_failure_and_preserves_root() {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicBool;
+
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let root = temp.path().join("cache");
+        fs::create_dir(&root).unwrap();
+        for index in 0..8 {
+            fs::write(root.join(format!("{index}.bin")), b"data").unwrap();
+        }
+        let target = CleanTarget {
+            name: Cow::Borrowed("Cache contents"),
+            path: Cow::Owned(root.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Custom,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_from_progress = Arc::clone(&cancel);
+
+        let result = clean_target_with_progress(
+            &target,
+            32,
+            8,
+            CleanMode::Execute,
+            &mut |_| cancel_from_progress.store(true, std::sync::atomic::Ordering::Relaxed),
+            &cancel,
+        );
+
+        assert_eq!(result.errors, 1);
+        assert_eq!(result.reclaimed_bytes, 0);
+        assert_eq!(result.removed_entries, 0);
+        assert!(root.is_dir());
     }
 
     #[cfg(unix)]
