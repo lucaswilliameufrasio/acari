@@ -61,6 +61,7 @@ struct DesktopApp {
     dry_run: bool,
     confirm_clean: bool,
     cleanup_status: String,
+    privileged_clean: bool,
     search: String,
     sort_largest_first: bool,
     cleanup_search: String,
@@ -93,6 +94,7 @@ impl Default for DesktopApp {
             dry_run: false,
             confirm_clean: false,
             cleanup_status: String::new(),
+            privileged_clean: false,
             search: String::new(),
             sort_largest_first: true,
             cleanup_search: String::new(),
@@ -212,17 +214,28 @@ impl DesktopApp {
                         cancelled,
                         ..
                     } => {
-                        self.cleanup_status = format!(
-                            "{}{} liberados; {} erros{}.",
-                            if self.dry_run {
-                                "Simulação: "
+                        self.cleanup_status = if self.privileged_clean && errors == 0 {
+                            "Operação privilegiada concluída; espaço recuperado não medido.".into()
+                        } else if self.privileged_clean {
+                            if self.cleanup_status == "Limpando…" {
+                                "Operação privilegiada falhou; espaço recuperado não medido.".into()
                             } else {
-                                "Limpeza: "
-                            },
-                            reclaimed_bytes,
-                            errors,
-                            if cancelled { " (cancelada)" } else { "" }
-                        );
+                                self.cleanup_status.clone()
+                            }
+                        } else {
+                            format!(
+                                "{}{} liberados; {} erros{}.",
+                                if self.dry_run {
+                                    "Simulação: "
+                                } else {
+                                    "Limpeza: "
+                                },
+                                crate::domain::format_bytes(reclaimed_bytes),
+                                errors,
+                                if cancelled { " (cancelada)" } else { "" }
+                            )
+                        };
+                        self.privileged_clean = false;
                         self.clean_rx = None;
                         self.clean_tx = None;
                         break;
@@ -265,6 +278,7 @@ impl DesktopApp {
             return;
         }
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.privileged_clean = !self.dry_run && selected[0].0.requires_sudo;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         if !self.dry_run && selected[0].0.requires_sudo {
             cleaner::start_background_privileged_clean(tx.clone(), selected[0].0.clone());
