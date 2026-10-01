@@ -62,6 +62,7 @@ struct DesktopApp {
     dry_run: bool,
     confirm_clean: bool,
     cleanup_status: String,
+    cleanup_errors: Vec<String>,
     privileged_clean: bool,
     search: String,
     sort_largest_first: bool,
@@ -96,6 +97,7 @@ impl Default for DesktopApp {
             dry_run: false,
             confirm_clean: false,
             cleanup_status: String::new(),
+            cleanup_errors: Vec::new(),
             privileged_clean: false,
             search: String::new(),
             sort_largest_first: true,
@@ -225,17 +227,20 @@ impl DesktopApp {
                         cancelled,
                         ..
                     } => {
+                        let error_suffix = if self.cleanup_errors.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" Detalhes: {}", self.cleanup_errors.join("; "))
+                        };
                         self.cleanup_status = if self.privileged_clean && errors == 0 {
                             "Operação privilegiada concluída; espaço recuperado não medido.".into()
                         } else if self.privileged_clean {
-                            if self.cleanup_status == "Limpando…" {
-                                "Operação privilegiada falhou; espaço recuperado não medido.".into()
-                            } else {
-                                self.cleanup_status.clone()
-                            }
+                            format!(
+                                "Operação privilegiada falhou; espaço recuperado não medido.{error_suffix}"
+                            )
                         } else {
                             format!(
-                                "{}{} liberados; {} erros{}.",
+                                "{}{} liberados; {} erros{}.{}",
                                 if self.dry_run {
                                     "Simulação: "
                                 } else {
@@ -243,7 +248,8 @@ impl DesktopApp {
                                 },
                                 crate::domain::format_bytes(reclaimed_bytes),
                                 errors,
-                                if cancelled { " (cancelada)" } else { "" }
+                                if cancelled { " (cancelada)" } else { "" },
+                                error_suffix
                             )
                         };
                         self.privileged_clean = false;
@@ -257,7 +263,7 @@ impl DesktopApp {
                         error_detail: Some(detail),
                         ..
                     } => {
-                        self.cleanup_status = format!("{target_name}: {detail}");
+                        self.cleanup_errors.push(format!("{target_name}: {detail}"));
                     }
                     _ => {}
                 }
@@ -293,6 +299,7 @@ impl DesktopApp {
         let single_target = selected.len() == 1;
         self.privileged_clean = !self.dry_run && single_target && selected[0].0.requires_sudo;
         self.clean_cancel = None;
+        self.cleanup_errors.clear();
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         if !self.dry_run && single_target && selected[0].0.requires_sudo {
             cleaner::start_background_privileged_clean(tx.clone(), selected[0].0.clone());
@@ -994,6 +1001,37 @@ mod tests {
         assert!(!app.target_scan_done);
         assert!(app.target_rx.is_none());
         assert!(app.cleanup_status.contains("interrompida"));
+    }
+
+    #[test]
+    fn cleanup_completion_keeps_error_detail_and_partial_cancel_state() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(crate::domain::AppEvent::TargetCleaned {
+            target_name: "Cache".into(),
+            reclaimed_bytes: 12,
+            removed_entries: 1,
+            errors: 1,
+            error_detail: Some("permission denied".into()),
+        })
+        .unwrap();
+        tx.send(crate::domain::AppEvent::CleaningFinished {
+            cleaned_targets: 1,
+            reclaimed_bytes: 12,
+            errors: 1,
+            cancelled: true,
+        })
+        .unwrap();
+        let mut app = super::DesktopApp {
+            clean_rx: Some(rx),
+            cleanup_status: "Limpando…".into(),
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(app.cleanup_status.contains("cancelada"));
+        assert!(app.cleanup_status.contains("1 erros"));
+        assert!(app.cleanup_status.contains("Cache: permission denied"));
     }
 
     #[test]
