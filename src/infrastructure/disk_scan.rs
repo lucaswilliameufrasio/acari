@@ -129,25 +129,24 @@ pub fn scan_tree_cancellable(
         }
     }
 
-    // Attach shallow-to-deep so each parent exists before its child is inserted.
+    // Attach deep-to-shallow using the flat path index. The parent is still in
+    // the map when each child is moved, avoiding a recursive tree search for
+    // every entry (which becomes quadratic on wide/deep trees).
     let mut paths: Vec<_> = nodes
         .keys()
         .filter(|path| **path != root)
         .cloned()
         .collect();
-    paths.sort_by_key(|path| path.components().count());
-    let mut root_node = nodes.remove(&root).expect("root node inserted");
+    paths.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
     for path in paths {
         if let Some(node) = nodes.remove(&path)
             && let Some(parent) = path.parent()
+            && let Some(parent_node) = nodes.get_mut(parent)
         {
-            if parent == root {
-                root_node.children.push(node);
-            } else if let Some(parent_node) = find_node_mut(&mut root_node, parent) {
-                parent_node.children.push(node);
-            }
+            parent_node.children.push(node);
         }
     }
+    let mut root_node = nodes.remove(&root).expect("root node inserted");
     sort_tree(&mut root_node);
     if let Some(tx) = progress {
         let _ = tx.send(ScanProgress { entries, bytes });
@@ -191,20 +190,6 @@ pub fn mounted_roots() -> Vec<PathBuf> {
     {
         Vec::new()
     }
-}
-
-fn find_node_mut<'a>(node: &'a mut DiskNode, path: &Path) -> Option<&'a mut DiskNode> {
-    if node.path == path {
-        return Some(node);
-    }
-    for child in &mut node.children {
-        if path.starts_with(&child.path)
-            && let Some(found) = find_node_mut(child, path)
-        {
-            return Some(found);
-        }
-    }
-    None
 }
 
 fn sort_tree(node: &mut DiskNode) {
