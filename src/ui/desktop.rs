@@ -686,13 +686,32 @@ fn cleanup_targets_overlap(left: &CleanTarget, right: &CleanTarget) -> bool {
     if left.is_command() || right.is_command() {
         return false;
     }
-    let left_path = left.resolved_path();
-    let right_path = right.resolved_path();
-    let left_path = std::fs::canonicalize(&left_path).unwrap_or(left_path);
-    let right_path = std::fs::canonicalize(&right_path).unwrap_or(right_path);
+    let left_path = canonicalize_for_overlap(&left.resolved_path());
+    let right_path = canonicalize_for_overlap(&right.resolved_path());
     left_path == right_path
         || left_path.starts_with(&right_path)
         || right_path.starts_with(&left_path)
+}
+
+fn canonicalize_for_overlap(path: &std::path::Path) -> PathBuf {
+    let mut unresolved = path;
+    let mut suffix = Vec::new();
+    loop {
+        if let Ok(mut canonical) = std::fs::canonicalize(unresolved) {
+            for component in suffix.iter().rev() {
+                canonical.push(component);
+            }
+            return canonical;
+        }
+        let Some(file_name) = unresolved.file_name() else {
+            return path.to_path_buf();
+        };
+        suffix.push(file_name.to_os_string());
+        let Some(parent) = unresolved.parent() else {
+            return path.to_path_buf();
+        };
+        unresolved = parent;
+    }
 }
 
 fn requires_individual_confirmation(target: &CleanTarget) -> bool {
@@ -1072,6 +1091,31 @@ mod tests {
             },
             &target("/tmp/acari-cache")
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_target_overlap_resolves_symlinked_parents_for_missing_paths() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let actual = temp.path().join("actual");
+        let alias = temp.path().join("alias");
+        std::fs::create_dir_all(actual.join("cache")).unwrap();
+        symlink(&actual, &alias).unwrap();
+        let target = |path: String| CleanTarget {
+            path: path.into(),
+            ..CleanTarget::default()
+        };
+
+        let through_alias = target(
+            alias
+                .join("cache/not-created-yet")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let through_real_path = target(actual.join("cache").to_string_lossy().into_owned());
+        assert!(cleanup_targets_overlap(&through_alias, &through_real_path));
     }
 
     #[test]
