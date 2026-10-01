@@ -89,3 +89,39 @@ pub fn start_background_clean_with_cancel(
         });
     })
 }
+
+#[cfg(target_os = "linux")]
+pub fn start_background_privileged_clean(
+    tx: UnboundedSender<AppEvent>,
+    target: CleanTarget,
+) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        let name = target.name.to_string();
+        let _ = tx.send(AppEvent::CleaningProgress {
+            target_name: name.clone(),
+            completed_targets: 0,
+            total_targets: 1,
+            elapsed_seconds: 0,
+        });
+        let result = crate::infrastructure::privileged::operation_for_target(&name)
+            .ok_or_else(|| "target has no approved privileged operation".to_string())
+            .and_then(crate::infrastructure::privileged::run_operation);
+        let (reclaimed_bytes, errors, error_detail) = match result {
+            Ok(()) => (0, 0, None),
+            Err(error) => (0, 1, Some(error)),
+        };
+        let _ = tx.send(AppEvent::TargetCleaned {
+            target_name: name,
+            reclaimed_bytes,
+            removed_entries: 0,
+            errors,
+            error_detail,
+        });
+        let _ = tx.send(AppEvent::CleaningFinished {
+            cleaned_targets: 1,
+            reclaimed_bytes,
+            errors,
+            cancelled: false,
+        });
+    })
+}

@@ -145,8 +145,14 @@ acari --desktop
 ```
 
 The desktop UI can inspect a mounted volume or selected folder with a
-read-only treemap, and can scan/clean configured file targets. Command targets
-and targets requiring elevated privileges remain available through the TUI/CLI.
+read-only treemap, and can scan/clean configured file targets. A small set of
+allowlisted Docker operations is available with an individual confirmation.
+On Linux, the `Apt Autoremove` and `Journalctl Vacuum` targets can use the
+system authorization prompt only when the companion `acari-privileged-helper`
+is installed beside Acarí, owned by root, and not writable by group/others.
+The helper accepts only fixed operation IDs; unsupported commands and
+privileged targets remain unavailable in the desktop UI. macOS privileged
+operations are not yet supported there.
 
 Navigate the interface using your keyboard:
 
