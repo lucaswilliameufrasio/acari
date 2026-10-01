@@ -56,6 +56,7 @@ struct DesktopApp {
     target_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     clean_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     clean_tx: Option<tokio::sync::mpsc::UnboundedSender<AppEvent>>,
+    clean_cancel: Option<cleaner::CancellationToken>,
     target_scan_done: bool,
     target_scan_busy: bool,
     dry_run: bool,
@@ -89,6 +90,7 @@ impl Default for DesktopApp {
             target_rx: None,
             clean_rx: None,
             clean_tx: None,
+            clean_cancel: None,
             target_scan_done: false,
             target_scan_busy: false,
             dry_run: false,
@@ -247,6 +249,7 @@ impl DesktopApp {
                         self.privileged_clean = false;
                         self.clean_rx = None;
                         self.clean_tx = None;
+                        self.clean_cancel = None;
                         break;
                     }
                     AppEvent::TargetCleaned {
@@ -289,11 +292,13 @@ impl DesktopApp {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let single_target = selected.len() == 1;
         self.privileged_clean = !self.dry_run && single_target && selected[0].0.requires_sudo;
+        self.clean_cancel = None;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         if !self.dry_run && single_target && selected[0].0.requires_sudo {
             cleaner::start_background_privileged_clean(tx.clone(), selected[0].0.clone());
         } else {
-            cleaner::start_background_clean(
+            let cancel = cleaner::new_cancellation_token();
+            cleaner::start_background_clean_with_cancel(
                 tx.clone(),
                 selected,
                 if self.dry_run {
@@ -301,18 +306,25 @@ impl DesktopApp {
                 } else {
                     CleanMode::Execute
                 },
+                cancel.clone(),
             );
+            self.clean_cancel = Some(cancel);
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        cleaner::start_background_clean(
-            tx.clone(),
-            selected,
-            if self.dry_run {
-                CleanMode::DryRun
-            } else {
-                CleanMode::Execute
-            },
-        );
+        {
+            let cancel = cleaner::new_cancellation_token();
+            cleaner::start_background_clean_with_cancel(
+                tx.clone(),
+                selected,
+                if self.dry_run {
+                    CleanMode::DryRun
+                } else {
+                    CleanMode::Execute
+                },
+                cancel.clone(),
+            );
+            self.clean_cancel = Some(cancel);
+        }
         self.clean_tx = Some(tx);
         self.clean_rx = Some(rx);
         self.confirm_clean = false;
@@ -423,6 +435,14 @@ impl eframe::App for DesktopApp {
                     if ui.add_enabled(!self.target_scan_busy && self.clean_rx.is_none(), egui::Button::new("Verificar alvos")).clicked() { self.start_target_scan(); }
                     ui.checkbox(&mut self.dry_run, "Simular (dry-run)");
                     if ui.add_enabled(self.target_scan_done && self.clean_rx.is_none(), egui::Button::new("Limpar selecionados…")).clicked() { self.confirm_clean = true; }
+                    if self.clean_rx.is_some()
+                        && !self.privileged_clean
+                        && ui.button("Cancelar limpeza").clicked()
+                        && let Some(cancel) = &self.clean_cancel
+                    {
+                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        self.cleanup_status = "Cancelando limpeza… itens já removidos não podem ser restaurados.".into();
+                    }
                 });
                 if !self.cleanup_status.is_empty() { ui.label(&self.cleanup_status); }
                 ui.horizontal(|ui| {
