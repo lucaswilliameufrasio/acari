@@ -90,7 +90,7 @@ pub fn start_background_clean_with_cancel(
     })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn start_background_privileged_clean(
     tx: UnboundedSender<AppEvent>,
     target: CleanTarget,

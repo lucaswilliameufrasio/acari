@@ -28,7 +28,7 @@ Options:
   --tag       Release tag (default: latest)
   --bin-dir   Install directory (default: ~/.local/bin)
   --force     Remove old installations without prompting
-  --install-privileged-helper  Install the Linux authorization helper under /usr/local/libexec
+  --install-privileged-helper  Install the Linux/macOS authorization helper (requires sudo)
   -h, --help  Show this help
 USAGE
 }
@@ -217,22 +217,38 @@ install_bin "${TMP_DIR}/acari" "${BIN_DIR}/acari"
 install_bin "${TMP_DIR}/headless_cleaner" "${BIN_DIR}/headless_cleaner"
 
 if [ -n "$INSTALL_PRIVILEGED_HELPER" ]; then
-  if [ "$OS" != "Linux" ]; then
-    echo "The privileged helper is currently supported only on Linux." >&2
-    exit 1
-  fi
   HELPER_SRC="${TMP_DIR}/acari-privileged-helper"
   if [ ! -f "$HELPER_SRC" ]; then
     echo "Missing binary in archive: acari-privileged-helper" >&2
     exit 1
   fi
-  if ! command -v pkexec >/dev/null 2>&1; then
-    echo "pkexec is required to install the privileged helper." >&2
-    exit 1
+  case "$OS" in
+    Linux)
+      if ! command -v pkexec >/dev/null 2>&1; then
+        echo "pkexec is required to use the Linux privileged helper." >&2
+        exit 1
+      fi
+      HELPER_DIR="/usr/local/libexec/acari"
+      HELPER_NAME="acari-privileged-helper"
+      HELPER_GROUP="root"
+      ;;
+    Darwin)
+      HELPER_DIR="/Library/PrivilegedHelperTools"
+      HELPER_NAME="com.acari.privileged-helper"
+      HELPER_GROUP="wheel"
+      ;;
+    *)
+      echo "The privileged helper is supported only on Linux and macOS." >&2
+      exit 1
+      ;;
+  esac
+  if [ "$OS" = "Linux" ]; then
+    echo "Installing the allowlisted helper to ${HELPER_DIR} (system authorization required)."
+  else
+    echo "Installing the allowlisted helper to ${HELPER_DIR} (administrator authorization required)."
   fi
-  echo "Installing the allowlisted privileged helper to /usr/local/libexec/acari (system authorization required)."
-  sudo install -d -o root -g root -m 0755 /usr/local/libexec/acari
-  sudo install -o root -g root -m 0755 "$HELPER_SRC" /usr/local/libexec/acari/acari-privileged-helper
+  sudo install -d -o root -g "$HELPER_GROUP" -m 0755 "$HELPER_DIR"
+  sudo install -o root -g "$HELPER_GROUP" -m 0755 "$HELPER_SRC" "${HELPER_DIR}/${HELPER_NAME}"
 fi
 
 echo "Installed binaries to: ${BIN_DIR}"

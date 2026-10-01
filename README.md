@@ -94,9 +94,9 @@ curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scr
   sh -s -- --repo lucaswilliameufrasio/acari
 ```
 
-On Linux, add `--install-privileged-helper` to install the constrained helper
-under `/usr/local/libexec/acari` using `sudo`; this is optional and enables only
-the two documented privileged desktop operations:
+On Linux or macOS, add `--install-privileged-helper` to install the constrained
+helper in a root-owned system directory using `sudo`; this is optional and
+enables only the allowlisted privileged desktop operations for that platform:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | \
@@ -159,9 +159,12 @@ allowlisted Docker operations is available with an individual confirmation.
 On Linux, the `Apt Autoremove` and `Journalctl Vacuum` targets can use the
 system authorization prompt only when the companion `acari-privileged-helper`
 is installed under `/usr/local/libexec/acari`, owned by root, and not writable
-by group/others.
+by group/others. On macOS, `Time Machine Local Snapshots` uses the system
+administrator prompt through a fixed AppleScript operation; its helper must be
+installed at `/Library/PrivilegedHelperTools/com.acari.privileged-helper` and
+owned by root.
 The helper accepts only fixed operation IDs; unsupported commands and
-privileged targets remain unavailable in the desktop UI. macOS privileged
+privileged targets remain unavailable in the desktop UI. Other macOS privileged
 operations are not yet supported there.
 
 Navigate the interface using your keyboard:

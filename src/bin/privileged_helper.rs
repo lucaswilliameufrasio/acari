@@ -2,6 +2,8 @@
 
 #[cfg(target_os = "linux")]
 use std::os::unix::process::ExitStatusExt;
+#[cfg(target_os = "macos")]
+use std::process::ExitCode;
 #[cfg(target_os = "linux")]
 use std::process::{Command, ExitCode};
 
@@ -11,6 +13,44 @@ fn command_for_operation(operation: &str) -> Option<(&'static str, &'static [&'s
         "apt-autoremove" => Some(("/usr/bin/apt-get", &["autoremove", "-y"])),
         "journal-vacuum" => Some(("/usr/bin/journalctl", &["--vacuum-size=100M"])),
         _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+const APPLESCRIPT_FOR_SNAPSHOT_THIN: &str = "do shell script \"/usr/bin/tmutil thinlocalsnapshots / 10000000000 4\" with administrator privileges";
+
+#[cfg(target_os = "macos")]
+fn main() -> ExitCode {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(executable) = std::env::current_exe() else {
+        eprintln!("Could not resolve the privileged helper executable.");
+        return ExitCode::FAILURE;
+    };
+    let Ok(metadata) = std::fs::metadata(executable) else {
+        eprintln!("Could not verify the privileged helper installation.");
+        return ExitCode::FAILURE;
+    };
+    if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+        eprintln!("The privileged helper must be root-owned and not writable by others.");
+        return ExitCode::FAILURE;
+    }
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("tm-snapshot-thin"))
+        || args.next().is_some()
+    {
+        eprintln!("Unknown operation identifier or unexpected arguments.");
+        return ExitCode::FAILURE;
+    }
+    match std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", APPLESCRIPT_FOR_SNAPSHOT_THIN])
+        .status()
+    {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(1, 255) as u8),
+        Err(error) => {
+            eprintln!("Could not start the macOS authorization prompt: {error}");
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -83,8 +123,19 @@ mod tests {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    #[test]
+    fn authorization_script_is_static_and_uses_only_the_allowlisted_operation() {
+        assert_eq!(
+            super::APPLESCRIPT_FOR_SNAPSHOT_THIN,
+            "do shell script \"/usr/bin/tmutil thinlocalsnapshots / 10000000000 4\" with administrator privileges"
+        );
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("The privileged helper is supported only on Linux.");
+    eprintln!("The privileged helper is supported only on Linux and macOS.");
     std::process::exit(1);
 }

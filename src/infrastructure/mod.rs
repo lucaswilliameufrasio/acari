@@ -5,7 +5,7 @@ pub mod distro;
 pub mod du;
 pub mod exec;
 pub mod history;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod privileged;
 pub mod scanner;
 

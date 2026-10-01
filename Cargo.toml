@@ -7,6 +7,10 @@ repository = "https://github.com/lucaswilliameufrasio/acari"
 authors = ["Lucas Eufrasio"]
 license = "MIT"
 
+[[bin]]
+name = "acari-privileged-helper"
+path = "src/bin/privileged_helper.rs"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }

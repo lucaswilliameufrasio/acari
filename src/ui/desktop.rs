@@ -265,7 +265,7 @@ impl DesktopApp {
             return;
         }
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         if !self.dry_run && selected[0].0.requires_sudo {
             cleaner::start_background_privileged_clean(tx.clone(), selected[0].0.clone());
         } else {
@@ -279,7 +279,7 @@ impl DesktopApp {
                 },
             );
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         cleaner::start_background_clean(
             tx.clone(),
             selected,
@@ -616,19 +616,12 @@ fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
     if target.origin != crate::domain::TargetOrigin::Builtin {
         return false;
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     if target.requires_sudo {
-        return crate::infrastructure::privileged::operation_for_target(&target.name).is_some_and(
-            |_| {
-                crate::infrastructure::privileged::helper_path().is_some()
-                    && std::process::Command::new("pkexec")
-                        .arg("--version")
-                        .output()
-                        .is_ok()
-            },
-        );
+        return crate::infrastructure::privileged::operation_for_target(&target.name)
+            .is_some_and(|_| crate::infrastructure::privileged::authorization_broker_available());
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     if target.requires_sudo {
         return false;
     }
