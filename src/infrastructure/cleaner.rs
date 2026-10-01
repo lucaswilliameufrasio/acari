@@ -22,13 +22,13 @@ fn remove_entry_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     let metadata = fs::symlink_metadata(path).ok()?;
     let is_sym = metadata.file_type().is_symlink();
 
     if is_sym || metadata.is_file() {
         let size = if is_sym { 0 } else { metadata.len() };
-        fs::remove_file(path).ok().map(|_| size)
+        fs::remove_file(path).ok().map(|_| (size, 1))
     } else if metadata.is_dir() {
         remove_directory_contents(path, true, progress, cancel)
     } else {
@@ -40,7 +40,7 @@ fn remove_entry_contents_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     let metadata = fs::symlink_metadata(path).ok()?;
     if metadata.file_type().is_symlink() || metadata.is_file() {
         return remove_entry_with_progress(path, progress, cancel);
@@ -56,9 +56,10 @@ fn remove_directory_contents(
     remove_root: bool,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     let mut stack = vec![(path.to_path_buf(), false)];
     let mut reclaimed = 0_u64;
+    let mut removed_entries = 0_u64;
     while let Some((current, is_post_order)) = stack.pop() {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
@@ -86,13 +87,14 @@ fn remove_directory_contents(
                 };
                 fs::remove_file(&child).ok()?;
                 reclaimed = reclaimed.saturating_add(size);
+                removed_entries = removed_entries.saturating_add(1);
                 progress(0);
             } else if child_metadata.is_dir() {
                 stack.push((child, false));
             }
         }
     }
-    Some(reclaimed)
+    Some((reclaimed, removed_entries))
 }
 
 #[cfg(target_os = "macos")]
@@ -100,7 +102,7 @@ fn force_remove_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     remove_entry_with_progress(path, progress, cancel).or_else(|| {
         let _ = std::process::Command::new("chflags")
             .arg("nouchg")
@@ -115,7 +117,7 @@ fn force_remove_contents_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     remove_entry_contents_with_progress(path, progress, cancel).or_else(|| {
         let _ = std::process::Command::new("chflags")
             .arg("-R")
@@ -131,7 +133,7 @@ fn force_remove_contents_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     remove_entry_contents_with_progress(path, progress, cancel)
 }
 
@@ -140,7 +142,7 @@ fn force_remove_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
     cancel: &Arc<AtomicBool>,
-) -> Option<u64> {
+) -> Option<(u64, u64)> {
     remove_entry_with_progress(path, progress, cancel)
 }
 
@@ -250,10 +252,11 @@ pub fn clean_target_with_progress(
         }
         let outcome = force_remove_with_progress(&path, progress, cancel);
         let ok = outcome.is_some();
+        let (reclaimed_bytes, removed_entries) = outcome.unwrap_or_default();
         return CleanResult {
             target: target.clone(),
-            reclaimed_bytes: outcome.unwrap_or(0),
-            removed_entries: if ok { estimated_entries } else { 0 },
+            reclaimed_bytes,
+            removed_entries: if ok { removed_entries } else { 0 },
             errors: if ok { 0 } else { 1 },
             error_detail: (!ok)
                 .then(|| "one or more filesystem entries could not be removed".into()),
@@ -266,8 +269,8 @@ pub fn clean_target_with_progress(
 
     if target_is_symlink || path.is_file() {
         match force_remove_with_progress(&path, progress, cancel) {
-            Some(freed) => {
-                removed_entries = 1;
+            Some((freed, removed)) => {
+                removed_entries = removed;
                 reclaimed_bytes = freed;
             }
             None => {
@@ -276,9 +279,9 @@ pub fn clean_target_with_progress(
         }
     } else if path.is_dir() {
         match force_remove_contents_with_progress(&path, progress, cancel) {
-            Some(freed) => {
+            Some((freed, removed)) => {
                 reclaimed_bytes = freed;
-                removed_entries = estimated_entries;
+                removed_entries = removed;
             }
             None => {
                 errors = 1;
@@ -1034,7 +1037,8 @@ mod tests {
             origin: TargetOrigin::Builtin,
         };
 
-        let result = clean_target(&target, 4, 1, CleanMode::Execute);
+        // Deliberately stale scan counts must not be echoed as actual removals.
+        let result = clean_target(&target, 4, 99, CleanMode::Execute);
         assert_eq!(result.errors, 0, "delete_entire should succeed");
         assert_eq!(result.reclaimed_bytes, 4, "should report estimated bytes");
         assert_eq!(result.removed_entries, 1);
@@ -1398,6 +1402,7 @@ mod tests {
         assert!(root.is_dir(), "the target root must be preserved");
         assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
         assert_eq!(result.reclaimed_bytes, 4);
+        assert_eq!(result.removed_entries, 1);
     }
 
     #[cfg(unix)]
