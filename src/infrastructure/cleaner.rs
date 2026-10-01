@@ -141,6 +141,17 @@ pub fn clean_target_with_progress(
                 std::ffi::OsStr::new("docker"),
             );
         }
+        if is_builtin_ios_simulator_reset(target) {
+            return clean_ios_simulator_reset(
+                target,
+                estimated_bytes,
+                estimated_entries,
+                mode,
+                progress,
+                cancel,
+                std::ffi::OsStr::new("xcrun"),
+            );
+        }
         return clean_command_target(
             target,
             estimated_bytes,
@@ -261,6 +272,127 @@ pub fn clean_target_with_progress(
         error_detail: (errors > 0)
             .then(|| "one or more filesystem entries could not be removed".into()),
     }
+}
+
+fn is_builtin_ios_simulator_reset(target: &CleanTarget) -> bool {
+    target.origin == crate::domain::TargetOrigin::Builtin
+        && target.name == "iOS Simulators Reset"
+        && target.command
+            == [
+                "sh",
+                "-c",
+                "xcrun simctl shutdown all 2>/dev/null; xcrun simctl erase all",
+            ]
+}
+
+fn clean_ios_simulator_reset(
+    target: &CleanTarget,
+    estimated_bytes: u64,
+    estimated_entries: u64,
+    mode: CleanMode,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+    xcrun_executable: &std::ffi::OsStr,
+) -> CleanResult {
+    if mode == CleanMode::DryRun {
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: estimated_bytes,
+            removed_entries: estimated_entries,
+            errors: 0,
+            error_detail: None,
+        };
+    }
+    let mut shutdown = std::process::Command::new(xcrun_executable);
+    shutdown.args(["simctl", "shutdown", "all"]);
+    if let Err(error) = run_cancellable_command(shutdown, cancel, progress) {
+        return command_error(target, error);
+    }
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return command_error(target, "simulator reset was cancelled".into());
+    }
+
+    let mut erase = std::process::Command::new(xcrun_executable);
+    erase.args(["simctl", "erase", "all"]);
+    match run_cancellable_command(erase, cancel, progress) {
+        Ok(output) if output.status.success() => CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: estimated_bytes,
+            removed_entries: estimated_entries,
+            errors: 0,
+            error_detail: None,
+        },
+        Ok(output) => command_failure(
+            target,
+            "xcrun simctl erase all",
+            output.status,
+            &output.stderr,
+        ),
+        Err(error) => command_error(target, error),
+    }
+}
+
+fn run_cancellable_command(
+    mut command: std::process::Command,
+    cancel: &Arc<AtomicBool>,
+    progress: &mut dyn FnMut(u64),
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("could not start command: {error}"))?;
+    let stdout = child.stdout.take().map(|mut stream| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stream.read_to_end(&mut bytes);
+            bytes
+        })
+    });
+    let stderr = child.stderr.take().map(|mut stream| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stream.read_to_end(&mut bytes);
+            bytes
+        })
+    });
+    let started = Instant::now();
+    let status = loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("command was cancelled".into());
+        }
+        if started.elapsed() >= command_timeout() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("command timed out".into());
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                progress(started.elapsed().as_secs());
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("error waiting for command: {error}"));
+            }
+        }
+    };
+    let stdout = stdout
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    let stderr = stderr
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 fn is_builtin_docker_builder_prune(target: &CleanTarget) -> bool {
@@ -621,7 +753,7 @@ mod tests {
 
     use crate::domain::{CleanTarget, TargetOrigin};
 
-    use super::{clean_docker_builder_prune, clean_target};
+    use super::{clean_docker_builder_prune, clean_ios_simulator_reset, clean_target};
     use crate::application::cleaner::CleanMode;
 
     #[cfg(unix)]
@@ -945,6 +1077,72 @@ mod tests {
             injection_marker.display()
         )));
         assert!(!arguments.contains("<default>"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn simulator_reset_dry_run_is_read_only_and_execution_uses_fixed_arguments() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let directory = tempfile::tempdir().unwrap();
+        let xcrun = directory.path().join("xcrun");
+        let arguments_log = directory.path().join("xcrun-arguments.log");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}';\nif [ \"$2\" = erase ]; then echo 'simulator reset complete'; fi\n",
+            arguments_log.display()
+        );
+        fs::write(&xcrun, script).unwrap();
+        let mut permissions = fs::metadata(&xcrun).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+        fs::set_permissions(&xcrun, permissions).unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("iOS Simulators Reset"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &[
+                "sh",
+                "-c",
+                "xcrun simctl shutdown all 2>/dev/null; xcrun simctl erase all",
+            ],
+            requires_sudo: false,
+            dangerous: true,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+        let cancellation = Arc::new(AtomicBool::new(false));
+
+        let preview = clean_ios_simulator_reset(
+            &target,
+            1234,
+            9,
+            CleanMode::DryRun,
+            &mut |_| {},
+            &cancellation,
+            xcrun.as_os_str(),
+        );
+        assert_eq!(preview.errors, 0);
+        assert_eq!(preview.reclaimed_bytes, 1234);
+        assert!(
+            !arguments_log.exists(),
+            "dry-run must not invoke simulator tools"
+        );
+
+        let result = clean_ios_simulator_reset(
+            &target,
+            1234,
+            9,
+            CleanMode::Execute,
+            &mut |_| {},
+            &cancellation,
+            xcrun.as_os_str(),
+        );
+        assert_eq!(result.errors, 0, "{:?}", result.error_detail);
+        assert_eq!(result.reclaimed_bytes, 1234);
+        assert_eq!(
+            fs::read_to_string(arguments_log).unwrap(),
+            "simctl shutdown all\nsimctl erase all\n"
+        );
     }
 
     #[test]

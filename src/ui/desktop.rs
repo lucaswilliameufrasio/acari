@@ -640,6 +640,17 @@ fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
     if target.requires_sudo {
         return false;
     }
+    if target.name == "iOS Simulators Reset" {
+        #[cfg(target_os = "macos")]
+        return target.command
+            == [
+                "sh",
+                "-c",
+                "xcrun simctl shutdown all 2>/dev/null; xcrun simctl erase all",
+            ];
+        #[cfg(not(target_os = "macos"))]
+        return false;
+    }
     matches!(
         (target.name.as_ref(), target.command),
         (

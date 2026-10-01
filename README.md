@@ -157,7 +157,8 @@ The desktop UI can inspect a mounted volume or selected folder with a
 read-only treemap, and can scan/clean configured file targets. The built-in
 Docker System, Volumes, and Builder prune operations are available with an
 individual confirmation; builder cleanup invokes Docker directly without a
-shell wrapper.
+shell wrapper. On macOS, the iOS Simulator reset target uses fixed `xcrun`
+arguments directly and supports a read-only dry-run preview.
 On Linux, the `Apt Autoremove` and `Journalctl Vacuum` targets can use the
 system authorization prompt only when the companion `acari-privileged-helper`
 is installed under `/usr/local/libexec/acari`, owned by root, and not writable
