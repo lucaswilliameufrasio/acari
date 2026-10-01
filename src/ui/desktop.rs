@@ -621,8 +621,9 @@ fn node_bytes(node: &DiskNode, allocated: bool) -> u64 {
 }
 
 /// Keep desktop command execution narrower than the CLI's configured targets.
-/// Only exact, non-privileged Docker invocations are currently supported; shell
-/// wrappers, custom commands, and anything requiring privilege stay disabled.
+/// Only exact, non-privileged built-in Docker operations are supported. The
+/// builder operation is dispatched natively by the cleaner, never via its
+/// legacy shell-wrapper definition.
 fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
     if !target.is_command() {
         return !target.requires_sudo;
@@ -647,6 +648,13 @@ fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
         ) | (
             "Docker Volumes Prune",
             ["docker", "volume", "prune", "--all", "--force"]
+        ) | (
+            "Docker Builder Prune",
+            [
+                "sh",
+                "-c",
+                "docker buildx ls --format '{{.Name}}' | while IFS= read -r builder; do [ -z \"$builder\" ] || [ \"$builder\" = default ] || docker buildx prune -a -f --builder \"$builder\" || exit; done"
+            ]
         )
     )
 }
@@ -891,6 +899,25 @@ mod tests {
             ..docker
         };
         assert!(!desktop_cleanup_supported(&custom));
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn desktop_allows_builtin_builder_prune_but_not_custom_shell_commands() {
+        let target =
+            crate::domain::targets::build_targets(&["Docker Builder Prune".to_string()], &[])
+                .pop()
+                .expect("built-in builder target is available");
+        assert!(desktop_cleanup_supported(&target));
+
+        let untrusted = CleanTarget {
+            name: "Docker Builder Prune".into(),
+            command: &["sh", "-c", "docker buildx prune -a -f; echo arbitrary"],
+            dangerous: true,
+            origin: TargetOrigin::Custom,
+            ..CleanTarget::default()
+        };
+        assert!(!desktop_cleanup_supported(&untrusted));
     }
 
     #[test]

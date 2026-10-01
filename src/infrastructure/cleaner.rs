@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::application::cleaner::CleanMode;
 use crate::domain::{CleanResult, CleanTarget};
+use crate::infrastructure::exec;
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const DOCKER_VOLUME_PRUNE_TARGET: &str = "Docker Volumes Prune";
@@ -129,6 +130,17 @@ pub fn clean_target_with_progress(
     cancel: &Arc<AtomicBool>,
 ) -> CleanResult {
     if target.is_command() {
+        if is_builtin_docker_builder_prune(target) {
+            return clean_docker_builder_prune(
+                target,
+                estimated_bytes,
+                estimated_entries,
+                mode,
+                progress,
+                cancel,
+                std::ffi::OsStr::new("docker"),
+            );
+        }
         return clean_command_target(
             target,
             estimated_bytes,
@@ -249,6 +261,188 @@ pub fn clean_target_with_progress(
         error_detail: (errors > 0)
             .then(|| "one or more filesystem entries could not be removed".into()),
     }
+}
+
+fn is_builtin_docker_builder_prune(target: &CleanTarget) -> bool {
+    target.origin == crate::domain::TargetOrigin::Builtin
+        && target.name == "Docker Builder Prune"
+        && target.command
+            == [
+                "sh",
+                "-c",
+                "docker buildx ls --format '{{.Name}}' | while IFS= read -r builder; do [ -z \"$builder\" ] || [ \"$builder\" = default ] || docker buildx prune -a -f --builder \"$builder\" || exit; done",
+            ]
+}
+
+fn clean_docker_builder_prune(
+    target: &CleanTarget,
+    estimated_bytes: u64,
+    estimated_entries: u64,
+    mode: CleanMode,
+    progress: &mut dyn FnMut(u64),
+    cancel: &Arc<AtomicBool>,
+    docker_executable: &std::ffi::OsStr,
+) -> CleanResult {
+    if mode == CleanMode::DryRun {
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: estimated_bytes,
+            removed_entries: estimated_entries,
+            errors: 0,
+            error_detail: None,
+        };
+    }
+    let started = Instant::now();
+    let builders = match std::process::Command::new(docker_executable)
+        .args(["buildx", "ls", "--format", "{{.Name}}"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        }
+        Ok(output) => {
+            return command_failure(target, "docker buildx ls", output.status, &output.stderr);
+        }
+        Err(error) => {
+            return command_error(target, format!("failed to run docker buildx ls: {error}"));
+        }
+    };
+
+    let mut reclaimed_bytes = 0_u64;
+    let mut cleaned_builders = 0_u64;
+    for builder in builders
+        .lines()
+        .map(str::trim)
+        .filter(|builder| !builder.is_empty() && *builder != "default")
+    {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return CleanResult {
+                target: target.clone(),
+                reclaimed_bytes,
+                removed_entries: cleaned_builders,
+                errors: 1,
+                error_detail: Some("Docker builder cleanup was cancelled".into()),
+            };
+        }
+        let mut child = match std::process::Command::new(docker_executable)
+            .args(["buildx", "prune", "-a", "-f", "--builder"])
+            .arg(builder)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                return command_error(
+                    target,
+                    format!("failed to run docker buildx prune: {error}"),
+                );
+            }
+        };
+        let stdout_reader = child.stdout.take().map(|mut stream| {
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let mut output = String::new();
+                let _ = stream.read_to_string(&mut output);
+                output
+            })
+        });
+        let stderr_reader = child.stderr.take().map(|mut stream| {
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let mut output = String::new();
+                let _ = stream.read_to_string(&mut output);
+                output
+            })
+        });
+        let status = loop {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return CleanResult {
+                    target: target.clone(),
+                    reclaimed_bytes,
+                    removed_entries: cleaned_builders,
+                    errors: 1,
+                    error_detail: Some("Docker builder cleanup was cancelled".into()),
+                };
+            }
+            if started.elapsed() >= command_timeout() {
+                let _ = child.kill();
+                let _ = child.wait();
+                return CleanResult {
+                    target: target.clone(),
+                    reclaimed_bytes,
+                    removed_entries: cleaned_builders,
+                    errors: 1,
+                    error_detail: Some("Docker builder cleanup timed out".into()),
+                };
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    progress(started.elapsed().as_secs());
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return command_error(
+                        target,
+                        format!("error waiting for docker buildx prune: {error}"),
+                    );
+                }
+            }
+        };
+        if !status.success() {
+            let stderr = stderr_reader
+                .and_then(|reader| reader.join().ok())
+                .unwrap_or_default();
+            return command_failure(target, "docker buildx prune", status, stderr.as_bytes());
+        }
+        let stdout = stdout_reader
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        let _ = stderr_reader.and_then(|reader| reader.join().ok());
+        reclaimed_bytes =
+            reclaimed_bytes.saturating_add(exec::parse_total_reclaimed_space(&stdout).unwrap_or(0));
+        cleaned_builders = cleaned_builders.saturating_add(1);
+    }
+
+    CleanResult {
+        target: target.clone(),
+        reclaimed_bytes,
+        removed_entries: cleaned_builders,
+        errors: 0,
+        error_detail: None,
+    }
+}
+
+fn command_error(target: &CleanTarget, error_detail: String) -> CleanResult {
+    CleanResult {
+        target: target.clone(),
+        reclaimed_bytes: 0,
+        removed_entries: 0,
+        errors: 1,
+        error_detail: Some(error_detail),
+    }
+}
+
+fn command_failure(
+    target: &CleanTarget,
+    command: &str,
+    status: std::process::ExitStatus,
+    stderr: &[u8],
+) -> CleanResult {
+    let details = String::from_utf8_lossy(stderr).trim().to_string();
+    command_error(
+        target,
+        if details.is_empty() {
+            format!("{command} failed ({status})")
+        } else {
+            format!("{command} failed: {details}")
+        },
+    )
 }
 
 fn clean_command_target(
@@ -427,7 +621,7 @@ mod tests {
 
     use crate::domain::{CleanTarget, TargetOrigin};
 
-    use super::clean_target;
+    use super::{clean_docker_builder_prune, clean_target};
     use crate::application::cleaner::CleanMode;
 
     #[cfg(unix)]
@@ -702,6 +896,56 @@ mod tests {
     }
 
     // --- command target tests ---
+
+    #[cfg(unix)]
+    #[test]
+    fn builder_prune_uses_argument_vector_and_skips_default_builder() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let directory = tempfile::tempdir().unwrap();
+        let docker = directory.path().join("docker");
+        let arguments_log = directory.path().join("arguments.log");
+        let injection_marker = directory.path().join("injection-marker");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = buildx ] && [ \"$2\" = ls ]; then printf '%s\\n' default 'builder; touch {marker}'; exit 0; fi\nif [ \"$1\" = buildx ] && [ \"$2\" = prune ]; then printf '<%s>\\n' \"$@\" >> '{log}'; echo 'Total reclaimed space: 1GB'; exit 0; fi\nexit 9\n",
+            marker = injection_marker.display(),
+            log = arguments_log.display(),
+        );
+        fs::write(&docker, script).unwrap();
+        let mut permissions = fs::metadata(&docker).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+        fs::set_permissions(&docker, permissions).unwrap();
+
+        let target =
+            crate::domain::targets::build_targets(&["Docker Builder Prune".to_string()], &[])
+                .pop()
+                .expect("Docker builder target");
+        let result = clean_docker_builder_prune(
+            &target,
+            0,
+            0,
+            CleanMode::Execute,
+            &mut |_| {},
+            &Arc::new(AtomicBool::new(false)),
+            docker.as_os_str(),
+        );
+
+        assert_eq!(result.errors, 0, "{:?}", result.error_detail);
+        assert_eq!(result.reclaimed_bytes, 1_000_000_000);
+        assert_eq!(result.removed_entries, 1);
+        assert!(
+            !injection_marker.exists(),
+            "builder name must never run as shell code"
+        );
+        let arguments = fs::read_to_string(arguments_log).unwrap();
+        assert!(arguments.contains("<--builder>\n"));
+        assert!(arguments.contains(&format!(
+            "<builder; touch {}>\n",
+            injection_marker.display()
+        )));
+        assert!(!arguments.contains("<default>"));
+    }
 
     #[test]
     fn clean_command_target_dry_run_returns_estimates() {

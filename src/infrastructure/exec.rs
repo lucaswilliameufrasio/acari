@@ -229,6 +229,14 @@ pub fn parse_buildx_du_total(output: &str) -> u64 {
         .unwrap_or(0)
 }
 
+pub fn parse_total_reclaimed_space(output: &str) -> Option<u64> {
+    output.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("Total reclaimed space:")
+            .and_then(|size| parse_human_size(size.trim()))
+    })
+}
+
 /// Parse `journalctl --disk-usage` output like "Archived and active journals use 1.2G."
 pub fn parse_journalctl_output(output: &str) -> Option<u64> {
     let line = output.lines().find(|l| l.contains("use"))?;
@@ -504,6 +512,15 @@ mod tests {
             parse_buildx_du_total("Reclaimable: 2GB\nTotal: 3.5GB\n"),
             3_500_000_000
         );
+    }
+
+    #[test]
+    fn buildx_prune_reclaimed_output_parses_total() {
+        assert_eq!(
+            parse_total_reclaimed_space("Some output\nTotal reclaimed space: 1.5GB\n"),
+            Some(1_500_000_000)
+        );
+        assert_eq!(parse_total_reclaimed_space("Nothing reclaimed\n"), None);
     }
 
     #[test]

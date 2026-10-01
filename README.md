@@ -154,8 +154,10 @@ acari --desktop
 ```
 
 The desktop UI can inspect a mounted volume or selected folder with a
-read-only treemap, and can scan/clean configured file targets. A small set of
-allowlisted Docker operations is available with an individual confirmation.
+read-only treemap, and can scan/clean configured file targets. The built-in
+Docker System, Volumes, and Builder prune operations are available with an
+individual confirmation; builder cleanup invokes Docker directly without a
+shell wrapper.
 On Linux, the `Apt Autoremove` and `Journalctl Vacuum` targets can use the
 system authorization prompt only when the companion `acari-privileged-helper`
 is installed under `/usr/local/libexec/acari`, owned by root, and not writable
