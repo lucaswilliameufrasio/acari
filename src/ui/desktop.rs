@@ -294,6 +294,14 @@ impl DesktopApp {
             self.cleanup_status = "Selecione um alvo compatível com a limpeza desktop.".into();
             return;
         }
+        if selected.iter().enumerate().any(|(index, (target, _, _))| {
+            selected[index + 1..]
+                .iter()
+                .any(|(other, _, _)| cleanup_targets_overlap(target, other))
+        }) {
+            self.cleanup_status = "Há caminhos sobrepostos na seleção; execute esses alvos individualmente para evitar prévias e resultados duplicados.".into();
+            return;
+        }
         let special_count = selected
             .iter()
             .filter(|(target, _, _)| requires_individual_confirmation(target))
@@ -674,6 +682,19 @@ fn target_matches_scan_result(target: &CleanTarget, name: &str, path: &str) -> b
     target.name == name && target.resolved_path().to_string_lossy() == path
 }
 
+fn cleanup_targets_overlap(left: &CleanTarget, right: &CleanTarget) -> bool {
+    if left.is_command() || right.is_command() {
+        return false;
+    }
+    let left_path = left.resolved_path();
+    let right_path = right.resolved_path();
+    let left_path = std::fs::canonicalize(&left_path).unwrap_or(left_path);
+    let right_path = std::fs::canonicalize(&right_path).unwrap_or(right_path);
+    left_path == right_path
+        || left_path.starts_with(&right_path)
+        || right_path.starts_with(&left_path)
+}
+
 fn requires_individual_confirmation(target: &CleanTarget) -> bool {
     target.is_dangerous() || target.is_command() || target.is_custom()
 }
@@ -937,7 +958,7 @@ fn color_for(name: &str) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cleanup_metrics_label, desktop_cleanup_supported, node_bytes,
+        cleanup_metrics_label, cleanup_targets_overlap, desktop_cleanup_supported, node_bytes,
         requires_individual_confirmation, squarified_layout, target_matches_scan_result,
     };
     use crate::domain::{CleanTarget, TargetOrigin};
@@ -1022,6 +1043,34 @@ mod tests {
             &second,
             "other name",
             "/tmp/second"
+        ));
+    }
+
+    #[test]
+    fn cleanup_targets_detect_equal_and_nested_paths_but_not_siblings() {
+        let target = |path: &'static str| CleanTarget {
+            path: path.into(),
+            ..CleanTarget::default()
+        };
+
+        assert!(cleanup_targets_overlap(
+            &target("/tmp/acari-cache"),
+            &target("/tmp/acari-cache")
+        ));
+        assert!(cleanup_targets_overlap(
+            &target("/tmp/acari-cache"),
+            &target("/tmp/acari-cache/nested")
+        ));
+        assert!(!cleanup_targets_overlap(
+            &target("/tmp/acari-cache"),
+            &target("/tmp/acari-cache-other")
+        ));
+        assert!(!cleanup_targets_overlap(
+            &CleanTarget {
+                command: &["docker", "system", "prune"],
+                ..CleanTarget::default()
+            },
+            &target("/tmp/acari-cache")
         ));
     }
 
