@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{
@@ -53,6 +54,7 @@ struct DesktopApp {
     mounts: Vec<PathBuf>,
     page: Page,
     targets: Vec<(CleanTarget, u64, u64, bool)>,
+    incomplete_scan_targets: HashSet<String>,
     target_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     clean_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     clean_cancel: Option<cleaner::CancellationToken>,
@@ -87,6 +89,7 @@ impl Default for DesktopApp {
             mounts: disk_scan::mounted_roots(),
             page: Page::Disk,
             targets: Vec::new(),
+            incomplete_scan_targets: HashSet::new(),
             target_rx: None,
             clean_rx: None,
             clean_cancel: None,
@@ -174,6 +177,7 @@ impl DesktopApp {
             .into_iter()
             .map(|target| (target, 0, 0, false))
             .collect();
+        self.incomplete_scan_targets.clear();
         self.target_rx = Some(rx);
         self.target_scan_done = false;
         self.target_scan_busy = true;
@@ -189,7 +193,11 @@ impl DesktopApp {
                         target_path,
                         total_bytes,
                         files_scanned,
+                        scan_errors,
                     } => {
+                        if scan_errors > 0 {
+                            self.incomplete_scan_targets.insert(target_path.clone());
+                        }
                         if let Some(row) = self.targets.iter_mut().find(|row| {
                             target_matches_scan_result(&row.0, &target_name, &target_path)
                         }) {
@@ -200,7 +208,14 @@ impl DesktopApp {
                     AppEvent::ScanFinished => {
                         self.target_scan_done = true;
                         self.target_scan_busy = false;
-                        self.cleanup_status = "Verificação concluída.".into();
+                        self.cleanup_status = if self.incomplete_scan_targets.is_empty() {
+                            "Verificação concluída.".into()
+                        } else {
+                            format!(
+                                "Verificação incompleta para {} alvo(s); eles não poderão ser limpos até uma nova verificação bem-sucedida.",
+                                self.incomplete_scan_targets.len()
+                            )
+                        };
                         self.target_rx = None;
                         break;
                     }
@@ -288,6 +303,9 @@ impl DesktopApp {
             .iter()
             .filter(|(_, _, _, selected)| *selected)
             .filter(|(target, _, _, _)| desktop_cleanup_supported(target))
+            .filter(|(target, _, _, _)| {
+                !scan_target_is_incomplete(target, &self.incomplete_scan_targets)
+            })
             .map(|(target, bytes, files, _)| (target.clone(), *bytes, *files))
             .collect();
         if selected.is_empty() {
@@ -472,7 +490,10 @@ impl eframe::App for DesktopApp {
                     if ui.button(if self.cleanup_sort_by_size { "Tamanho ↓" } else { "Nome A–Z" }).clicked() { self.cleanup_sort_by_size = !self.cleanup_sort_by_size; }
                     if ui.button("Selecionar visíveis").clicked() {
                         for target in self.targets.iter_mut().filter(|row| cleanup_matches(row, &self.cleanup_search)) {
-                            if desktop_cleanup_supported(&target.0) && !requires_individual_confirmation(&target.0) { target.3 = true; }
+                            if desktop_cleanup_supported(&target.0)
+                                && !requires_individual_confirmation(&target.0)
+                                && !scan_target_is_incomplete(&target.0, &self.incomplete_scan_targets)
+                            { target.3 = true; }
                         }
                     }
                     if ui.button("Limpar seleção").clicked() {
@@ -491,8 +512,9 @@ impl eframe::App for DesktopApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for index in visible {
                         let (target, bytes, files, selected) = &mut self.targets[index];
+                        let scan_incomplete = scan_target_is_incomplete(target, &self.incomplete_scan_targets);
                         ui.horizontal(|ui| {
-                            ui.add_enabled_ui(desktop_cleanup_supported(target), |ui| {
+                            ui.add_enabled_ui(desktop_cleanup_supported(target) && !scan_incomplete, |ui| {
                                 ui.checkbox(selected, "");
                             });
                             ui.strong(target.name.as_ref());
@@ -501,6 +523,7 @@ impl eframe::App for DesktopApp {
                             else if target.is_command() { ui.colored_label(Color32::YELLOW, "comando permitido · confirmação individual obrigatória"); }
                             else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "operação perigosa · confirmação individual obrigatória"); }
                             else if target.is_custom() { ui.colored_label(Color32::YELLOW, "alvo personalizado · confirmação individual obrigatória"); }
+                            if scan_incomplete { ui.colored_label(Color32::LIGHT_RED, "scan incompleto · limpeza bloqueada"); }
                         });
                         ui.label(format!("{} — {}", target.path, target.description));
                         ui.label(format!("Escopo: {}", cleanup_scope_label(target)));
@@ -687,6 +710,10 @@ fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> Stri
 
 fn target_matches_scan_result(target: &CleanTarget, name: &str, path: &str) -> bool {
     target.name == name && target.resolved_path().to_string_lossy() == path
+}
+
+fn scan_target_is_incomplete(target: &CleanTarget, incomplete: &HashSet<String>) -> bool {
+    incomplete.contains(&target.resolved_path().to_string_lossy().into_owned())
 }
 
 fn cleanup_scope_label(target: &CleanTarget) -> &'static str {
@@ -1031,12 +1058,13 @@ fn color_for(name: &str) -> Color32 {
 mod tests {
     use super::{
         cleanup_metrics_label, cleanup_scope_label, cleanup_targets_overlap,
-        desktop_cleanup_supported, node_bytes, requires_individual_confirmation, squarified_layout,
-        target_matches_scan_result,
+        desktop_cleanup_supported, node_bytes, requires_individual_confirmation,
+        scan_target_is_incomplete, squarified_layout, target_matches_scan_result,
     };
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
     use eframe::egui::{Pos2, Rect};
+    use std::collections::HashSet;
     use std::path::PathBuf;
 
     #[test]
@@ -1117,6 +1145,18 @@ mod tests {
             "other name",
             "/tmp/second"
         ));
+    }
+
+    #[test]
+    fn incomplete_scan_targets_are_identified_by_resolved_path() {
+        let target = CleanTarget {
+            name: "cache".into(),
+            path: "/tmp/acari-incomplete-cache".into(),
+            ..CleanTarget::default()
+        };
+        let incomplete = HashSet::from(["/tmp/acari-incomplete-cache".to_string()]);
+        assert!(scan_target_is_incomplete(&target, &incomplete));
+        assert!(!scan_target_is_incomplete(&target, &HashSet::new()));
     }
 
     #[test]

@@ -40,8 +40,18 @@ pub fn scan_target(
 
     let path = target.resolved_path();
 
+    if std::fs::symlink_metadata(&path).is_err() {
+        return ScanResult {
+            target: target.clone(),
+            bytes: 0,
+            files_scanned: 0,
+            scan_errors: 1,
+        };
+    }
+
     let mut total_bytes = 0_u64;
     let mut files_scanned = 0_u64;
+    let mut scan_errors = 0_u64;
 
     let walker = if excludes.is_empty() {
         WalkDir::new(&path)
@@ -69,13 +79,20 @@ pub fn scan_target(
             Ok(value) => value,
             // Skip unreadable entries (e.g. permission denied) instead of
             // failing the whole target scan; the walk is best-effort.
-            Err(_) => continue,
+            Err(_) => {
+                scan_errors = scan_errors.saturating_add(1);
+                continue;
+            }
         };
 
         if entry.file_type().is_file() {
-            let file_size = entry
-                .metadata()
-                .map_or(0, |meta| file_size_bytes(&meta, allocated));
+            let file_size = match entry.metadata() {
+                Ok(meta) => file_size_bytes(&meta, allocated),
+                Err(_) => {
+                    scan_errors = scan_errors.saturating_add(1);
+                    continue;
+                }
+            };
 
             total_bytes = total_bytes.saturating_add(file_size);
             files_scanned = files_scanned.saturating_add(1);
@@ -94,6 +111,7 @@ pub fn scan_target(
         target: target.clone(),
         bytes: total_bytes,
         files_scanned,
+        scan_errors,
     }
 }
 
@@ -123,6 +141,7 @@ fn scan_command_target(
         target: target.clone(),
         bytes,
         files_scanned: count,
+        scan_errors: 0,
     }
 }
 
@@ -318,6 +337,29 @@ mod tests {
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.bytes, 10);
+        assert_eq!(result.scan_errors, 0);
+    }
+
+    #[test]
+    fn missing_target_is_reported_as_incomplete_scan() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let missing = temp.path().join("does-not-exist");
+        let target = CleanTarget {
+            name: Cow::Borrowed("Missing Target"),
+            path: Cow::Owned(missing.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let result = scan_target(&target, &tx, &[], &test_pool(), false);
+
+        assert_eq!(result.bytes, 0);
+        assert_eq!(result.files_scanned, 0);
+        assert_eq!(result.scan_errors, 1);
     }
 
     #[test]

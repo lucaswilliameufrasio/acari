@@ -197,6 +197,7 @@ async fn headless_clean_returns_error_for_failed_command() {
         target_path: String::new(),
         total_bytes: 0,
         files_scanned: 0,
+        scan_errors: 0,
     })
     .expect("send scan completion");
     tx.send(AppEvent::ScanFinished).expect("send scan finished");

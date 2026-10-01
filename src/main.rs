@@ -165,6 +165,7 @@ async fn scan_targets_total(targets: Vec<CleanTarget>) -> u64 {
                 target_path: _,
                 total_bytes,
                 files_scanned,
+                scan_errors: _,
             } => {
                 if let Some(target) = lookup.get(&target_name) {
                     completed.insert(target_name, (target.clone(), total_bytes, files_scanned));

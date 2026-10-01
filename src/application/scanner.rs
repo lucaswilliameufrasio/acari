@@ -78,6 +78,7 @@ pub fn start_background_scan(
                                 .into_owned(),
                             total_bytes: result.bytes,
                             files_scanned: result.files_scanned,
+                            scan_errors: result.scan_errors,
                         });
                     });
                 }

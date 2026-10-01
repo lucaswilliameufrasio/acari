@@ -11,6 +11,7 @@ pub enum AppEvent {
         target_path: String,
         total_bytes: u64,
         files_scanned: u64,
+        scan_errors: u64,
     },
     ScanFinished,
     TargetCleaned {

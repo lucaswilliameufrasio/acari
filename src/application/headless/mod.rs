@@ -47,6 +47,7 @@ pub async fn run_headless(
                 target_path: _,
                 total_bytes: bytes,
                 files_scanned,
+                scan_errors: _,
             } => {
                 if !json {
                     print_target_done(&target_name, bytes, files_scanned, lang);

@@ -111,6 +111,7 @@ pub struct ScanResult {
     pub target: CleanTarget,
     pub bytes: u64,
     pub files_scanned: u64,
+    pub scan_errors: u64,
 }
 
 #[derive(Debug, Clone)]

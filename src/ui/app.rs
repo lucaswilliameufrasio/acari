@@ -471,6 +471,7 @@ fn handle_event(
             target_path: _,
             total_bytes,
             files_scanned,
+            scan_errors: _,
         } => {
             if let Some(idx) = by_name.get(&target_name).copied() {
                 let (_, state) = &mut rows[idx];
