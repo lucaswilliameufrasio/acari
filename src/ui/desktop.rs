@@ -270,7 +270,7 @@ impl DesktopApp {
         }
         let special_count = selected
             .iter()
-            .filter(|(target, _, _)| target.is_dangerous())
+            .filter(|(target, _, _)| requires_individual_confirmation(target))
             .count();
         if special_count > 0 && (special_count != 1 || selected.len() != 1) {
             self.cleanup_status =
@@ -420,7 +420,7 @@ impl eframe::App for DesktopApp {
                     if ui.button(if self.cleanup_sort_by_size { "Tamanho ↓" } else { "Nome A–Z" }).clicked() { self.cleanup_sort_by_size = !self.cleanup_sort_by_size; }
                     if ui.button("Selecionar visíveis").clicked() {
                         for target in self.targets.iter_mut().filter(|row| cleanup_matches(row, &self.cleanup_search)) {
-                            if desktop_cleanup_supported(&target.0) && !target.0.is_dangerous() { target.3 = true; }
+                            if desktop_cleanup_supported(&target.0) && !requires_individual_confirmation(&target.0) { target.3 = true; }
                         }
                     }
                     if ui.button("Limpar seleção").clicked() {
@@ -448,6 +448,7 @@ impl eframe::App for DesktopApp {
                             if !desktop_cleanup_supported(target) { ui.colored_label(Color32::GRAY, "não compatível com execução segura na UI"); }
                             else if target.is_command() { ui.colored_label(Color32::YELLOW, "comando permitido · confirmação individual obrigatória"); }
                             else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "operação perigosa · confirmação individual obrigatória"); }
+                            else if target.is_custom() { ui.colored_label(Color32::YELLOW, "alvo personalizado · confirmação individual obrigatória"); }
                         });
                         ui.label(format!("{} — {}", target.path, target.description));
                         ui.separator();
@@ -459,14 +460,15 @@ impl eframe::App for DesktopApp {
                         .show(ctx, |ui| {
                             let count = self.targets.iter().filter(|(_, _, _, selected)| *selected).count();
                             ui.label(format!("{} {} alvo(s) selecionado(s).", if self.dry_run { "Simular" } else { "Limpar" }, count));
-                            let special = self.targets.iter().filter(|(target, _, _, selected)| *selected && target.is_dangerous()).collect::<Vec<_>>();
+                            let special = self.targets.iter().filter(|(target, _, _, selected)| *selected && requires_individual_confirmation(target)).collect::<Vec<_>>();
                             if let Some((target, _, _, _)) = special.first() {
                                 ui.colored_label(Color32::LIGHT_RED, format!("Operação especial: {}", target.name));
                                 ui.label(target.description.as_ref());
+                                ui.label(format!("Escopo: {}", target.resolved_path().display()));
                                 if let Some((_, bytes, files, _)) = self.targets.iter().find(|(candidate, _, _, selected)| *selected && candidate.name == target.name) {
                                     ui.label(format!("Prévia: {}", cleanup_metrics_label(target, *bytes, *files)));
                                 }
-                                ui.label(if target.requires_sudo { "Este alvo requer privilégio; se não houver prompt de autorização suportado, a operação falhará sem elevar privilégios." } else { "Esta operação pode remover dados não regeneráveis." });
+                                ui.label(if target.requires_sudo { "Este alvo requer privilégio; a autorização será solicitada pelo sistema." } else if target.is_custom() { "Este caminho personalizado vem da sua configuração e pode conter dados únicos." } else { "Esta operação pode remover dados não regeneráveis." });
                             }
                             ui.label("A limpeza é irreversível. Revise o alvo e a estimativa; a análise visual de disco não será afetada.");
                             ui.horizontal(|ui| {
@@ -622,6 +624,10 @@ fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> Stri
             crate::domain::format_bytes(bytes)
         )
     }
+}
+
+fn requires_individual_confirmation(target: &CleanTarget) -> bool {
+    target.is_dangerous() || target.is_command() || target.is_custom()
 }
 
 fn find_node<'a>(node: &'a DiskNode, path: &std::path::Path) -> Option<&'a DiskNode> {
@@ -882,7 +888,10 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{cleanup_metrics_label, desktop_cleanup_supported, node_bytes, squarified_layout};
+    use super::{
+        cleanup_metrics_label, desktop_cleanup_supported, node_bytes,
+        requires_individual_confirmation, squarified_layout,
+    };
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
     use eframe::egui::{Pos2, Rect};
@@ -918,6 +927,24 @@ mod tests {
             ..CleanTarget::default()
         };
         assert!(cleanup_metrics_label(&files, 1024, 2).contains("2 arquivos"));
+    }
+
+    #[test]
+    fn custom_and_command_targets_require_single_target_confirmation() {
+        let ordinary = CleanTarget::file("Cache", "/tmp/cache", "cache", false);
+        assert!(!requires_individual_confirmation(&ordinary));
+
+        let custom = CleanTarget {
+            origin: TargetOrigin::Custom,
+            ..CleanTarget::file("My target", "/home/user/data", "custom", false)
+        };
+        assert!(requires_individual_confirmation(&custom));
+
+        let command = CleanTarget {
+            command: &["tool", "clean"],
+            ..CleanTarget::default()
+        };
+        assert!(requires_individual_confirmation(&command));
     }
 
     #[test]
