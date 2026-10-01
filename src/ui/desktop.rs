@@ -9,7 +9,7 @@ use std::thread;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 use crate::application::cleaner::{self, CleanMode};
-use crate::application::commands::{merge_excludes, prepare_targets, start_scan};
+use crate::application::commands::{prepare_targets, start_scan};
 use crate::config::target_config;
 use crate::domain::{AppEvent, CleanTarget};
 use crate::infrastructure::disk_scan::{self, DiskNode, ScanProgress};
@@ -164,8 +164,10 @@ impl DesktopApp {
             self.cleanup_status = "Nenhum alvo configurado.".into();
             return;
         }
-        let excludes = merge_excludes(&[], &config.scan.exclude_patterns);
-        let (_, rx, _) = start_scan(targets.clone(), excludes, config.scan.io_priority, false);
+        // Cleanup execution removes everything under each selected target;
+        // don't apply scan-only excludes to its preview or the confirmation
+        // would understate the affected scope.
+        let (_, rx, _) = start_scan(targets.clone(), Vec::new(), config.scan.io_priority, false);
         self.targets = targets
             .into_iter()
             .map(|target| (target, 0, 0, false))
