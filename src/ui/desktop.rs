@@ -713,6 +713,10 @@ fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> Stri
                 crate::domain::format_bytes(bytes)
             )
         }
+    } else if std::fs::symlink_metadata(target.resolved_path())
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+        "1 link simbólico · destino preservado · bytes do destino não contabilizados".into()
     } else {
         format!(
             "{} · {entries} arquivos",
@@ -1230,6 +1234,9 @@ mod tests {
 
         assert!(cleanup_scope_label(&whole_directory).contains("pasta raiz"));
         assert!(cleanup_scope_label(&link_target).contains("destino será preservado"));
+        let metrics = cleanup_metrics_label(&link_target, 0, 0);
+        assert!(metrics.contains("1 link simbólico"));
+        assert!(metrics.contains("destino preservado"));
     }
 
     #[cfg(unix)]
