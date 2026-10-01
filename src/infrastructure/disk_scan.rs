@@ -17,7 +17,10 @@ use crate::config::target_config::IoPriority;
 pub struct DiskNode {
     pub name: String,
     pub path: PathBuf,
+    /// Apparent file length, aggregated through directories.
     pub bytes: u64,
+    /// Allocated filesystem blocks, aggregated through directories.
+    pub allocated_bytes: u64,
     pub is_dir: bool,
     pub children: Vec<DiskNode>,
 }
@@ -66,6 +69,7 @@ pub fn scan_tree_cancellable_with_priority(
             ),
             path: root.clone(),
             bytes: 0,
+            allocated_bytes: 0,
             is_dir: true,
             children: Vec::new(),
         },
@@ -99,16 +103,19 @@ pub fn scan_tree_cancellable_with_priority(
             continue;
         }
         let is_dir = entry.file_type().is_dir();
-        let size = if entry.file_type().is_file() {
-            entry.metadata().map_or(0, |metadata| metadata.len())
+        let (size, allocated_size) = if entry.file_type().is_file() {
+            entry.metadata().map_or((0, 0), |metadata| {
+                (metadata.len(), allocated_file_size(&metadata))
+            })
         } else {
-            0
+            (0, 0)
         };
         let name = entry.file_name.to_string_lossy().into_owned();
         nodes.entry(path.clone()).or_insert(DiskNode {
             name,
             path: path.clone(),
             bytes: size,
+            allocated_bytes: allocated_size,
             is_dir,
             children: Vec::new(),
         });
@@ -126,16 +133,18 @@ pub fn scan_tree_cancellable_with_priority(
     let files: Vec<_> = nodes
         .values()
         .filter(|node| !node.is_dir)
-        .map(|node| (node.path.clone(), node.bytes))
+        .map(|node| (node.path.clone(), node.bytes, node.allocated_bytes))
         .collect();
     for node in nodes.values_mut().filter(|node| node.is_dir) {
         node.bytes = 0;
+        node.allocated_bytes = 0;
     }
-    for (path, size) in files {
+    for (path, size, allocated_size) in files {
         let mut parent = path.parent();
         while let Some(dir) = parent {
             if let Some(node) = nodes.get_mut(dir) {
                 node.bytes = node.bytes.saturating_add(size);
+                node.allocated_bytes = node.allocated_bytes.saturating_add(allocated_size);
             }
             if dir == root {
                 break;
@@ -167,6 +176,18 @@ pub fn scan_tree_cancellable_with_priority(
         let _ = tx.send(ScanProgress { entries, bytes });
     }
     Ok(root_node)
+}
+
+fn allocated_file_size(metadata: &std::fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        metadata.blocks().saturating_mul(512)
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.len()
+    }
 }
 
 fn build_walk_pool(priority: IoPriority) -> Arc<ThreadPool> {
@@ -245,10 +266,14 @@ mod tests {
         fs::write(temp.path().join("nested/file.txt"), b"1234567").unwrap();
         let tree = scan_tree(temp.path(), None).unwrap();
         assert_eq!(tree.bytes, 12);
+        assert!(tree.allocated_bytes > 0);
         assert_eq!(tree.children.len(), 2);
         let nested = tree.children.iter().find(|child| child.is_dir).unwrap();
         assert_eq!(nested.bytes, 7);
+        assert_eq!(nested.allocated_bytes, nested.children[0].allocated_bytes);
         assert_eq!(nested.children[0].bytes, 7);
+        #[cfg(unix)]
+        assert!(tree.allocated_bytes >= tree.bytes);
     }
 
     #[test]

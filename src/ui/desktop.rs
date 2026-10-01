@@ -65,6 +65,7 @@ struct DesktopApp {
     sort_largest_first: bool,
     cleanup_search: String,
     cleanup_sort_by_size: bool,
+    allocated_size: bool,
 }
 
 impl Default for DesktopApp {
@@ -96,6 +97,7 @@ impl Default for DesktopApp {
             sort_largest_first: true,
             cleanup_search: String::new(),
             cleanup_sort_by_size: true,
+            allocated_size: false,
         }
     }
 }
@@ -468,8 +470,10 @@ impl eframe::App for DesktopApp {
                             ui.strong(&node.name);
                             ui.label(path.display().to_string());
                             ui.separator();
-                            ui.label(format!("Tamanho: {}", crate::domain::format_bytes(node.bytes)));
-                            let share = if root.bytes > 0 { node.bytes as f64 * 100.0 / root.bytes as f64 } else { 0.0 };
+                            let node_size = node_bytes(node, self.allocated_size);
+                            let root_size = node_bytes(root, self.allocated_size);
+                            ui.label(format!("{}: {}", if self.allocated_size { "Alocado" } else { "Aparente" }, crate::domain::format_bytes(node_size)));
+                            let share = if root_size > 0 { node_size as f64 * 100.0 / root_size as f64 } else { 0.0 };
                             ui.label(format!("{share:.2}% da análise"));
                             if node.is_dir { ui.label(format!("{} itens diretos", node.children.len())); }
                         }
@@ -497,14 +501,15 @@ impl eframe::App for DesktopApp {
                 }
                 ui.separator();
                 ui.label(format!(
-                    "{} arquivos/diretórios · {} bytes",
-                    self.progress.entries, root.bytes
+                    "{} itens · {}",
+                    self.progress.entries, crate::domain::format_bytes(node_bytes(root, self.allocated_size))
                 ));
             });
             ui.separator();
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(260.0).hint_text("Filtrar itens deste diretório…"));
                 if ui.button(if self.sort_largest_first { "Maior primeiro" } else { "Nome A–Z" }).clicked() { self.sort_largest_first = !self.sort_largest_first; }
+                ui.checkbox(&mut self.allocated_size, "Tamanho alocado");
                 if ui.button("Voltar um nível").clicked() { self.current.pop(); }
             });
             let selected = self.selected.clone();
@@ -520,6 +525,7 @@ impl eframe::App for DesktopApp {
                 &mut self.selected,
                 &self.search,
                 self.sort_largest_first,
+                self.allocated_size,
             );
             if let Some(path) = navigate {
                 let mut indices = self.current.clone();
@@ -561,6 +567,14 @@ fn find_node<'a>(node: &'a DiskNode, path: &std::path::Path) -> Option<&'a DiskN
         .find_map(|child| find_node(child, path))
 }
 
+fn node_bytes(node: &DiskNode, allocated: bool) -> u64 {
+    if allocated {
+        node.allocated_bytes
+    } else {
+        node.bytes
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_treemap(
     ui: &mut egui::Ui,
@@ -571,6 +585,7 @@ fn draw_treemap(
     selected_path: &mut Option<PathBuf>,
     search: &str,
     sort_largest_first: bool,
+    allocated_size: bool,
 ) {
     if node.children.is_empty() {
         return;
@@ -586,13 +601,20 @@ fn draw_treemap(
         })
         .collect();
     if sort_largest_first {
-        children.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
+        children.sort_by(|a, b| {
+            node_bytes(b, allocated_size)
+                .cmp(&node_bytes(a, allocated_size))
+                .then_with(|| a.name.cmp(&b.name))
+        });
     } else {
         children.sort_by_key(|a| a.name.to_lowercase());
     }
     let boxes = squarified_layout(
         rect,
-        &children.iter().map(|child| child.bytes).collect::<Vec<_>>(),
+        &children
+            .iter()
+            .map(|child| node_bytes(child, allocated_size))
+            .collect::<Vec<_>>(),
     );
     for (index, child_rect) in boxes {
         let child = children[index];
@@ -625,7 +647,11 @@ fn draw_treemap(
             }
         }
         if response.hovered() {
-            response.on_hover_text(format!("{}\n{} bytes", child.path.display(), child.bytes));
+            response.on_hover_text(format!(
+                "{}\n{}",
+                child.path.display(),
+                crate::domain::format_bytes(node_bytes(child, allocated_size))
+            ));
         }
     }
 }
@@ -740,8 +766,24 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use super::squarified_layout;
+    use super::{node_bytes, squarified_layout};
+    use crate::infrastructure::disk_scan::DiskNode;
     use eframe::egui::{Pos2, Rect};
+    use std::path::PathBuf;
+
+    #[test]
+    fn node_size_switches_between_apparent_and_allocated() {
+        let node = DiskNode {
+            name: "x".into(),
+            path: PathBuf::from("x"),
+            bytes: 3,
+            allocated_bytes: 512,
+            is_dir: false,
+            children: Vec::new(),
+        };
+        assert_eq!(node_bytes(&node, false), 3);
+        assert_eq!(node_bytes(&node, true), 512);
+    }
 
     #[test]
     fn squarified_layout_preserves_area_proportions_and_skips_zeroes() {
