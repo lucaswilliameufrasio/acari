@@ -19,21 +19,41 @@ pub fn operation_for_target(name: &str) -> Option<&'static str> {
         .find_map(|(operation, target)| (*target == name).then_some(*operation))
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn is_root_owned_system_helper(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(helper_metadata) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !helper_metadata.file_type().is_file()
+        || helper_metadata.uid() != 0
+        || helper_metadata.mode() & 0o022 != 0
+    {
+        return false;
+    }
+
+    let mut ancestor = path.parent();
+    while let Some(directory) = ancestor {
+        let Ok(metadata) = std::fs::symlink_metadata(directory) else {
+            return false;
+        };
+        if !metadata.file_type().is_dir() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+            return false;
+        }
+        if directory == std::path::Path::new("/") {
+            return true;
+        }
+        ancestor = directory.parent();
+    }
+    false
+}
+
 /// Locate the root-owned system-installed companion helper.
 #[cfg(target_os = "linux")]
 pub fn helper_path() -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::MetadataExt;
     let helper = std::path::PathBuf::from("/usr/local/libexec/acari/acari-privileged-helper");
-    let parent = helper.parent()?;
-    let parent_metadata = std::fs::metadata(parent).ok()?;
-    let metadata = std::fs::metadata(&helper).ok()?;
-    (parent_metadata.is_dir()
-        && parent_metadata.uid() == 0
-        && parent_metadata.mode() & 0o022 == 0
-        && metadata.is_file()
-        && metadata.uid() == 0
-        && metadata.mode() & 0o022 == 0)
-        .then_some(helper)
+    is_root_owned_system_helper(&helper).then_some(helper)
 }
 
 #[cfg(target_os = "linux")]
@@ -47,19 +67,9 @@ pub fn authorization_broker_available() -> bool {
 
 #[cfg(target_os = "macos")]
 pub fn helper_path() -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::MetadataExt;
     let helper =
         std::path::PathBuf::from("/Library/PrivilegedHelperTools/com.acari.privileged-helper");
-    let parent = helper.parent()?;
-    let parent_metadata = std::fs::metadata(parent).ok()?;
-    let metadata = std::fs::metadata(&helper).ok()?;
-    (parent_metadata.is_dir()
-        && parent_metadata.uid() == 0
-        && parent_metadata.mode() & 0o022 == 0
-        && metadata.is_file()
-        && metadata.uid() == 0
-        && metadata.mode() & 0o022 == 0)
-        .then_some(helper)
+    is_root_owned_system_helper(&helper).then_some(helper)
 }
 
 #[cfg(target_os = "macos")]
@@ -73,7 +83,7 @@ pub fn run_operation(operation: &str) -> Result<(), String> {
         return Err("unknown privileged operation".into());
     }
     let helper = helper_path().ok_or_else(|| {
-        "the acari-privileged-helper companion is not installed next to Acarí".to_string()
+        "the acari-privileged-helper is missing or not securely installed".to_string()
     })?;
     let output = std::process::Command::new("pkexec")
         .arg(helper)
@@ -142,5 +152,9 @@ mod tests {
             assert_eq!(super::operation_for_target("iOS Simulators Reset"), None);
             assert_eq!(super::operation_for_target("custom command"), None);
         }
+        #[cfg(target_os = "linux")]
+        assert!(!super::is_root_owned_system_helper(std::path::Path::new(
+            "/tmp/nonexistent-acari-helper"
+        )));
     }
 }
