@@ -94,6 +94,15 @@ curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scr
   sh -s -- --repo lucaswilliameufrasio/acari
 ```
 
+On Linux, add `--install-privileged-helper` to install the constrained helper
+under `/usr/local/libexec/acari` using `sudo`; this is optional and enables only
+the two documented privileged desktop operations:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lucaswilliameufrasio/acari/main/scripts/install.sh | \
+  sh -s -- --repo lucaswilliameufrasio/acari --install-privileged-helper
+```
+
 Install a specific version:
 
 ```bash
@@ -149,7 +158,8 @@ read-only treemap, and can scan/clean configured file targets. A small set of
 allowlisted Docker operations is available with an individual confirmation.
 On Linux, the `Apt Autoremove` and `Journalctl Vacuum` targets can use the
 system authorization prompt only when the companion `acari-privileged-helper`
-is installed beside Acarí, owned by root, and not writable by group/others.
+is installed under `/usr/local/libexec/acari`, owned by root, and not writable
+by group/others.
 The helper accepts only fixed operation IDs; unsupported commands and
 privileged targets remain unavailable in the desktop UI. macOS privileged
 operations are not yet supported there.

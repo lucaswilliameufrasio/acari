@@ -14,6 +14,7 @@ REPO=""
 TAG="latest"
 BIN_DIR="${HOME}/.local/bin"
 FORCE=""
+INSTALL_PRIVILEGED_HELPER=""
 
 usage() {
   cat <<USAGE
@@ -27,6 +28,7 @@ Options:
   --tag       Release tag (default: latest)
   --bin-dir   Install directory (default: ~/.local/bin)
   --force     Remove old installations without prompting
+  --install-privileged-helper  Install the Linux authorization helper under /usr/local/libexec
   -h, --help  Show this help
 USAGE
 }
@@ -47,6 +49,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --force)
       FORCE="yes"
+      shift
+      ;;
+    --install-privileged-helper)
+      INSTALL_PRIVILEGED_HELPER="yes"
       shift
       ;;
     -h|--help)
@@ -209,6 +215,25 @@ cleanup_old_binary() {
 
 install_bin "${TMP_DIR}/acari" "${BIN_DIR}/acari"
 install_bin "${TMP_DIR}/headless_cleaner" "${BIN_DIR}/headless_cleaner"
+
+if [ -n "$INSTALL_PRIVILEGED_HELPER" ]; then
+  if [ "$OS" != "Linux" ]; then
+    echo "The privileged helper is currently supported only on Linux." >&2
+    exit 1
+  fi
+  HELPER_SRC="${TMP_DIR}/acari-privileged-helper"
+  if [ ! -f "$HELPER_SRC" ]; then
+    echo "Missing binary in archive: acari-privileged-helper" >&2
+    exit 1
+  fi
+  if ! command -v pkexec >/dev/null 2>&1; then
+    echo "pkexec is required to install the privileged helper." >&2
+    exit 1
+  fi
+  echo "Installing the allowlisted privileged helper to /usr/local/libexec/acari (system authorization required)."
+  sudo install -d -o root -g root -m 0755 /usr/local/libexec/acari
+  sudo install -o root -g root -m 0755 "$HELPER_SRC" /usr/local/libexec/acari/acari-privileged-helper
+fi
 
 echo "Installed binaries to: ${BIN_DIR}"
 

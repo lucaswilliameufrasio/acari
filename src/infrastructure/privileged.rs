@@ -20,10 +20,17 @@ pub fn operation_for_target(name: &str) -> Option<&'static str> {
 #[cfg(target_os = "linux")]
 pub fn helper_path() -> Option<std::path::PathBuf> {
     use std::os::unix::fs::MetadataExt;
-    let executable = std::env::current_exe().ok()?;
-    let helper = executable.with_file_name("acari-privileged-helper");
+    let helper = std::path::PathBuf::from("/usr/local/libexec/acari/acari-privileged-helper");
+    let parent = helper.parent()?;
+    let parent_metadata = std::fs::metadata(parent).ok()?;
     let metadata = std::fs::metadata(&helper).ok()?;
-    (metadata.is_file() && metadata.uid() == 0 && metadata.mode() & 0o022 == 0).then_some(helper)
+    (parent_metadata.is_dir()
+        && parent_metadata.uid() == 0
+        && parent_metadata.mode() & 0o022 == 0
+        && metadata.is_file()
+        && metadata.uid() == 0
+        && metadata.mode() & 0o022 == 0)
+        .then_some(helper)
 }
 
 #[cfg(target_os = "linux")]
