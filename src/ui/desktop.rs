@@ -63,6 +63,8 @@ struct DesktopApp {
     cleanup_status: String,
     search: String,
     sort_largest_first: bool,
+    cleanup_search: String,
+    cleanup_sort_by_size: bool,
 }
 
 impl Default for DesktopApp {
@@ -92,6 +94,8 @@ impl Default for DesktopApp {
             cleanup_status: String::new(),
             search: String::new(),
             sort_largest_first: true,
+            cleanup_search: String::new(),
+            cleanup_sort_by_size: true,
         }
     }
 }
@@ -362,9 +366,30 @@ impl eframe::App for DesktopApp {
                     if ui.add_enabled(self.target_scan_done && self.clean_rx.is_none(), egui::Button::new("Limpar selecionados…")).clicked() { self.confirm_clean = true; }
                 });
                 if !self.cleanup_status.is_empty() { ui.label(&self.cleanup_status); }
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.cleanup_search).desired_width(260.0).hint_text("Filtrar alvos por nome ou caminho…"));
+                    if ui.button(if self.cleanup_sort_by_size { "Tamanho ↓" } else { "Nome A–Z" }).clicked() { self.cleanup_sort_by_size = !self.cleanup_sort_by_size; }
+                    if ui.button("Selecionar visíveis").clicked() {
+                        for target in self.targets.iter_mut().filter(|row| cleanup_matches(row, &self.cleanup_search)) {
+                            if !target.0.is_command() && !target.0.is_dangerous() { target.3 = true; }
+                        }
+                    }
+                    if ui.button("Limpar seleção").clicked() {
+                        for target in self.targets.iter_mut().filter(|row| cleanup_matches(row, &self.cleanup_search)) { target.3 = false; }
+                    }
+                });
+                let mut visible: Vec<usize> = (0..self.targets.len())
+                    .filter(|&index| cleanup_matches(&self.targets[index], &self.cleanup_search))
+                    .collect();
+                if self.cleanup_sort_by_size {
+                    visible.sort_by_key(|&index| std::cmp::Reverse(self.targets[index].1));
+                } else {
+                    visible.sort_by_key(|&index| self.targets[index].0.name.to_lowercase());
+                }
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (target, bytes, files, selected) in &mut self.targets {
+                    for index in visible {
+                        let (target, bytes, files, selected) = &mut self.targets[index];
                         ui.horizontal(|ui| {
                             ui.add_enabled_ui(!target.is_command() && !target.is_dangerous(), |ui| {
                                 ui.checkbox(selected, "");
@@ -496,6 +521,13 @@ fn find_child_indices(node: &DiskNode, path: &std::path::Path, indices: &mut Vec
         indices.pop();
     }
     false
+}
+
+fn cleanup_matches(row: &(CleanTarget, u64, u64, bool), query: &str) -> bool {
+    let query = query.trim();
+    query.is_empty()
+        || row.0.name.to_lowercase().contains(&query.to_lowercase())
+        || row.0.path.to_lowercase().contains(&query.to_lowercase())
 }
 
 fn find_node<'a>(node: &'a DiskNode, path: &std::path::Path) -> Option<&'a DiskNode> {
