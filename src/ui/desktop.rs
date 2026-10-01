@@ -278,9 +278,10 @@ impl DesktopApp {
             return;
         }
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        self.privileged_clean = !self.dry_run && selected[0].0.requires_sudo;
+        let single_target = selected.len() == 1;
+        self.privileged_clean = !self.dry_run && single_target && selected[0].0.requires_sudo;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        if !self.dry_run && selected[0].0.requires_sudo {
+        if !self.dry_run && single_target && selected[0].0.requires_sudo {
             cleaner::start_background_privileged_clean(tx.clone(), selected[0].0.clone());
         } else {
             cleaner::start_background_clean(

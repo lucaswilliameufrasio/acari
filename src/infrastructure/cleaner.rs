@@ -18,22 +18,6 @@ fn command_timeout() -> Duration {
         .unwrap_or(DEFAULT_COMMAND_TIMEOUT)
 }
 
-fn safe_canonicalize(entry: &Path, root: &Path) -> Option<PathBuf> {
-    if fs::symlink_metadata(entry).is_ok_and(|m| m.file_type().is_symlink()) {
-        return match fs::canonicalize(root) {
-            Ok(canonical_root) if entry.starts_with(&canonical_root) => Some(entry.to_path_buf()),
-            _ => None,
-        };
-    }
-    let canonical = fs::canonicalize(entry).ok()?;
-    let canonical_root = fs::canonicalize(root).ok()?;
-    if canonical.starts_with(&canonical_root) {
-        Some(canonical)
-    } else {
-        None
-    }
-}
-
 fn remove_entry_with_progress(
     path: &Path,
     progress: &mut dyn FnMut(u64),
@@ -176,8 +160,8 @@ pub fn clean_target_with_progress(
         };
     }
 
-    let path = match safe_canonicalize(&raw_path, &raw_path) {
-        Some(p) => p,
+    let (path, target_is_symlink) = match canonicalize_cleanup_target(&raw_path) {
+        Some(resolved) => resolved,
         None => {
             return CleanResult {
                 target: target.clone(),
@@ -200,6 +184,15 @@ pub fn clean_target_with_progress(
     }
 
     if target.delete_entire {
+        if target_is_symlink {
+            return CleanResult {
+                target: target.clone(),
+                reclaimed_bytes: 0,
+                removed_entries: 0,
+                errors: 1,
+                error_detail: Some("refusing to remove an entire symlink target".into()),
+            };
+        }
         let ok = force_remove_with_progress(&path, progress, cancel).is_some();
         return CleanResult {
             target: target.clone(),
@@ -215,7 +208,7 @@ pub fn clean_target_with_progress(
     let mut errors = 0_u64;
     let mut reclaimed_bytes = 0_u64;
 
-    if path.is_file() {
+    if target_is_symlink || path.is_file() {
         match force_remove_with_progress(&path, progress, cancel) {
             Some(freed) => {
                 removed_entries = 1;
@@ -234,7 +227,7 @@ pub fn clean_target_with_progress(
                         break;
                     }
                     let entry_path = entry.path();
-                    let safe_path = safe_canonicalize(&entry_path, &path);
+                    let safe_path = canonicalize_child_cleanup_entry(&entry_path, &path);
                     match safe_path {
                         Some(p) => match force_remove_with_progress(&p, progress, cancel) {
                             Some(freed) => {
@@ -272,6 +265,28 @@ pub fn clean_target_with_progress(
         error_detail: (errors > 0)
             .then(|| "one or more filesystem entries could not be removed".into()),
     }
+}
+
+fn canonicalize_cleanup_target(raw_path: &Path) -> Option<(PathBuf, bool)> {
+    let metadata = fs::symlink_metadata(raw_path).ok()?;
+    if metadata.file_type().is_symlink() {
+        // A symlink target itself is a valid cleanup entry: remove the link,
+        // never follow it to its destination.
+        return Some((raw_path.to_path_buf(), true));
+    }
+    let canonical = fs::canonicalize(raw_path).ok()?;
+    Some((canonical, false))
+}
+
+fn canonicalize_child_cleanup_entry(entry: &Path, root: &Path) -> Option<PathBuf> {
+    let metadata = fs::symlink_metadata(entry).ok()?;
+    if metadata.file_type().is_symlink() {
+        // The link is inside the selected root. Return its path (not its
+        // destination) so removal cannot traverse outside the root.
+        return entry.starts_with(root).then(|| entry.to_path_buf());
+    }
+    let canonical = fs::canonicalize(entry).ok()?;
+    canonical.starts_with(root).then_some(canonical)
 }
 
 fn is_builtin_ios_simulator_reset(target: &CleanTarget) -> bool {
@@ -1334,5 +1349,63 @@ mod tests {
         let result = clean_target(&target, 4, 1, CleanMode::Execute);
         assert_eq!(result.errors, 0);
         assert_eq!(result.reclaimed_bytes, 4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_target_cleanup_removes_link_without_touching_destination() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("precious.txt"), b"keep me").unwrap();
+        let link = temp.path().join("custom-target");
+        symlink(&outside, &link).unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("Symlink target"),
+            path: Cow::Owned(link.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Custom,
+        };
+
+        let result = clean_target(&target, 0, 1, CleanMode::Execute);
+
+        assert_eq!(result.errors, 0, "{:?}", result.error_detail);
+        assert!(!link.exists());
+        assert_eq!(fs::read(outside.join("precious.txt")).unwrap(), b"keep me");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delete_entire_symlink_target_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("precious.txt"), b"keep me").unwrap();
+        let link = temp.path().join("custom-target");
+        symlink(&outside, &link).unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("Symlink target"),
+            path: Cow::Owned(link.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: true,
+            delete_entire: true,
+            origin: TargetOrigin::Custom,
+        };
+
+        let result = clean_target(&target, 0, 1, CleanMode::Execute);
+
+        assert_eq!(result.errors, 1);
+        assert!(fs::symlink_metadata(&link).is_ok());
+        assert_eq!(fs::read(outside.join("precious.txt")).unwrap(), b"keep me");
     }
 }
