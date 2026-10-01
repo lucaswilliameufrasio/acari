@@ -27,6 +27,9 @@ fn remove_entry_with_progress(
     let is_sym = metadata.file_type().is_symlink();
 
     if is_sym || metadata.is_file() {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
         let size = if is_sym { 0 } else { metadata.len() };
         fs::remove_file(path).ok().map(|_| (size, 1))
     } else if metadata.is_dir() {
@@ -104,6 +107,9 @@ fn force_remove_with_progress(
     cancel: &Arc<AtomicBool>,
 ) -> Option<(u64, u64)> {
     remove_entry_with_progress(path, progress, cancel).or_else(|| {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
         let _ = std::process::Command::new("chflags")
             .arg("nouchg")
             .arg(path)
@@ -119,6 +125,9 @@ fn force_remove_contents_with_progress(
     cancel: &Arc<AtomicBool>,
 ) -> Option<(u64, u64)> {
     remove_entry_contents_with_progress(path, progress, cancel).or_else(|| {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
         let _ = std::process::Command::new("chflags")
             .arg("-R")
             .arg("nouchg")
@@ -1474,6 +1483,35 @@ mod tests {
         assert_eq!(result.reclaimed_bytes, 0);
         assert_eq!(result.removed_entries, 0);
         assert!(root.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pre_cancelled_single_file_cleanup_does_not_remove_file() {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicBool;
+
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let file = temp.path().join("keep.bin");
+        fs::write(&file, b"keep").unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("Single file"),
+            path: Cow::Owned(file.to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Custom,
+        };
+        let cancel = Arc::new(AtomicBool::new(true));
+
+        let result =
+            clean_target_with_progress(&target, 4, 1, CleanMode::Execute, &mut |_| {}, &cancel);
+
+        assert_eq!(result.errors, 1);
+        assert!(file.exists());
+        assert_eq!(fs::read(file).unwrap(), b"keep");
     }
 
     #[cfg(unix)]
