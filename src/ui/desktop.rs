@@ -265,6 +265,11 @@ impl DesktopApp {
                                 error_suffix
                             )
                         };
+                        if !self.dry_run {
+                            self.invalidate_target_scan();
+                            self.cleanup_status
+                                .push_str(" Verifique os alvos novamente antes de outra limpeza.");
+                        }
                         self.privileged_clean = false;
                         self.clean_rx = None;
                         self.clean_cancel = None;
@@ -289,12 +294,20 @@ impl DesktopApp {
             self.clean_rx = None;
             self.clean_cancel = None;
             self.privileged_clean = false;
+            self.invalidate_target_scan();
             self.cleanup_status =
-                "A limpeza foi interrompida antes de concluir; verifique o estado dos alvos."
+                "A limpeza foi interrompida antes de concluir; verifique o estado dos alvos e execute uma nova verificação."
                     .into();
         }
         if self.target_scan_busy || self.clean_rx.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
+
+    fn invalidate_target_scan(&mut self) {
+        self.target_scan_done = false;
+        for (_, _, _, selected) in &mut self.targets {
+            *selected = false;
         }
     }
 
@@ -1332,6 +1345,17 @@ mod tests {
         let mut app = super::DesktopApp {
             clean_rx: Some(rx),
             cleanup_status: "Limpando…".into(),
+            target_scan_done: true,
+            targets: vec![(
+                CleanTarget {
+                    name: "Cache".into(),
+                    path: "/tmp/acari-cache".into(),
+                    ..CleanTarget::default()
+                },
+                12,
+                1,
+                true,
+            )],
             ..super::DesktopApp::default()
         };
 
@@ -1340,6 +1364,9 @@ mod tests {
         assert!(app.cleanup_status.contains("cancelada"));
         assert!(app.cleanup_status.contains("1 erros"));
         assert!(app.cleanup_status.contains("Cache: permission denied"));
+        assert!(app.cleanup_status.contains("Verifique os alvos novamente"));
+        assert!(!app.target_scan_done);
+        assert!(!app.targets[0].3);
     }
 
     #[test]
@@ -1359,6 +1386,7 @@ mod tests {
         assert!(app.clean_rx.is_none());
         assert!(app.clean_cancel.is_none());
         assert!(app.cleanup_status.contains("interrompida"));
+        assert!(!app.target_scan_done);
     }
 
     #[test]
