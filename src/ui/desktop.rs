@@ -705,7 +705,7 @@ fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     if target.requires_sudo {
-        return crate::infrastructure::privileged::operation_for_target(&target.name)
+        return crate::infrastructure::privileged::operation_for_target(target)
             .is_some_and(|_| crate::infrastructure::privileged::authorization_broker_available());
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]

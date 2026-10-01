@@ -13,10 +13,35 @@ pub const OPERATIONS: &[(&str, &str)] = &[
 pub const OPERATIONS: &[(&str, &str)] = &[("tm-snapshot-thin", "Time Machine Local Snapshots")];
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-pub fn operation_for_target(name: &str) -> Option<&'static str> {
-    OPERATIONS
-        .iter()
-        .find_map(|(operation, target)| (*target == name).then_some(*operation))
+pub fn operation_for_target(target: &crate::domain::CleanTarget) -> Option<&'static str> {
+    use crate::domain::TargetOrigin;
+
+    if target.origin != TargetOrigin::Builtin || !target.requires_sudo || !target.is_command() {
+        return None;
+    }
+    match target.name.as_ref() {
+        #[cfg(target_os = "linux")]
+        "Apt Autoremove" if target.command == ["sudo", "apt", "autoremove", "-y"] => {
+            Some("apt-autoremove")
+        }
+        #[cfg(target_os = "linux")]
+        "Journalctl Vacuum" if target.command == ["sudo", "journalctl", "--vacuum-size=100M"] => {
+            Some("journal-vacuum")
+        }
+        #[cfg(target_os = "macos")]
+        "Time Machine Local Snapshots"
+            if target.command
+                == [
+                    "sudo",
+                    "sh",
+                    "-c",
+                    "if tmutil listlocalsnapshots / 2>/dev/null | grep -qE \"com.apple.TimeMachine|localhost\"; then tmutil deletelocalsnapshots /; fi",
+                ] =>
+        {
+            Some("tm-snapshot-thin")
+        }
+        _ => None,
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -136,28 +161,71 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn only_known_privileged_targets_map_to_operations() {
+        use crate::domain::{CleanTarget, TargetOrigin};
+
+        fn target(name: &'static str, command: &'static [&'static str]) -> CleanTarget {
+            CleanTarget {
+                name: name.into(),
+                command,
+                requires_sudo: true,
+                origin: TargetOrigin::Builtin,
+                ..CleanTarget::default()
+            }
+        }
+
         #[cfg(target_os = "linux")]
         {
             assert_eq!(
-                super::operation_for_target("Apt Autoremove"),
+                super::operation_for_target(&target(
+                    "Apt Autoremove",
+                    &["sudo", "apt", "autoremove", "-y"]
+                )),
                 Some("apt-autoremove")
             );
             assert_eq!(
-                super::operation_for_target("Journalctl Vacuum"),
+                super::operation_for_target(&target(
+                    "Journalctl Vacuum",
+                    &["sudo", "journalctl", "--vacuum-size=100M"]
+                )),
                 Some("journal-vacuum")
             );
-            assert_eq!(super::operation_for_target("Docker System Prune"), None);
-            assert_eq!(super::operation_for_target("custom command"), None);
+            assert_eq!(
+                super::operation_for_target(&target(
+                    "Apt Autoremove",
+                    &["sudo", "apt", "autoremove", "-y; arbitrary"]
+                )),
+                None
+            );
+            assert_eq!(
+                super::operation_for_target(&target("Docker System Prune", &["docker"])),
+                None
+            );
         }
         #[cfg(target_os = "macos")]
         {
             assert_eq!(
-                super::operation_for_target("Time Machine Local Snapshots"),
+                super::operation_for_target(&target(
+                    "Time Machine Local Snapshots",
+                    &[
+                        "sudo",
+                        "sh",
+                        "-c",
+                        "if tmutil listlocalsnapshots / 2>/dev/null | grep -qE \"com.apple.TimeMachine|localhost\"; then tmutil deletelocalsnapshots /; fi",
+                    ]
+                )),
                 Some("tm-snapshot-thin")
             );
-            assert_eq!(super::operation_for_target("iOS Simulators Reset"), None);
-            assert_eq!(super::operation_for_target("custom command"), None);
+            assert_eq!(
+                super::operation_for_target(&target("iOS Simulators Reset", &["xcrun"])),
+                None
+            );
         }
+        let mut custom = target("Apt Autoremove", &["sudo", "apt", "autoremove", "-y"]);
+        custom.origin = TargetOrigin::Custom;
+        assert_eq!(super::operation_for_target(&custom), None);
+        let mut unprivileged = target("Apt Autoremove", &["sudo", "apt", "autoremove", "-y"]);
+        unprivileged.requires_sudo = false;
+        assert_eq!(super::operation_for_target(&unprivileged), None);
         #[cfg(target_os = "linux")]
         assert!(!super::is_root_owned_system_helper(std::path::Path::new(
             "/tmp/nonexistent-acari-helper"
