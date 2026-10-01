@@ -468,6 +468,7 @@ fn handle_event(
         }
         AppEvent::TargetCompleted {
             target_name,
+            target_path: _,
             total_bytes,
             files_scanned,
         } => {

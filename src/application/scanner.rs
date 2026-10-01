@@ -71,6 +71,11 @@ pub fn start_background_scan(
                             infra_scanner::scan_target(&target, &tx, &excludes, &pool, allocated);
                         let _ = tx.send(AppEvent::TargetCompleted {
                             target_name: result.target.name.to_string(),
+                            target_path: result
+                                .target
+                                .resolved_path()
+                                .to_string_lossy()
+                                .into_owned(),
                             total_bytes: result.bytes,
                             files_scanned: result.files_scanned,
                         });

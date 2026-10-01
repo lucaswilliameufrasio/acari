@@ -186,14 +186,13 @@ impl DesktopApp {
                 match event {
                     AppEvent::TargetCompleted {
                         target_name,
+                        target_path,
                         total_bytes,
                         files_scanned,
                     } => {
-                        if let Some(row) = self
-                            .targets
-                            .iter_mut()
-                            .find(|row| row.0.name == target_name)
-                        {
+                        if let Some(row) = self.targets.iter_mut().find(|row| {
+                            target_matches_scan_result(&row.0, &target_name, &target_path)
+                        }) {
                             row.1 = total_bytes;
                             row.2 = files_scanned;
                         }
@@ -671,6 +670,10 @@ fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> Stri
     }
 }
 
+fn target_matches_scan_result(target: &CleanTarget, name: &str, path: &str) -> bool {
+    target.name == name && target.resolved_path().to_string_lossy() == path
+}
+
 fn requires_individual_confirmation(target: &CleanTarget) -> bool {
     target.is_dangerous() || target.is_command() || target.is_custom()
 }
@@ -935,7 +938,7 @@ fn color_for(name: &str) -> Color32 {
 mod tests {
     use super::{
         cleanup_metrics_label, desktop_cleanup_supported, node_bytes,
-        requires_individual_confirmation, squarified_layout,
+        requires_individual_confirmation, squarified_layout, target_matches_scan_result,
     };
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
@@ -990,6 +993,36 @@ mod tests {
             ..CleanTarget::default()
         };
         assert!(requires_individual_confirmation(&command));
+    }
+
+    #[test]
+    fn scan_results_match_target_name_and_resolved_path() {
+        let first = CleanTarget {
+            name: "same name".into(),
+            path: "/tmp/first".into(),
+            ..CleanTarget::default()
+        };
+        let second = CleanTarget {
+            name: "same name".into(),
+            path: "/tmp/second".into(),
+            ..CleanTarget::default()
+        };
+
+        assert!(target_matches_scan_result(
+            &first,
+            "same name",
+            "/tmp/first"
+        ));
+        assert!(!target_matches_scan_result(
+            &first,
+            "same name",
+            "/tmp/second"
+        ));
+        assert!(!target_matches_scan_result(
+            &second,
+            "other name",
+            "/tmp/second"
+        ));
     }
 
     #[test]

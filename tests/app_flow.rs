@@ -194,6 +194,7 @@ async fn headless_clean_returns_error_for_failed_command() {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
     tx.send(AppEvent::TargetCompleted {
         target_name: String::from("Failing Command"),
+        target_path: String::new(),
         total_bytes: 0,
         files_scanned: 0,
     })

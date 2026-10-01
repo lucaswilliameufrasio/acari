@@ -44,6 +44,7 @@ pub async fn run_headless(
             }
             AppEvent::TargetCompleted {
                 target_name,
+                target_path: _,
                 total_bytes: bytes,
                 files_scanned,
             } => {

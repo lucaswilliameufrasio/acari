@@ -8,6 +8,7 @@ pub enum AppEvent {
     },
     TargetCompleted {
         target_name: String,
+        target_path: String,
         total_bytes: u64,
         files_scanned: u64,
     },
