@@ -248,11 +248,20 @@ impl DesktopApp {
             .targets
             .iter()
             .filter(|(_, _, _, selected)| *selected)
-            .filter(|(target, _, _, _)| !target.is_command() && !target.is_dangerous())
+            .filter(|(target, _, _, _)| desktop_cleanup_supported(target))
             .map(|(target, bytes, files, _)| (target.clone(), *bytes, *files))
             .collect();
         if selected.is_empty() {
-            self.cleanup_status = "Selecione pelo menos um alvo de arquivos.".into();
+            self.cleanup_status = "Selecione um alvo compatível com a limpeza desktop.".into();
+            return;
+        }
+        let special_count = selected
+            .iter()
+            .filter(|(target, _, _)| target.is_dangerous())
+            .count();
+        if special_count > 0 && (special_count != 1 || selected.len() != 1) {
+            self.cleanup_status =
+                "Alvos perigosos/comando devem ser executados individualmente.".into();
             return;
         }
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -382,7 +391,7 @@ impl eframe::App for DesktopApp {
                     if ui.button(if self.cleanup_sort_by_size { "Tamanho ↓" } else { "Nome A–Z" }).clicked() { self.cleanup_sort_by_size = !self.cleanup_sort_by_size; }
                     if ui.button("Selecionar visíveis").clicked() {
                         for target in self.targets.iter_mut().filter(|row| cleanup_matches(row, &self.cleanup_search)) {
-                            if !target.0.is_command() && !target.0.is_dangerous() { target.3 = true; }
+                            if desktop_cleanup_supported(&target.0) && !target.0.is_dangerous() { target.3 = true; }
                         }
                     }
                     if ui.button("Limpar seleção").clicked() {
@@ -402,13 +411,14 @@ impl eframe::App for DesktopApp {
                     for index in visible {
                         let (target, bytes, files, selected) = &mut self.targets[index];
                         ui.horizontal(|ui| {
-                            ui.add_enabled_ui(!target.is_command() && !target.is_dangerous(), |ui| {
+                            ui.add_enabled_ui(desktop_cleanup_supported(target), |ui| {
                                 ui.checkbox(selected, "");
                             });
                             ui.strong(target.name.as_ref());
                             ui.label(format!("{} bytes · {} arquivos", bytes, files));
-                            if target.is_command() { ui.colored_label(Color32::YELLOW, "comando — indisponível nesta tela"); }
-                            else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "perigoso/requer privilégio — não disponível ainda"); }
+                            if !desktop_cleanup_supported(target) { ui.colored_label(Color32::GRAY, "não compatível com execução segura na UI"); }
+                            else if target.is_command() { ui.colored_label(Color32::YELLOW, "comando permitido · confirmação individual obrigatória"); }
+                            else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "operação perigosa · confirmação individual obrigatória"); }
                         });
                         ui.label(format!("{} — {}", target.path, target.description));
                         ui.separator();
@@ -420,7 +430,13 @@ impl eframe::App for DesktopApp {
                         .show(ctx, |ui| {
                             let count = self.targets.iter().filter(|(_, _, _, selected)| *selected).count();
                             ui.label(format!("{} {} alvo(s) selecionado(s).", if self.dry_run { "Simular" } else { "Limpar" }, count));
-                            ui.label("Esta ação não pode ser desfeita. A análise visual de disco não será afetada.");
+                            let special = self.targets.iter().filter(|(target, _, _, selected)| *selected && target.is_dangerous()).collect::<Vec<_>>();
+                            if let Some((target, _, _, _)) = special.first() {
+                                ui.colored_label(Color32::LIGHT_RED, format!("Operação especial: {}", target.name));
+                                ui.label(target.description.as_ref());
+                                ui.label(if target.requires_sudo { "Este alvo requer privilégio; se não houver prompt de autorização suportado, a operação falhará sem elevar privilégios." } else { "Esta operação pode remover dados não regeneráveis." });
+                            }
+                            ui.label("Revise o alvo e seu impacto. A análise visual de disco não será afetada.");
                             ui.horizontal(|ui| {
                                 if ui.button(if self.dry_run { "Executar simulação" } else { "Confirmar limpeza" }).clicked() { confirm = true; }
                                 if ui.button("Cancelar").clicked() { self.confirm_clean = false; }
@@ -573,6 +589,28 @@ fn node_bytes(node: &DiskNode, allocated: bool) -> u64 {
     } else {
         node.bytes
     }
+}
+
+/// Keep desktop command execution narrower than the CLI's configured targets.
+/// Only exact, non-privileged Docker invocations are currently supported; shell
+/// wrappers, custom commands, and anything requiring privilege stay disabled.
+fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
+    if !target.is_command() {
+        return !target.requires_sudo;
+    }
+    if target.origin != crate::domain::TargetOrigin::Builtin || target.requires_sudo {
+        return false;
+    }
+    matches!(
+        (target.name.as_ref(), target.command),
+        (
+            "Docker System Prune",
+            ["docker", "system", "prune", "-a", "--force"]
+        ) | (
+            "Docker Volumes Prune",
+            ["docker", "volume", "prune", "--all", "--force"]
+        )
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -766,7 +804,8 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{node_bytes, squarified_layout};
+    use super::{desktop_cleanup_supported, node_bytes, squarified_layout};
+    use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
     use eframe::egui::{Pos2, Rect};
     use std::path::PathBuf;
@@ -783,6 +822,37 @@ mod tests {
         };
         assert_eq!(node_bytes(&node, false), 3);
         assert_eq!(node_bytes(&node, true), 512);
+    }
+
+    #[test]
+    fn desktop_allows_only_exact_non_privileged_builtin_commands() {
+        let docker = CleanTarget {
+            name: "Docker System Prune".into(),
+            command: &["docker", "system", "prune", "-a", "--force"],
+            dangerous: true,
+            ..CleanTarget::default()
+        };
+        assert!(desktop_cleanup_supported(&docker));
+
+        let shell = CleanTarget {
+            name: "Docker Builder Prune".into(),
+            command: &["sh", "-c", "echo unsafe"],
+            dangerous: true,
+            ..CleanTarget::default()
+        };
+        assert!(!desktop_cleanup_supported(&shell));
+
+        let privileged = CleanTarget {
+            requires_sudo: true,
+            ..docker.clone()
+        };
+        assert!(!desktop_cleanup_supported(&privileged));
+
+        let custom = CleanTarget {
+            origin: TargetOrigin::Custom,
+            ..docker
+        };
+        assert!(!desktop_cleanup_supported(&custom));
     }
 
     #[test]
