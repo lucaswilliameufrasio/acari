@@ -503,6 +503,7 @@ impl eframe::App for DesktopApp {
                             else if target.is_custom() { ui.colored_label(Color32::YELLOW, "alvo personalizado · confirmação individual obrigatória"); }
                         });
                         ui.label(format!("{} — {}", target.path, target.description));
+                        ui.label(format!("Escopo: {}", cleanup_scope_label(target)));
                         ui.separator();
                     }
                 });
@@ -512,6 +513,12 @@ impl eframe::App for DesktopApp {
                         .show(ctx, |ui| {
                             let count = self.targets.iter().filter(|(_, _, _, selected)| *selected).count();
                             ui.label(format!("{} {} alvo(s) selecionado(s).", if self.dry_run { "Simular" } else { "Limpar" }, count));
+                            egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                                for (target, bytes, files, _) in self.targets.iter().filter(|(_, _, _, selected)| *selected) {
+                                    ui.strong(target.name.as_ref());
+                                    ui.label(format!("{} · {} · {}", target.resolved_path().display(), cleanup_scope_label(target), cleanup_metrics_label(target, *bytes, *files)));
+                                }
+                            });
                             let special = self.targets.iter().filter(|(target, _, _, selected)| *selected && requires_individual_confirmation(target)).collect::<Vec<_>>();
                             if let Some((target, _, _, _)) = special.first() {
                                 ui.colored_label(Color32::LIGHT_RED, format!("Operação especial: {}", target.name));
@@ -680,6 +687,25 @@ fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> Stri
 
 fn target_matches_scan_result(target: &CleanTarget, name: &str, path: &str) -> bool {
     target.name == name && target.resolved_path().to_string_lossy() == path
+}
+
+fn cleanup_scope_label(target: &CleanTarget) -> &'static str {
+    if target.is_command() {
+        return "operação do sistema/comando; sem remoção direta de caminhos exibidos";
+    }
+    match std::fs::symlink_metadata(target.resolved_path()) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            "o link simbólico será removido; o destino será preservado"
+        }
+        Ok(metadata) if metadata.is_dir() && target.delete_entire => {
+            "todo o conteúdo e a pasta raiz serão removidos"
+        }
+        Ok(metadata) if metadata.is_dir() => {
+            "o conteúdo será removido; a pasta raiz será preservada"
+        }
+        Ok(_) => "o arquivo-alvo será removido",
+        Err(_) => "o caminho não existe; nada será removido",
+    }
 }
 
 fn cleanup_targets_overlap(left: &CleanTarget, right: &CleanTarget) -> bool {
@@ -977,8 +1003,9 @@ fn color_for(name: &str) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cleanup_metrics_label, cleanup_targets_overlap, desktop_cleanup_supported, node_bytes,
-        requires_individual_confirmation, squarified_layout, target_matches_scan_result,
+        cleanup_metrics_label, cleanup_scope_label, cleanup_targets_overlap,
+        desktop_cleanup_supported, node_bytes, requires_individual_confirmation, squarified_layout,
+        target_matches_scan_result,
     };
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
@@ -1091,6 +1118,34 @@ mod tests {
             },
             &target("/tmp/acari-cache")
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_scope_label_explains_root_deletion_and_symlink_handling() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("cache");
+        let destination = temp.path().join("destination");
+        let link = temp.path().join("cache-link");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::create_dir(&destination).unwrap();
+        symlink(&destination, &link).unwrap();
+
+        let whole_directory = CleanTarget {
+            path: directory.to_string_lossy().into_owned().into(),
+            delete_entire: true,
+            ..CleanTarget::default()
+        };
+        let link_target = CleanTarget {
+            path: link.to_string_lossy().into_owned().into(),
+            delete_entire: false,
+            ..CleanTarget::default()
+        };
+
+        assert!(cleanup_scope_label(&whole_directory).contains("pasta raiz"));
+        assert!(cleanup_scope_label(&link_target).contains("destino será preservado"));
     }
 
     #[cfg(unix)]
