@@ -536,35 +536,12 @@ fn draw_treemap(
     } else {
         children.sort_by_key(|a| a.name.to_lowercase());
     }
-    let total = children.iter().map(|child| child.bytes).sum::<u64>().max(1);
-    let mut cursor = rect;
-    let horizontal = rect.width() >= rect.height();
-    for child in children {
-        let fraction = child.bytes as f32 / total.max(1) as f32;
-        let span = if horizontal {
-            rect.width() * fraction
-        } else {
-            rect.height() * fraction
-        };
-        if span < 1.0 {
-            continue;
-        }
-        let child_rect = if horizontal {
-            Rect::from_min_max(
-                cursor.min,
-                Pos2::new((cursor.min.x + span).min(rect.max.x), cursor.max.y),
-            )
-        } else {
-            Rect::from_min_max(
-                cursor.min,
-                Pos2::new(cursor.max.x, (cursor.min.y + span).min(rect.max.y)),
-            )
-        };
-        cursor = if horizontal {
-            Rect::from_min_max(Pos2::new(child_rect.max.x, cursor.min.y), cursor.max)
-        } else {
-            Rect::from_min_max(Pos2::new(cursor.min.x, child_rect.max.y), cursor.max)
-        };
+    let boxes = squarified_layout(
+        rect,
+        &children.iter().map(|child| child.bytes).collect::<Vec<_>>(),
+    );
+    for (index, child_rect) in boxes {
+        let child = children[index];
         let response = ui.allocate_rect(child_rect, Sense::click());
         let color = if selected.as_ref() == Some(&child.path) {
             Color32::from_rgb(245, 155, 65)
@@ -599,6 +576,103 @@ fn draw_treemap(
     }
 }
 
+/// Allocate rectangles proportional to byte size while keeping aspect ratios
+/// reasonably square. Zero-byte entries intentionally receive no rectangle.
+fn squarified_layout(rect: Rect, weights: &[u64]) -> Vec<(usize, Rect)> {
+    let total: u64 = weights.iter().copied().sum();
+    if total == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return Vec::new();
+    }
+    let scale = rect.area() / total as f32;
+    let mut remaining: Vec<(usize, f32)> = weights
+        .iter()
+        .enumerate()
+        .filter(|(_, weight)| **weight > 0)
+        .map(|(index, weight)| (index, *weight as f32 * scale))
+        .collect();
+    let mut output = Vec::with_capacity(remaining.len());
+    let mut bounds = rect;
+    let mut row = Vec::new();
+
+    while !remaining.is_empty() {
+        let short_side = bounds.width().min(bounds.height());
+        if short_side <= f32::EPSILON {
+            break;
+        }
+        let candidate = remaining[0];
+        let mut proposed = row.clone();
+        proposed.push(candidate);
+        if row.is_empty() || worst_ratio(&proposed, short_side) <= worst_ratio(&row, short_side) {
+            row.push(remaining.remove(0));
+        } else {
+            bounds = place_row(bounds, &row, &mut output);
+            row.clear();
+        }
+    }
+    if !row.is_empty() {
+        place_row(bounds, &row, &mut output);
+    }
+    output
+}
+
+fn worst_ratio(row: &[(usize, f32)], short_side: f32) -> f32 {
+    let sum: f32 = row.iter().map(|(_, area)| *area).sum();
+    let min = row
+        .iter()
+        .map(|(_, area)| *area)
+        .fold(f32::INFINITY, f32::min);
+    let max = row.iter().map(|(_, area)| *area).fold(0.0_f32, f32::max);
+    if min <= 0.0 || sum <= 0.0 {
+        return f32::INFINITY;
+    }
+    let side_sq = short_side * short_side;
+    (side_sq * max / (sum * sum)).max((sum * sum) / (side_sq * min))
+}
+
+fn place_row(mut bounds: Rect, row: &[(usize, f32)], output: &mut Vec<(usize, Rect)>) -> Rect {
+    let total: f32 = row.iter().map(|(_, area)| *area).sum();
+    if bounds.width() >= bounds.height() {
+        let height = (total / bounds.width()).min(bounds.height());
+        let mut x = bounds.min.x;
+        for (index, area) in row {
+            let width = if height > 0.0 {
+                (*area / height).min(bounds.max.x - x)
+            } else {
+                0.0
+            };
+            output.push((
+                *index,
+                Rect::from_min_max(
+                    Pos2::new(x, bounds.min.y),
+                    Pos2::new(x + width, bounds.min.y + height),
+                ),
+            ));
+            x += width;
+        }
+        bounds.min.y += height;
+    } else {
+        let width = (total / bounds.height()).min(bounds.width());
+        let mut y = bounds.min.y;
+        for (index, area) in row {
+            let height = if width > 0.0 {
+                (*area / width).min(bounds.max.y - y)
+            } else {
+                0.0
+            };
+            output.push((
+                *index,
+                Rect::from_min_max(
+                    Pos2::new(bounds.min.x, y),
+                    Pos2::new(bounds.min.x + width, y + height),
+                ),
+            ));
+            y += height;
+        }
+        bounds.min.x += width;
+    }
+    bounds
+}
+
 fn color_for(name: &str) -> Color32 {
     let hash = name.bytes().fold(0_u32, |acc, byte| {
         acc.wrapping_mul(31).wrapping_add(byte as u32)
@@ -608,4 +682,29 @@ fn color_for(name: &str) -> Color32 {
         90 + ((hash >> 8) as u8 % 80),
         125 + ((hash >> 16) as u8 % 70),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::squarified_layout;
+    use eframe::egui::{Pos2, Rect};
+
+    #[test]
+    fn squarified_layout_preserves_area_proportions_and_skips_zeroes() {
+        let bounds = Rect::from_min_max(Pos2::ZERO, Pos2::new(400.0, 200.0));
+        let boxes = squarified_layout(bounds, &[60, 30, 10, 0]);
+        assert_eq!(boxes.len(), 3);
+        let areas: Vec<_> = boxes.iter().map(|(_, rect)| rect.area()).collect();
+        let total: f32 = areas.iter().sum();
+        assert!((total - bounds.area()).abs() < 1.0);
+        assert!((areas[0] / total - 0.6).abs() < 0.01);
+        assert!((areas[1] / total - 0.3).abs() < 0.01);
+        assert!((areas[2] / total - 0.1).abs() < 0.01);
+    }
+
+    #[test]
+    fn squarified_layout_handles_empty_weights() {
+        let bounds = Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 80.0));
+        assert!(squarified_layout(bounds, &[0, 0]).is_empty());
+    }
 }
