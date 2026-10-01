@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(long)]
     pub headless: bool,
 
+    /// Open the desktop disk analyzer
+    #[arg(long)]
+    pub desktop: bool,
+
     /// Add an ad-hoc path to scan (can be used multiple times)
     #[arg(long = "scan-path")]
     pub scan_paths: Vec<String>,

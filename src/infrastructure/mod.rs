@@ -1,5 +1,6 @@
 pub mod cleaner;
 pub mod df;
+pub mod disk_scan;
 pub mod distro;
 pub mod du;
 pub mod exec;

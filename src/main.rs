@@ -261,6 +261,10 @@ async fn main() -> Result<()> {
     let lang = detect_language();
     let cli = Cli::parse();
 
+    if cli.desktop {
+        return acari::ui::desktop::run_desktop();
+    }
+
     if let Some(cmd) = &cli.command {
         match cmd {
             Commands::History { clear } => {

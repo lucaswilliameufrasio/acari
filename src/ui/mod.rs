@@ -1,4 +1,5 @@
 pub mod app;
+pub mod desktop;
 pub mod project;
 
 pub(crate) fn resolve_scroll(selected: usize, current: usize, visible: usize) -> usize {

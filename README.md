@@ -138,6 +138,16 @@ Launch the TUI (interactive mode):
 acari
 ```
 
+Launch the desktop disk analyzer and cleanup UI:
+
+```bash
+acari --desktop
+```
+
+The desktop UI can inspect a mounted volume or selected folder with a
+read-only treemap, and can scan/clean configured file targets. Command targets
+and targets requiring elevated privileges remain available through the TUI/CLI.
+
 Navigate the interface using your keyboard:
 
 * `<Space>`: Toggle selection of a junk category.
