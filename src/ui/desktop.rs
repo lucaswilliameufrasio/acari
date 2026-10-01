@@ -207,6 +207,13 @@ impl DesktopApp {
                 }
             }
         }
+        if self.target_rx.as_ref().is_some_and(|rx| rx.is_closed()) && self.target_scan_busy {
+            self.target_rx = None;
+            self.target_scan_busy = false;
+            self.target_scan_done = false;
+            self.cleanup_status =
+                "A verificação foi interrompida antes de concluir; execute-a novamente.".into();
+        }
         if let Some(rx) = &mut self.clean_rx {
             while let Ok(event) = rx.try_recv() {
                 match event {
@@ -948,6 +955,25 @@ mod tests {
             ..CleanTarget::default()
         };
         assert!(requires_individual_confirmation(&command));
+    }
+
+    #[test]
+    fn disconnected_target_scan_does_not_mark_scan_complete() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(tx);
+        let mut app = super::DesktopApp {
+            target_rx: Some(rx),
+            target_scan_busy: true,
+            target_scan_done: false,
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(!app.target_scan_busy);
+        assert!(!app.target_scan_done);
+        assert!(app.target_rx.is_none());
+        assert!(app.cleanup_status.contains("interrompida"));
     }
 
     #[test]
