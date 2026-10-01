@@ -511,10 +511,16 @@ impl eframe::App for DesktopApp {
                     }
                 });
                 if !self.cleanup_status.is_empty() { ui.label(&self.cleanup_status); }
+                if !self.targets.is_empty() && !self.target_scan_done && !self.target_scan_busy {
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        "Preview expirado ou indisponível — verifique os alvos para habilitar a seleção.",
+                    );
+                }
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.cleanup_search).desired_width(260.0).hint_text("Filtrar alvos por nome ou caminho…"));
                     if ui.button(if self.cleanup_sort_by_size { "Tamanho ↓" } else { "Nome A–Z" }).clicked() { self.cleanup_sort_by_size = !self.cleanup_sort_by_size; }
-                    if ui.button("Selecionar visíveis").clicked() {
+                    if ui.add_enabled(self.target_scan_done && !self.target_scan_busy, egui::Button::new("Selecionar visíveis")).clicked() {
                         for target in self.targets.iter_mut().filter(|row| cleanup_matches(row, &self.cleanup_search)) {
                             if desktop_cleanup_supported(&target.0)
                                 && !requires_individual_confirmation(&target.0)
@@ -540,7 +546,14 @@ impl eframe::App for DesktopApp {
                         let (target, bytes, files, selected) = &mut self.targets[index];
                         let scan_incomplete = scan_target_is_incomplete(target, &self.incomplete_scan_targets);
                         ui.horizontal(|ui| {
-                            ui.add_enabled_ui(desktop_cleanup_supported(target) && !scan_incomplete, |ui| {
+                            ui.add_enabled_ui(
+                                cleanup_target_selectable(
+                                    target,
+                                    self.target_scan_done,
+                                    self.target_scan_busy,
+                                    scan_incomplete,
+                                ),
+                                |ui| {
                                 ui.checkbox(selected, "");
                             });
                             ui.strong(target.name.as_ref());
@@ -744,6 +757,15 @@ fn target_matches_scan_result(target: &CleanTarget, name: &str, path: &str) -> b
 
 fn scan_target_is_incomplete(target: &CleanTarget, incomplete: &HashSet<String>) -> bool {
     incomplete.contains(&target.resolved_path().to_string_lossy().into_owned())
+}
+
+fn cleanup_target_selectable(
+    target: &CleanTarget,
+    scan_done: bool,
+    scan_busy: bool,
+    scan_incomplete: bool,
+) -> bool {
+    scan_done && !scan_busy && desktop_cleanup_supported(target) && !scan_incomplete
 }
 
 fn cleanup_scope_label(target: &CleanTarget) -> &'static str {
@@ -1087,9 +1109,10 @@ fn color_for(name: &str) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cleanup_metrics_label, cleanup_scope_label, cleanup_targets_overlap,
-        desktop_cleanup_supported, node_bytes, requires_individual_confirmation,
-        scan_target_is_incomplete, squarified_layout, target_matches_scan_result,
+        cleanup_metrics_label, cleanup_scope_label, cleanup_target_selectable,
+        cleanup_targets_overlap, desktop_cleanup_supported, node_bytes,
+        requires_individual_confirmation, scan_target_is_incomplete, squarified_layout,
+        target_matches_scan_result,
     };
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
@@ -1187,6 +1210,18 @@ mod tests {
         let incomplete = HashSet::from(["/tmp/acari-incomplete-cache".to_string()]);
         assert!(scan_target_is_incomplete(&target, &incomplete));
         assert!(!scan_target_is_incomplete(&target, &HashSet::new()));
+    }
+
+    #[test]
+    fn expired_or_incomplete_previews_cannot_be_selected() {
+        let target = CleanTarget {
+            path: "/tmp/acari-cache".into(),
+            ..CleanTarget::default()
+        };
+        assert!(!cleanup_target_selectable(&target, false, false, false));
+        assert!(!cleanup_target_selectable(&target, true, true, false));
+        assert!(!cleanup_target_selectable(&target, true, false, true));
+        assert!(cleanup_target_selectable(&target, true, false, false));
     }
 
     #[test]
