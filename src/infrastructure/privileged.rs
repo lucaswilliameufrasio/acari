@@ -58,11 +58,14 @@ pub fn helper_path() -> Option<std::path::PathBuf> {
 
 #[cfg(target_os = "linux")]
 pub fn authorization_broker_available() -> bool {
-    helper_path().is_some()
-        && std::process::Command::new("pkexec")
-            .arg("--version")
-            .output()
-            .is_ok()
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        helper_path().is_some()
+            && std::process::Command::new("pkexec")
+                .arg("--version")
+                .output()
+                .is_ok()
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -74,7 +77,10 @@ pub fn helper_path() -> Option<std::path::PathBuf> {
 
 #[cfg(target_os = "macos")]
 pub fn authorization_broker_available() -> bool {
-    helper_path().is_some() && std::path::Path::new("/usr/bin/osascript").is_file()
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        helper_path().is_some() && std::path::Path::new("/usr/bin/osascript").is_file()
+    })
 }
 
 #[cfg(target_os = "linux")]

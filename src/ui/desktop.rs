@@ -444,7 +444,7 @@ impl eframe::App for DesktopApp {
                                 ui.checkbox(selected, "");
                             });
                             ui.strong(target.name.as_ref());
-                            ui.label(format!("{} bytes · {} arquivos", bytes, files));
+                            ui.label(cleanup_metrics_label(target, *bytes, *files));
                             if !desktop_cleanup_supported(target) { ui.colored_label(Color32::GRAY, "não compatível com execução segura na UI"); }
                             else if target.is_command() { ui.colored_label(Color32::YELLOW, "comando permitido · confirmação individual obrigatória"); }
                             else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "operação perigosa · confirmação individual obrigatória"); }
@@ -463,9 +463,12 @@ impl eframe::App for DesktopApp {
                             if let Some((target, _, _, _)) = special.first() {
                                 ui.colored_label(Color32::LIGHT_RED, format!("Operação especial: {}", target.name));
                                 ui.label(target.description.as_ref());
+                                if let Some((_, bytes, files, _)) = self.targets.iter().find(|(candidate, _, _, selected)| *selected && candidate.name == target.name) {
+                                    ui.label(format!("Prévia: {}", cleanup_metrics_label(target, *bytes, *files)));
+                                }
                                 ui.label(if target.requires_sudo { "Este alvo requer privilégio; se não houver prompt de autorização suportado, a operação falhará sem elevar privilégios." } else { "Esta operação pode remover dados não regeneráveis." });
                             }
-                            ui.label("Revise o alvo e seu impacto. A análise visual de disco não será afetada.");
+                            ui.label("A limpeza é irreversível. Revise o alvo e a estimativa; a análise visual de disco não será afetada.");
                             ui.horizontal(|ui| {
                                 if ui.button(if self.dry_run { "Executar simulação" } else { "Confirmar limpeza" }).clicked() { confirm = true; }
                                 if ui.button("Cancelar").clicked() { self.confirm_clean = false; }
@@ -601,6 +604,24 @@ fn cleanup_matches(row: &(CleanTarget, u64, u64, bool), query: &str) -> bool {
     query.is_empty()
         || row.0.name.to_lowercase().contains(&query.to_lowercase())
         || row.0.path.to_lowercase().contains(&query.to_lowercase())
+}
+
+fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> String {
+    if target.is_command() {
+        if bytes == 0 && entries == 0 {
+            "estimativa indisponível ou sem espaço recuperável".into()
+        } else {
+            format!(
+                "estimativa {} · {entries} itens",
+                crate::domain::format_bytes(bytes)
+            )
+        }
+    } else {
+        format!(
+            "{} · {entries} arquivos",
+            crate::domain::format_bytes(bytes)
+        )
+    }
 }
 
 fn find_node<'a>(node: &'a DiskNode, path: &std::path::Path) -> Option<&'a DiskNode> {
@@ -861,7 +882,7 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{desktop_cleanup_supported, node_bytes, squarified_layout};
+    use super::{cleanup_metrics_label, desktop_cleanup_supported, node_bytes, squarified_layout};
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;
     use eframe::egui::{Pos2, Rect};
@@ -879,6 +900,24 @@ mod tests {
         };
         assert_eq!(node_bytes(&node, false), 3);
         assert_eq!(node_bytes(&node, true), 512);
+    }
+
+    #[test]
+    fn cleanup_metric_labels_distinguish_command_estimates_from_file_counts() {
+        let command = CleanTarget {
+            name: "Command target".into(),
+            command: &["example", "clean"],
+            ..CleanTarget::default()
+        };
+        assert!(cleanup_metrics_label(&command, 1024, 2).contains("estimativa"));
+        assert!(cleanup_metrics_label(&command, 1024, 2).contains("2 itens"));
+        assert!(cleanup_metrics_label(&command, 0, 0).contains("indisponível"));
+
+        let files = CleanTarget {
+            path: "/tmp/cache".into(),
+            ..CleanTarget::default()
+        };
+        assert!(cleanup_metrics_label(&files, 1024, 2).contains("2 arquivos"));
     }
 
     #[test]
