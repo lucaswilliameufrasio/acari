@@ -311,6 +311,10 @@ impl eframe::App for DesktopApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_scan(ctx);
         self.poll_target_events(ctx);
+        if !ctx.wants_keyboard_input() && ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.current.pop();
+            self.selected = None;
+        }
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Acarí");
@@ -453,6 +457,29 @@ impl eframe::App for DesktopApp {
                 return;
             }
             let root = self.tree.as_ref().unwrap();
+            egui::SidePanel::right("selection-details")
+                .default_width(275.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    ui.heading("Detalhes");
+                    if let Some(path) = &self.selected {
+                        if let Some(node) = self.tree.as_ref().and_then(|tree| find_node(tree, path)) {
+                            ui.label(if node.is_dir { "Diretório" } else { "Arquivo" });
+                            ui.strong(&node.name);
+                            ui.label(path.display().to_string());
+                            ui.separator();
+                            ui.label(format!("Tamanho: {}", crate::domain::format_bytes(node.bytes)));
+                            let share = if root.bytes > 0 { node.bytes as f64 * 100.0 / root.bytes as f64 } else { 0.0 };
+                            ui.label(format!("{share:.2}% da análise"));
+                            if node.is_dir { ui.label(format!("{} itens diretos", node.children.len())); }
+                        }
+                    } else {
+                        ui.label("Selecione um bloco para ver os detalhes.");
+                    }
+                    ui.separator();
+                    ui.label("Esc volta um nível no treemap.");
+                    ui.label("A análise não remove arquivos.");
+                });
             ui.horizontal(|ui| {
                 if ui.button("Início").clicked() {
                     self.current.clear();
@@ -499,16 +526,6 @@ impl eframe::App for DesktopApp {
                 if find_child_indices(root, &path, &mut indices) {
                     self.current = indices;
                 }
-            }
-            if let Some(path) = &self.selected {
-                let detail = self.tree.as_ref().and_then(|root| find_node(root, path));
-                ui.group(|ui| {
-                    ui.strong("Detalhes da seleção");
-                    ui.label(format!("{}", path.display()));
-                    if let Some(node) = detail {
-                        ui.label(format!("{} bytes · {}", node.bytes, if node.is_dir { "diretório" } else { "arquivo" }));
-                    }
-                });
             }
         });
     }
