@@ -71,10 +71,11 @@ fn remove_directory_contents(
         }
 
         stack.push((current.clone(), true));
-        for entry in fs::read_dir(&current).ok()?.flatten() {
+        for entry in fs::read_dir(&current).ok()? {
             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return None;
             }
+            let entry = entry.ok()?;
             let child = entry.path();
             let child_metadata = fs::symlink_metadata(&child).ok()?;
             if child_metadata.file_type().is_symlink() || child_metadata.is_file() {
@@ -247,10 +248,11 @@ pub fn clean_target_with_progress(
                 error_detail: Some("refusing to remove an entire symlink target".into()),
             };
         }
-        let ok = force_remove_with_progress(&path, progress, cancel).is_some();
+        let outcome = force_remove_with_progress(&path, progress, cancel);
+        let ok = outcome.is_some();
         return CleanResult {
             target: target.clone(),
-            reclaimed_bytes: if ok { estimated_bytes } else { 0 },
+            reclaimed_bytes: outcome.unwrap_or(0),
             removed_entries: if ok { estimated_entries } else { 0 },
             errors: if ok { 0 } else { 1 },
             error_detail: (!ok)
@@ -288,11 +290,7 @@ pub fn clean_target_with_progress(
 
     CleanResult {
         target: target.clone(),
-        reclaimed_bytes: if errors == 0 {
-            estimated_bytes
-        } else {
-            reclaimed_bytes
-        },
+        reclaimed_bytes,
         removed_entries,
         errors,
         error_detail: (errors > 0)
