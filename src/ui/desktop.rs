@@ -727,17 +727,44 @@ fn canonicalize_for_overlap(path: &std::path::Path) -> PathBuf {
             for component in suffix.iter().rev() {
                 canonical.push(component);
             }
-            return canonical;
+            return normalize_overlap_path(&canonical);
         }
         let Some(file_name) = unresolved.file_name() else {
-            return path.to_path_buf();
+            return normalize_overlap_path(path);
         };
         suffix.push(file_name.to_os_string());
         let Some(parent) = unresolved.parent() else {
-            return path.to_path_buf();
+            return normalize_overlap_path(path);
         };
         unresolved = parent;
     }
+}
+
+fn normalize_overlap_path(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|current| current.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() && !absolute.is_absolute() {
+                    normalized.push("..");
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    normalized
 }
 
 fn requires_individual_confirmation(target: &CleanTarget) -> bool {
@@ -1110,6 +1137,10 @@ mod tests {
         assert!(!cleanup_targets_overlap(
             &target("/tmp/acari-cache"),
             &target("/tmp/acari-cache-other")
+        ));
+        assert!(cleanup_targets_overlap(
+            &target("/tmp/acari-cache/stale/../nested"),
+            &target("/tmp/acari-cache/nested")
         ));
         assert!(!cleanup_targets_overlap(
             &CleanTarget {
