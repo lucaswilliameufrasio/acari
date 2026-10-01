@@ -61,6 +61,8 @@ struct DesktopApp {
     dry_run: bool,
     confirm_clean: bool,
     cleanup_status: String,
+    search: String,
+    sort_largest_first: bool,
 }
 
 impl Default for DesktopApp {
@@ -88,6 +90,8 @@ impl Default for DesktopApp {
             dry_run: false,
             confirm_clean: false,
             cleanup_status: String::new(),
+            search: String::new(),
+            sort_largest_first: true,
         }
     }
 }
@@ -441,19 +445,24 @@ impl eframe::App for DesktopApp {
                 ));
             });
             ui.separator();
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(260.0).hint_text("Filtrar itens deste diretório…"));
+                if ui.button(if self.sort_largest_first { "Maior primeiro" } else { "Nome A–Z" }).clicked() { self.sort_largest_first = !self.sort_largest_first; }
+                if ui.button("Voltar um nível").clicked() { self.current.pop(); }
+            });
             let selected = self.selected.clone();
             let current = self.current_node().unwrap_or(root).clone();
-            let current_total = current.bytes.max(1);
             let mut navigate = None;
             let rect = ui.available_rect_before_wrap();
             draw_treemap(
                 ui,
                 &current,
                 rect,
-                current_total,
                 &selected,
                 &mut navigate,
                 &mut self.selected,
+                &self.search,
+                self.sort_largest_first,
             );
             if let Some(path) = navigate {
                 let mut indices = self.current.clone();
@@ -462,7 +471,14 @@ impl eframe::App for DesktopApp {
                 }
             }
             if let Some(path) = &self.selected {
-                ui.label(format!("Selecionado: {}", path.display()));
+                let detail = self.tree.as_ref().and_then(|root| find_node(root, path));
+                ui.group(|ui| {
+                    ui.strong("Detalhes da seleção");
+                    ui.label(format!("{}", path.display()));
+                    if let Some(node) = detail {
+                        ui.label(format!("{} bytes · {}", node.bytes, if node.is_dir { "diretório" } else { "arquivo" }));
+                    }
+                });
             }
         });
     }
@@ -482,22 +498,48 @@ fn find_child_indices(node: &DiskNode, path: &std::path::Path, indices: &mut Vec
     false
 }
 
+fn find_node<'a>(node: &'a DiskNode, path: &std::path::Path) -> Option<&'a DiskNode> {
+    if node.path == path {
+        return Some(node);
+    }
+    node.children
+        .iter()
+        .find_map(|child| find_node(child, path))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_treemap(
     ui: &mut egui::Ui,
     node: &DiskNode,
     rect: Rect,
-    total: u64,
     selected: &Option<PathBuf>,
     navigate: &mut Option<PathBuf>,
     selected_path: &mut Option<PathBuf>,
+    search: &str,
+    sort_largest_first: bool,
 ) {
     if node.children.is_empty() {
         return;
     }
+    let query = search.trim().to_lowercase();
+    let mut children: Vec<_> = node
+        .children
+        .iter()
+        .filter(|child| {
+            query.is_empty()
+                || child.name.to_lowercase().contains(&query)
+                || child.path.to_string_lossy().to_lowercase().contains(&query)
+        })
+        .collect();
+    if sort_largest_first {
+        children.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
+    } else {
+        children.sort_by_key(|a| a.name.to_lowercase());
+    }
+    let total = children.iter().map(|child| child.bytes).sum::<u64>().max(1);
     let mut cursor = rect;
     let horizontal = rect.width() >= rect.height();
-    let mut consumed = 0.0;
-    for child in &node.children {
+    for child in children {
         let fraction = child.bytes as f32 / total.max(1) as f32;
         let span = if horizontal {
             rect.width() * fraction
@@ -518,7 +560,6 @@ fn draw_treemap(
                 Pos2::new(cursor.max.x, (cursor.min.y + span).min(rect.max.y)),
             )
         };
-        consumed += span;
         cursor = if horizontal {
             Rect::from_min_max(Pos2::new(child_rect.max.x, cursor.min.y), cursor.max)
         } else {
@@ -556,7 +597,6 @@ fn draw_treemap(
             response.on_hover_text(format!("{}\n{} bytes", child.path.display(), child.bytes));
         }
     }
-    let _ = consumed;
 }
 
 fn color_for(name: &str) -> Color32 {
