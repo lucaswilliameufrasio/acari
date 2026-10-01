@@ -103,14 +103,19 @@ impl Default for DesktopApp {
 impl DesktopApp {
     fn start_scan(&mut self) {
         let root = PathBuf::from(self.path.trim());
+        let io_priority = target_config::load_config().scan.io_priority;
         let (tx, rx) = mpsc::channel();
         let (progress_tx, progress_rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel);
         thread::spawn(move || {
-            let result =
-                disk_scan::scan_tree_cancellable(&root, Some(progress_tx), Some(worker_cancel))
-                    .map_err(|e| e.to_string());
+            let result = disk_scan::scan_tree_cancellable_with_priority(
+                &root,
+                Some(progress_tx),
+                Some(worker_cancel),
+                io_priority,
+            )
+            .map_err(|e| e.to_string());
             let _ = tx.send(Message::Finished(result));
         });
         // Bridge progress and completion without blocking egui's frame loop.

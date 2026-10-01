@@ -7,9 +7,11 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
 
 use jwalk::{Parallelism, WalkDir};
+use rayon::{ThreadPool, ThreadPoolBuilder};
+
+use crate::config::target_config::IoPriority;
 
 #[derive(Debug, Clone)]
 pub struct DiskNode {
@@ -28,13 +30,22 @@ pub struct ScanProgress {
 
 /// Walk a selected directory without following symlinks and aggregate a complete tree.
 pub fn scan_tree(root: &Path, progress: Option<Sender<ScanProgress>>) -> std::io::Result<DiskNode> {
-    scan_tree_cancellable(root, progress, None)
+    scan_tree_cancellable_with_priority(root, progress, None, IoPriority::Normal)
 }
 
 pub fn scan_tree_cancellable(
     root: &Path,
     progress: Option<Sender<ScanProgress>>,
     cancel: Option<Arc<AtomicBool>>,
+) -> std::io::Result<DiskNode> {
+    scan_tree_cancellable_with_priority(root, progress, cancel, IoPriority::Normal)
+}
+
+pub fn scan_tree_cancellable_with_priority(
+    root: &Path,
+    progress: Option<Sender<ScanProgress>>,
+    cancel: Option<Arc<AtomicBool>>,
+    io_priority: IoPriority,
 ) -> std::io::Result<DiskNode> {
     let root = root.canonicalize()?;
     if !root.is_dir() {
@@ -61,11 +72,15 @@ pub fn scan_tree_cancellable(
     );
     let mut entries = 0_u64;
     let mut bytes = 0_u64;
+    // jwalk must not compete for the process-wide Rayon pool: it can silently
+    // stop producing entries under contention. Give this scan its own budget.
+    let pool = build_walk_pool(io_priority);
     let walker =
         WalkDir::new(&root)
             .follow_links(false)
-            .parallelism(Parallelism::RayonDefaultPool {
-                busy_timeout: Duration::from_secs(60),
+            .parallelism(Parallelism::RayonExistingPool {
+                pool,
+                busy_timeout: None,
             });
 
     for result in walker {
@@ -152,6 +167,22 @@ pub fn scan_tree_cancellable(
         let _ = tx.send(ScanProgress { entries, bytes });
     }
     Ok(root_node)
+}
+
+fn build_walk_pool(priority: IoPriority) -> Arc<ThreadPool> {
+    let cores = std::thread::available_parallelism().map_or(4, usize::from);
+    let threads = match priority {
+        IoPriority::High => cores,
+        IoPriority::Normal => (cores / 2).max(1),
+        IoPriority::Low => 1,
+    };
+    Arc::new(
+        ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|index| format!("acari-disk-walk-{index}"))
+            .build()
+            .expect("build dedicated disk scan pool"),
+    )
 }
 
 /// Return usable mounted filesystem roots known to the host OS.
