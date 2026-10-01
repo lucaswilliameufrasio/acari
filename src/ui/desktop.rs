@@ -181,6 +181,7 @@ impl DesktopApp {
         self.target_rx = Some(rx);
         self.target_scan_done = false;
         self.target_scan_busy = true;
+        self.confirm_clean = false;
         self.cleanup_status = "Verificando alvos…".into();
     }
 
@@ -298,14 +299,26 @@ impl DesktopApp {
     }
 
     fn begin_clean(&mut self) {
-        let selected: Vec<_> = self
+        if !self.target_scan_done || self.target_scan_busy {
+            self.confirm_clean = false;
+            self.cleanup_status =
+                "Verifique os alvos novamente antes de confirmar a limpeza.".into();
+            return;
+        }
+        let selected_rows: Vec<_> = self
             .targets
             .iter()
             .filter(|(_, _, _, selected)| *selected)
-            .filter(|(target, _, _, _)| desktop_cleanup_supported(target))
-            .filter(|(target, _, _, _)| {
-                !scan_target_is_incomplete(target, &self.incomplete_scan_targets)
-            })
+            .collect();
+        if selected_rows.iter().any(|(target, _, _, _)| {
+            !desktop_cleanup_supported(target)
+                || scan_target_is_incomplete(target, &self.incomplete_scan_targets)
+        }) {
+            self.cleanup_status = "A seleção contém alvos incompatíveis ou com verificação incompleta; revise-a antes de continuar.".into();
+            return;
+        }
+        let selected: Vec<_> = selected_rows
+            .into_iter()
             .map(|(target, bytes, files, _)| (target.clone(), *bytes, *files))
             .collect();
         if selected.is_empty() {
@@ -1261,6 +1274,34 @@ mod tests {
         assert!(!app.target_scan_done);
         assert!(app.target_rx.is_none());
         assert!(app.cleanup_status.contains("interrompida"));
+    }
+
+    #[test]
+    fn cleanup_requires_fresh_complete_scan_even_if_confirmation_is_open() {
+        let target = CleanTarget {
+            name: "Cache".into(),
+            path: "/tmp/acari-cache".into(),
+            ..CleanTarget::default()
+        };
+        let mut app = super::DesktopApp {
+            targets: vec![(target.clone(), 10, 1, true)],
+            confirm_clean: true,
+            ..super::DesktopApp::default()
+        };
+
+        app.begin_clean();
+        assert!(app.clean_rx.is_none());
+        assert!(!app.confirm_clean);
+        assert!(app.cleanup_status.contains("Verifique"));
+
+        app.target_scan_done = true;
+        app.incomplete_scan_targets
+            .insert(target.resolved_path().to_string_lossy().into_owned());
+        app.confirm_clean = true;
+        app.begin_clean();
+        assert!(app.clean_rx.is_none());
+        assert!(app.confirm_clean);
+        assert!(app.cleanup_status.contains("incompleta"));
     }
 
     #[test]
