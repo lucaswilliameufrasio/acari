@@ -55,7 +55,6 @@ struct DesktopApp {
     targets: Vec<(CleanTarget, u64, u64, bool)>,
     target_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     clean_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
-    clean_tx: Option<tokio::sync::mpsc::UnboundedSender<AppEvent>>,
     clean_cancel: Option<cleaner::CancellationToken>,
     target_scan_done: bool,
     target_scan_busy: bool,
@@ -90,7 +89,6 @@ impl Default for DesktopApp {
             targets: Vec::new(),
             target_rx: None,
             clean_rx: None,
-            clean_tx: None,
             clean_cancel: None,
             target_scan_done: false,
             target_scan_busy: false,
@@ -254,7 +252,6 @@ impl DesktopApp {
                         };
                         self.privileged_clean = false;
                         self.clean_rx = None;
-                        self.clean_tx = None;
                         self.clean_cancel = None;
                         break;
                     }
@@ -268,6 +265,18 @@ impl DesktopApp {
                     _ => {}
                 }
             }
+        }
+        if self
+            .clean_rx
+            .as_ref()
+            .is_some_and(|rx| rx.is_closed() && rx.is_empty())
+        {
+            self.clean_rx = None;
+            self.clean_cancel = None;
+            self.privileged_clean = false;
+            self.cleanup_status =
+                "A limpeza foi interrompida antes de concluir; verifique o estado dos alvos."
+                    .into();
         }
         if self.target_scan_busy || self.clean_rx.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -332,7 +341,6 @@ impl DesktopApp {
             );
             self.clean_cancel = Some(cancel);
         }
-        self.clean_tx = Some(tx);
         self.clean_rx = Some(rx);
         self.confirm_clean = false;
         self.cleanup_status = if self.dry_run {
@@ -1032,6 +1040,25 @@ mod tests {
         assert!(app.cleanup_status.contains("cancelada"));
         assert!(app.cleanup_status.contains("1 erros"));
         assert!(app.cleanup_status.contains("Cache: permission denied"));
+    }
+
+    #[test]
+    fn disconnected_cleanup_worker_releases_ui_and_reports_incomplete_result() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(tx);
+        let mut app = super::DesktopApp {
+            clean_rx: Some(rx),
+            clean_cancel: Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                false,
+            ))),
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(app.clean_rx.is_none());
+        assert!(app.clean_cancel.is_none());
+        assert!(app.cleanup_status.contains("interrompida"));
     }
 
     #[test]
