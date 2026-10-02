@@ -357,17 +357,30 @@ fn cleanup_target_identity_matches(
         .is_some_and(|actual| actual == expected && actual.is_symlink == target_is_symlink)
 }
 
+fn cleanup_target_identities_agree(
+    observed_before: CleanupTargetIdentity,
+    resolved: CleanupTargetIdentity,
+    observed_after: CleanupTargetIdentity,
+) -> bool {
+    observed_before == resolved && resolved == observed_after
+}
+
 fn canonicalize_cleanup_target(raw_path: &Path) -> Option<(PathBuf, bool, CleanupTargetIdentity)> {
     let metadata = fs::symlink_metadata(raw_path).ok()?;
     let identity = cleanup_target_identity(raw_path)?;
     if metadata.file_type().is_symlink() {
         // A symlink target itself is a valid cleanup entry: remove the link,
         // never follow it to its destination.
+        let current_identity = cleanup_target_identity(raw_path)?;
+        if !cleanup_target_identities_agree(identity, identity, current_identity) {
+            return None;
+        }
         return Some((raw_path.to_path_buf(), true, identity));
     }
     let canonical = fs::canonicalize(raw_path).ok()?;
     let canonical_identity = cleanup_target_identity(&canonical)?;
-    if canonical_identity != identity {
+    let current_identity = cleanup_target_identity(raw_path)?;
+    if !cleanup_target_identities_agree(identity, canonical_identity, current_identity) {
         return None;
     }
     Some((canonical, false, canonical_identity))
@@ -909,8 +922,9 @@ mod tests {
     use crate::domain::{CleanTarget, TargetOrigin};
 
     use super::{
-        canonicalize_cleanup_target, clean_docker_builder_prune, clean_ios_simulator_reset,
-        clean_target, clean_target_with_progress, cleanup_target_identity_matches,
+        CleanupTargetIdentity, canonicalize_cleanup_target, clean_docker_builder_prune,
+        clean_ios_simulator_reset, clean_target, clean_target_with_progress,
+        cleanup_target_identities_agree, cleanup_target_identity_matches,
     };
     use crate::application::cleaner::CleanMode;
 
@@ -1809,6 +1823,32 @@ mod tests {
             fs::read(replacement.join("keep.txt")).unwrap(),
             b"preserve replacement directory"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_resolution_requires_identity_to_match_before_and_after_resolution() {
+        let identity = CleanupTargetIdentity {
+            device: 1,
+            inode: 10,
+            is_dir: true,
+            is_file: false,
+            is_symlink: false,
+        };
+        let replaced = CleanupTargetIdentity {
+            inode: 11,
+            ..identity
+        };
+
+        assert!(cleanup_target_identities_agree(
+            identity, identity, identity
+        ));
+        assert!(!cleanup_target_identities_agree(
+            identity, replaced, replaced
+        ));
+        assert!(!cleanup_target_identities_agree(
+            identity, identity, replaced
+        ));
     }
 
     #[cfg(unix)]
