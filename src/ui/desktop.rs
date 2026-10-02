@@ -233,7 +233,7 @@ impl DesktopApp {
                             (target_name.clone(), target_path.clone()),
                             (bytes_found, files_scanned),
                         );
-                        if let Some(row) = self.targets.iter_mut().find(|row| {
+                        for row in self.targets.iter_mut().filter(|row| {
                             target_matches_scan_result(&row.0, &target_name, &target_path)
                         }) {
                             row.1 = bytes_found;
@@ -252,7 +252,7 @@ impl DesktopApp {
                         if scan_errors > 0 {
                             self.incomplete_scan_targets.insert(target_path.clone());
                         }
-                        if let Some(row) = self.targets.iter_mut().find(|row| {
+                        for row in self.targets.iter_mut().filter(|row| {
                             target_matches_scan_result(&row.0, &target_name, &target_path)
                         }) {
                             row.1 = total_bytes;
@@ -1570,6 +1570,7 @@ mod tests {
             path: "/tmp/acari-progress-b".into(),
             ..CleanTarget::default()
         };
+        let duplicate = other.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tx.send(crate::domain::AppEvent::ScanProgress {
             target_name: "Same Name".into(),
@@ -1579,7 +1580,11 @@ mod tests {
         })
         .unwrap();
         let mut app = super::DesktopApp {
-            targets: vec![(target, 0, 0, false), (other, 0, 0, false)],
+            targets: vec![
+                (target, 0, 0, false),
+                (other, 0, 0, false),
+                (duplicate, 0, 0, false),
+            ],
             target_rx: Some(rx),
             target_scan_busy: true,
             ..super::DesktopApp::default()
@@ -1591,6 +1596,8 @@ mod tests {
         assert_eq!(app.targets[0].2, 0);
         assert_eq!(app.targets[1].1, 4096);
         assert_eq!(app.targets[1].2, 500);
+        assert_eq!(app.targets[2].1, 4096);
+        assert_eq!(app.targets[2].2, 500);
     }
 
     #[test]
