@@ -13,6 +13,9 @@ use crate::domain::expand_tilde;
 use crate::domain::{AppEvent, CleanTarget, ScanResult};
 use crate::infrastructure::exec;
 
+#[cfg(any(target_os = "macos", test))]
+const TIME_MACHINE_THIN_TARGET_BYTES: u64 = 10_000_000_000;
+
 fn is_excluded(name: &str, excludes: &[String]) -> bool {
     excludes.iter().any(|pat| name == pat)
 }
@@ -262,13 +265,21 @@ fn estimate_apfs_snapshots() -> Option<(u64, u64)> {
             .and_then(|stdout| exec::parse_diskutil_info_output(&stdout))
     });
 
-    let bytes = purgeable.unwrap_or(snap_count.saturating_mul(5_000_000_000));
-    Some((bytes, snap_count))
+    Some(estimate_snapshot_thinning(snap_count, purgeable))
 }
 
 #[cfg(not(target_os = "macos"))]
 fn estimate_apfs_snapshots() -> Option<(u64, u64)> {
     None
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn estimate_snapshot_thinning(snapshot_count: u64, purgeable_bytes: Option<u64>) -> (u64, u64) {
+    if snapshot_count == 0 {
+        return (0, 0);
+    }
+    let estimate = purgeable_bytes.unwrap_or(snapshot_count.saturating_mul(5_000_000_000));
+    (estimate.min(TIME_MACHINE_THIN_TARGET_BYTES), snapshot_count)
 }
 
 /// Estimate what `docker system prune -a --force` actually reclaims:
@@ -410,6 +421,26 @@ mod tests {
 
         assert_eq!(result.bytes, 0);
         assert_eq!(result.scan_errors, 1);
+    }
+
+    #[test]
+    fn snapshot_estimate_is_bounded_by_operation_and_available_snapshots() {
+        assert_eq!(
+            super::estimate_snapshot_thinning(0, Some(40_000_000_000)),
+            (0, 0)
+        );
+        assert_eq!(
+            super::estimate_snapshot_thinning(3, Some(4_000_000_000)),
+            (4_000_000_000, 3)
+        );
+        assert_eq!(
+            super::estimate_snapshot_thinning(3, Some(40_000_000_000)),
+            (10_000_000_000, 3)
+        );
+        assert_eq!(
+            super::estimate_snapshot_thinning(3, None),
+            (10_000_000_000, 3)
+        );
     }
 
     #[test]
