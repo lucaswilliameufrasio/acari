@@ -159,6 +159,12 @@ Docker System, Volumes, and Builder prune operations are available with an
 individual confirmation; builder cleanup invokes Docker directly without a
 shell wrapper. On macOS, the iOS Simulator reset target uses fixed `xcrun`
 arguments directly and supports a read-only dry-run preview.
+Cleanup previews report per-target scan progress and can be cancelled. A target
+with an incomplete scan or unavailable command estimate cannot be selected;
+zero valid estimates are shown separately from failed estimates. After any real
+cleanup attempt, the preview expires and a new scan is required before another
+cleanup. Batch selections with overlapping paths are rejected. Symlink cleanup
+removes the link itself and never follows its destination.
 On Linux, the `Apt Autoremove` and `Journalctl Vacuum` targets can use the
 system authorization prompt only when the companion `acari-privileged-helper`
 is installed under `/usr/local/libexec/acari`, owned by root, and not writable
