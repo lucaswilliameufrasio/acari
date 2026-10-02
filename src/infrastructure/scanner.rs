@@ -223,7 +223,7 @@ fn estimate_simctl_erase(_pool: &Arc<ThreadPool>) -> Option<(u64, u64)> {
 #[cfg(target_os = "macos")]
 fn estimate_apfs_snapshots() -> Option<(u64, u64)> {
     let snap_count = match exec::run_command_get_stdout(&["tmutil", "listlocalsnapshots", "/"]) {
-        Ok(stdout) => exec::parse_tmutil_list_output(&stdout),
+        Ok(stdout) => exec::parse_tmutil_list_output_checked(&stdout)?,
         Err(_) => return None,
     };
 
@@ -271,7 +271,7 @@ fn estimate_docker_reclaimable() -> Option<(u64, u64)> {
 
 fn estimate_apt_autoremove() -> Option<(u64, u64)> {
     match exec::run_command_get_stdout(&["apt", "--just-print", "autoremove"]) {
-        Ok(stdout) => Some(exec::parse_apt_autoremove_output(&stdout)),
+        Ok(stdout) => exec::parse_apt_autoremove_output(&stdout),
         Err(_) => None,
     }
 }

@@ -107,6 +107,16 @@ pub fn parse_tmutil_list_output(output: &str) -> u64 {
         .count() as u64
 }
 
+pub fn parse_tmutil_list_output_checked(output: &str) -> Option<u64> {
+    output
+        .lines()
+        .any(|line| {
+            let line = line.trim();
+            line.starts_with("Snapshots for ") || line == "No local snapshots found"
+        })
+        .then(|| parse_tmutil_list_output(output))
+}
+
 /// Parse `docker system df --format '{{.Reclaimable}}'` output.
 /// Each line is a reclaimable size (optionally with a `(NN%)` suffix); sum them.
 pub fn parse_docker_df_output(output: &str) -> u64 {
@@ -297,9 +307,22 @@ pub fn parse_journalctl_output(output: &str) -> Option<u64> {
 
 /// Parse `apt --just-print autoremove` output.
 /// Counts lines starting with "Purg" as packages to be removed.
-pub fn parse_apt_autoremove_output(output: &str) -> (u64, u64) {
+pub fn parse_apt_autoremove_output(output: &str) -> Option<(u64, u64)> {
     let count = output.lines().filter(|l| l.starts_with("Purg")).count() as u64;
-    (count.saturating_mul(10_000_000), count)
+    if count > 0 {
+        return Some((count.saturating_mul(10_000_000), count));
+    }
+    let nothing_to_remove = output.lines().any(|line| {
+        line.split(',').any(|part| {
+            let mut words = part.split_whitespace();
+            words
+                .next()
+                .and_then(|number| number.parse::<u64>().ok())
+                .is_some()
+                && part.trim_end().ends_with("to remove")
+        })
+    });
+    nothing_to_remove.then_some((0, 0))
 }
 
 /// Parse `diskutil info /` output to get purgeable bytes.
@@ -450,6 +473,14 @@ mod tests {
     #[test]
     fn tmutil_list_no_snapshots() {
         assert_eq!(parse_tmutil_list_output("No local snapshots found\n"), 0);
+        assert_eq!(
+            parse_tmutil_list_output_checked("No local snapshots found\n"),
+            Some(0)
+        );
+        assert_eq!(
+            parse_tmutil_list_output_checked("unexpected output\n"),
+            None
+        );
     }
 
     // --- parse_docker_df_output ---
@@ -634,7 +665,7 @@ mod tests {
         let output = "Reading package lists...\n\
                        Purg libfoo [1.0]\n\
                        Purg libbar [2.0]\n";
-        let (bytes, count) = parse_apt_autoremove_output(output);
+        let (bytes, count) = parse_apt_autoremove_output(output).unwrap();
         assert_eq!(count, 2);
         assert!(bytes > 0);
     }
@@ -642,9 +673,10 @@ mod tests {
     #[test]
     fn apt_autoremove_nothing() {
         let output = "Reading package lists...\n0 upgraded, 0 newly installed, 0 to remove\n";
-        let (bytes, count) = parse_apt_autoremove_output(output);
+        let (bytes, count) = parse_apt_autoremove_output(output).unwrap();
         assert_eq!(count, 0);
         assert_eq!(bytes, 0);
+        assert_eq!(parse_apt_autoremove_output("unexpected output\n"), None);
     }
 
     // --- parse_diskutil_info_output ---
