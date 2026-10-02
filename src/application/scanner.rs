@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
@@ -36,6 +37,24 @@ pub fn start_background_scan(
     io_priority: IoPriority,
     allocated: bool,
 ) -> tokio::task::JoinHandle<()> {
+    start_background_scan_cancellable(
+        tx,
+        targets,
+        excludes,
+        io_priority,
+        allocated,
+        Arc::new(AtomicBool::new(false)),
+    )
+}
+
+pub fn start_background_scan_cancellable(
+    tx: UnboundedSender<AppEvent>,
+    targets: Vec<CleanTarget>,
+    excludes: Vec<String>,
+    io_priority: IoPriority,
+    allocated: bool,
+    cancel: Arc<AtomicBool>,
+) -> tokio::task::JoinHandle<()> {
     // Concurrency between targets is bounded by chunk_size, using dedicated OS
     // threads (std::thread::scope). Each walk then parallelises *within* its
     // directory on a per-scan rayon pool (not the global one).
@@ -56,6 +75,9 @@ pub fn start_background_scan(
         let tx = Arc::new(tx);
 
         for chunk in targets.chunks(chunk_size) {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
             let tx = Arc::clone(&tx);
             let excludes = Arc::new(excludes.clone());
             let pool = Arc::clone(&pool);
@@ -65,10 +87,12 @@ pub fn start_background_scan(
                     let tx = Arc::clone(&tx);
                     let excludes = Arc::clone(&excludes);
                     let pool = Arc::clone(&pool);
+                    let cancel = Arc::clone(&cancel);
                     let target = target.clone();
                     s.spawn(move || {
-                        let result =
-                            infra_scanner::scan_target(&target, &tx, &excludes, &pool, allocated);
+                        let result = infra_scanner::scan_target_cancellable(
+                            &target, &tx, &excludes, &pool, allocated, &cancel,
+                        );
                         let _ = tx.send(AppEvent::TargetCompleted {
                             target_name: result.target.name.to_string(),
                             target_path: result

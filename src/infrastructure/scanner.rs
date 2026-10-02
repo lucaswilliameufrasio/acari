@@ -1,6 +1,7 @@
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use jwalk::Parallelism;
 use jwalk::WalkDir;
@@ -34,6 +35,26 @@ pub fn scan_target(
     pool: &Arc<ThreadPool>,
     allocated: bool,
 ) -> ScanResult {
+    let cancel = AtomicBool::new(false);
+    scan_target_cancellable(target, tx, excludes, pool, allocated, &cancel)
+}
+
+pub fn scan_target_cancellable(
+    target: &CleanTarget,
+    tx: &UnboundedSender<AppEvent>,
+    excludes: &[String],
+    pool: &Arc<ThreadPool>,
+    allocated: bool,
+    cancel: &AtomicBool,
+) -> ScanResult {
+    if cancel.load(Ordering::Relaxed) {
+        return ScanResult {
+            target: target.clone(),
+            bytes: 0,
+            files_scanned: 0,
+            scan_errors: 1,
+        };
+    }
     if target.is_command() {
         return scan_command_target(target, tx, pool);
     }
@@ -75,6 +96,10 @@ pub fn scan_target(
     };
 
     for entry in walker {
+        if cancel.load(Ordering::Relaxed) {
+            scan_errors = scan_errors.saturating_add(1);
+            break;
+        }
         let entry = match entry {
             Ok(value) => value,
             // Skip unreadable entries (e.g. permission denied) instead of
@@ -361,6 +386,28 @@ mod tests {
 
         assert_eq!(result.bytes, 0);
         assert_eq!(result.files_scanned, 0);
+        assert_eq!(result.scan_errors, 1);
+    }
+
+    #[test]
+    fn pre_cancelled_target_scan_returns_incomplete_without_walking() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let target = CleanTarget {
+            name: Cow::Borrowed("Cancelled Target"),
+            path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            command: &[],
+            requires_sudo: false,
+            dangerous: false,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let result =
+            super::scan_target_cancellable(&target, &tx, &[], &test_pool(), false, &cancel);
+
+        assert_eq!(result.bytes, 0);
         assert_eq!(result.scan_errors, 1);
     }
 

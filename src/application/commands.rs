@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use std::path::Component;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::application::scanner::start_background_scan;
+use crate::application::scanner::start_background_scan_cancellable;
 use crate::config::target_config;
 use crate::config::target_config::IoPriority;
 use crate::domain::{AppEvent, CleanTarget, append_custom_scan_paths, build_targets};
@@ -101,8 +101,35 @@ pub fn start_scan(
     UnboundedReceiver<AppEvent>,
     tokio::task::JoinHandle<()>,
 ) {
+    start_scan_cancellable(
+        targets,
+        excludes,
+        io_priority,
+        allocated,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+}
+
+pub fn start_scan_cancellable(
+    targets: Vec<CleanTarget>,
+    excludes: Vec<String>,
+    io_priority: IoPriority,
+    allocated: bool,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> (
+    UnboundedSender<AppEvent>,
+    UnboundedReceiver<AppEvent>,
+    tokio::task::JoinHandle<()>,
+) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-    let handle = start_background_scan(tx.clone(), targets, excludes, io_priority, allocated);
+    let handle = start_background_scan_cancellable(
+        tx.clone(),
+        targets,
+        excludes,
+        io_priority,
+        allocated,
+        cancel,
+    );
     (tx, rx, handle)
 }
 

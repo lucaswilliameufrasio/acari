@@ -6,7 +6,7 @@ use acari::application::cleaner::{
     CleanMode, new_cancellation_token, start_background_clean, start_background_clean_with_cancel,
 };
 use acari::application::headless::run_headless;
-use acari::application::scanner::start_background_scan;
+use acari::application::scanner::{start_background_scan, start_background_scan_cancellable};
 use acari::config::target_config::IoPriority;
 use acari::domain::{AppEvent, CleanTarget, TargetOrigin};
 use acari::i18n::Language;
@@ -59,6 +59,39 @@ async fn scanner_emits_target_and_finished_events() {
 
     assert!(saw_completed, "expected TargetCompleted event");
     assert!(saw_finished, "expected ScanFinished event");
+}
+
+#[tokio::test]
+async fn cancelled_background_scan_finishes_without_reporting_targets_complete() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    fs::write(temp.path().join("a.txt"), b"abc").expect("write file");
+    let target = test_target("Cancelled Scan", temp.path());
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let handle = start_background_scan_cancellable(
+        tx,
+        vec![target],
+        vec![],
+        IoPriority::Normal,
+        false,
+        cancel,
+    );
+
+    let mut saw_finished = false;
+    while let Some(event) = rx.recv().await {
+        match event {
+            AppEvent::TargetCompleted { .. } => {
+                panic!("cancelled scans must not report a complete target")
+            }
+            AppEvent::ScanFinished => {
+                saw_finished = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    handle.await.expect("join scan task");
+    assert!(saw_finished, "cancelled scans still emit a terminal event");
 }
 
 #[tokio::test]

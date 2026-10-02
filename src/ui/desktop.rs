@@ -10,7 +10,7 @@ use std::thread;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
 use crate::application::cleaner::{self, CleanMode};
-use crate::application::commands::{prepare_targets, start_scan};
+use crate::application::commands::prepare_targets;
 use crate::config::target_config;
 use crate::domain::{AppEvent, CleanTarget};
 use crate::infrastructure::disk_scan::{self, DiskNode, ScanProgress};
@@ -56,6 +56,7 @@ struct DesktopApp {
     targets: Vec<(CleanTarget, u64, u64, bool)>,
     incomplete_scan_targets: HashSet<String>,
     target_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
+    target_scan_cancel: Option<Arc<AtomicBool>>,
     clean_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     clean_cancel: Option<cleaner::CancellationToken>,
     target_scan_done: bool,
@@ -91,6 +92,7 @@ impl Default for DesktopApp {
             targets: Vec::new(),
             incomplete_scan_targets: HashSet::new(),
             target_rx: None,
+            target_scan_cancel: None,
             clean_rx: None,
             clean_cancel: None,
             target_scan_done: false,
@@ -172,13 +174,21 @@ impl DesktopApp {
         // Cleanup execution removes everything under each selected target;
         // don't apply scan-only excludes to its preview or the confirmation
         // would understate the affected scope.
-        let (_, rx, _) = start_scan(targets.clone(), Vec::new(), config.scan.io_priority, false);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (_, rx, _) = crate::application::commands::start_scan_cancellable(
+            targets.clone(),
+            Vec::new(),
+            config.scan.io_priority,
+            false,
+            Arc::clone(&cancel),
+        );
         self.targets = targets
             .into_iter()
             .map(|target| (target, 0, 0, false))
             .collect();
         self.incomplete_scan_targets.clear();
         self.target_rx = Some(rx);
+        self.target_scan_cancel = Some(cancel);
         self.target_scan_done = false;
         self.target_scan_busy = true;
         self.confirm_clean = false;
@@ -207,9 +217,15 @@ impl DesktopApp {
                         }
                     }
                     AppEvent::ScanFinished => {
-                        self.target_scan_done = true;
                         self.target_scan_busy = false;
-                        self.cleanup_status = if self.incomplete_scan_targets.is_empty() {
+                        let cancelled = self.target_scan_cancel.as_ref().is_some_and(|cancel| {
+                            cancel.load(std::sync::atomic::Ordering::Relaxed)
+                        });
+                        self.target_scan_done = !cancelled;
+                        self.cleanup_status = if cancelled {
+                            "Verificação cancelada; execute um novo scan para habilitar a limpeza."
+                                .into()
+                        } else if self.incomplete_scan_targets.is_empty() {
                             "Verificação concluída.".into()
                         } else {
                             format!(
@@ -218,6 +234,7 @@ impl DesktopApp {
                             )
                         };
                         self.target_rx = None;
+                        self.target_scan_cancel = None;
                         break;
                     }
                     _ => {}
@@ -226,6 +243,7 @@ impl DesktopApp {
         }
         if self.target_rx.as_ref().is_some_and(|rx| rx.is_closed()) && self.target_scan_busy {
             self.target_rx = None;
+            self.target_scan_cancel = None;
             self.target_scan_busy = false;
             self.target_scan_done = false;
             self.cleanup_status =
@@ -499,6 +517,12 @@ impl eframe::App for DesktopApp {
                 ui.label("A análise de disco é somente leitura. Esta tela usa os alvos de limpeza configurados no Acarí.");
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!self.target_scan_busy && self.clean_rx.is_none(), egui::Button::new("Verificar alvos")).clicked() { self.start_target_scan(); }
+                    if ui.add_enabled(self.target_scan_busy, egui::Button::new("Cancelar verificação")).clicked()
+                        && let Some(cancel) = &self.target_scan_cancel
+                    {
+                        cancel.store(true, Ordering::Relaxed);
+                        self.cleanup_status = "Cancelando verificação; uma consulta de sistema em andamento pode concluir antes da interrupção…".into();
+                    }
                     ui.checkbox(&mut self.dry_run, "Simular (dry-run)");
                     if ui.add_enabled(self.target_scan_done && self.clean_rx.is_none(), egui::Button::new("Limpar selecionados…")).clicked() { self.confirm_clean = true; }
                     if self.clean_rx.is_some()
@@ -1329,6 +1353,27 @@ mod tests {
         assert!(!app.target_scan_done);
         assert!(app.target_rx.is_none());
         assert!(app.cleanup_status.contains("interrompida"));
+    }
+
+    #[test]
+    fn cancelled_target_scan_does_not_mark_partial_preview_complete() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(crate::domain::AppEvent::ScanFinished).unwrap();
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mut app = super::DesktopApp {
+            target_rx: Some(rx),
+            target_scan_cancel: Some(cancel),
+            target_scan_busy: true,
+            target_scan_done: false,
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(!app.target_scan_busy);
+        assert!(!app.target_scan_done);
+        assert!(app.target_rx.is_none());
+        assert!(app.cleanup_status.contains("cancelada"));
     }
 
     #[test]
