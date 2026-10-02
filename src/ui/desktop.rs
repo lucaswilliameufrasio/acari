@@ -1779,6 +1779,33 @@ mod tests {
     }
 
     #[test]
+    fn modified_privileged_target_is_disabled_and_rejected_before_worker_start() {
+        let target = CleanTarget {
+            name: "Apt Autoremove".into(),
+            command: &["sudo", "apt", "autoremove", "-y", "--purge"],
+            requires_sudo: true,
+            dangerous: true,
+            ..CleanTarget::default()
+        };
+        assert!(!desktop_cleanup_supported(&target));
+        assert!(!cleanup_target_selectable(&target, true, false, false));
+
+        let mut app = super::DesktopApp {
+            targets: vec![(target, 100, 1, true)],
+            target_scan_done: true,
+            confirm_clean: true,
+            ..super::DesktopApp::default()
+        };
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
+
+        app.begin_clean();
+
+        assert!(app.clean_rx.is_none());
+        assert!(!app.confirm_clean);
+        assert!(app.cleanup_status.contains("incompatíveis"));
+    }
+
+    #[test]
     fn cleanup_completion_keeps_error_detail_and_partial_cancel_state() {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tx.send(crate::domain::AppEvent::TargetCleaned {
