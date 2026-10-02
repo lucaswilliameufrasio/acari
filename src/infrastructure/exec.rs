@@ -139,6 +139,31 @@ pub fn parse_docker_df_legacy_by_type(output: &str) -> u64 {
         .sum()
 }
 
+/// Checked variant used by cleanup previews: `None` means the output did not
+/// contain any parseable rows, while `Some(0)` is a valid empty estimate.
+pub fn parse_docker_df_legacy_by_type_checked(output: &str) -> Option<u64> {
+    let mut total = 0_u64;
+    let mut parsed_any = false;
+    for line in output.lines() {
+        let Some((kind, size)) = line.split_once('|') else {
+            continue;
+        };
+        let Some(size) = size
+            .trim()
+            .split('(')
+            .next()
+            .and_then(|value| parse_human_size(value.trim()))
+        else {
+            continue;
+        };
+        parsed_any = true;
+        if !kind.trim().eq_ignore_ascii_case("Local Volumes") {
+            total = total.saturating_add(size);
+        }
+    }
+    parsed_any.then_some(total)
+}
+
 /// Parse `docker system df --format '{{json .}}'` output: one JSON object per
 /// line with `Type` and a reclaimable size field.
 ///
@@ -177,25 +202,35 @@ pub fn parse_docker_df_json(output: &str) -> Option<u64> {
     parsed_any.then_some(total)
 }
 
-pub fn parse_docker_df_json_category(output: &str, category: &str) -> u64 {
-    output
-        .lines()
-        .filter_map(|line| {
-            let value = serde_json::from_str::<serde_json::Value>(line.trim()).ok()?;
-            if !value
-                .get("Type")
-                .and_then(|v| v.as_str())
-                .is_some_and(|kind| kind.eq_ignore_ascii_case(category))
-            {
-                return None;
-            }
-            let size = value
+pub fn parse_docker_df_json_category(output: &str, category: &str) -> Option<u64> {
+    let mut total = 0_u64;
+    let mut parsed_any = false;
+    for line in output.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        let (Some(kind), Some(size)) = (
+            value.get("Type").and_then(|value| value.as_str()),
+            value
                 .get("ReclaimableSize")
                 .or_else(|| value.get("Reclaimable"))
-                .and_then(|v| v.as_str())?;
-            parse_human_size(size.split('(').next()?.trim())
-        })
-        .sum()
+                .and_then(|value| value.as_str()),
+        ) else {
+            continue;
+        };
+        let Some(bytes) = size
+            .split('(')
+            .next()
+            .and_then(|size| parse_human_size(size.trim()))
+        else {
+            continue;
+        };
+        parsed_any = true;
+        if kind.eq_ignore_ascii_case(category) {
+            total = total.saturating_add(bytes);
+        }
+    }
+    parsed_any.then_some(total)
 }
 
 /// Parse Docker's `volume prune` summary into (reclaimed bytes, removed volumes).
@@ -227,6 +262,13 @@ pub fn parse_buildx_du_total(output: &str) -> u64 {
         .find_map(|line| line.trim().strip_prefix("Total:"))
         .and_then(parse_human_size)
         .unwrap_or(0)
+}
+
+pub fn parse_buildx_du_total_checked(output: &str) -> Option<u64> {
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Total:"))
+        .and_then(parse_human_size)
 }
 
 pub fn parse_total_reclaimed_space(output: &str) -> Option<u64> {
@@ -475,8 +517,32 @@ mod tests {
         );
         assert_eq!(
             parse_docker_df_json_category(output, "Build Cache"),
-            30_000_000_000
+            Some(30_000_000_000)
         );
+    }
+
+    #[test]
+    fn docker_df_json_category_distinguishes_empty_from_unparseable() {
+        assert_eq!(
+            parse_docker_df_json_category(
+                r#"{"Type":"Build Cache","ReclaimableSize":"0B"}"#,
+                "Build Cache"
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            parse_docker_df_json_category("not json", "Build Cache"),
+            None
+        );
+    }
+
+    #[test]
+    fn docker_df_legacy_checked_distinguishes_empty_from_unparseable() {
+        assert_eq!(
+            parse_docker_df_legacy_by_type_checked("Images|0B\nLocal Volumes|0B\n"),
+            Some(0)
+        );
+        assert_eq!(parse_docker_df_legacy_by_type_checked("not a table"), None);
     }
 
     #[test]
@@ -512,6 +578,11 @@ mod tests {
             parse_buildx_du_total("Reclaimable: 2GB\nTotal: 3.5GB\n"),
             3_500_000_000
         );
+        assert_eq!(
+            parse_buildx_du_total_checked("Reclaimable: 0B\nTotal: 0B\n"),
+            Some(0)
+        );
+        assert_eq!(parse_buildx_du_total_checked("unrecognized output"), None);
     }
 
     #[test]

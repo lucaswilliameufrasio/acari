@@ -135,17 +135,20 @@ fn scan_command_target(
     _tx: &UnboundedSender<AppEvent>,
     pool: &Arc<ThreadPool>,
 ) -> ScanResult {
-    let (bytes, count) = estimate_command_target_bytes(&target.name, pool);
+    let (bytes, count, scan_errors) = match estimate_command_target_bytes(&target.name, pool) {
+        Some((bytes, count)) => (bytes, count, 0),
+        None => (0, 0, 1),
+    };
 
     ScanResult {
         target: target.clone(),
         bytes,
         files_scanned: count,
-        scan_errors: 0,
+        scan_errors,
     }
 }
 
-fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> (u64, u64) {
+fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> Option<(u64, u64)> {
     match name {
         "Time Machine Local Snapshots" => estimate_apfs_snapshots(),
         "Docker System Prune" => estimate_docker_reclaimable(),
@@ -154,24 +157,24 @@ fn estimate_command_target_bytes(name: &str, pool: &Arc<ThreadPool>) -> (u64, u6
         "Apt Autoremove" => estimate_apt_autoremove(),
         "Journalctl Vacuum" => estimate_journalctl_usage(),
         "iOS Simulators Reset" => estimate_simctl_erase(pool),
-        _ => (0, 0),
+        _ => None,
     }
 }
 
-fn estimate_docker_category(category: &str) -> (u64, u64) {
+fn estimate_docker_category(category: &str) -> Option<(u64, u64)> {
     let stdout =
         match exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{json .}}"]) {
             Ok(stdout) => stdout,
-            Err(_) => return (0, 0),
+            Err(_) => return None,
         };
-    (exec::parse_docker_df_json_category(&stdout, category), 1)
+    Some((exec::parse_docker_df_json_category(&stdout, category)?, 1))
 }
 
-fn estimate_docker_builders() -> (u64, u64) {
+fn estimate_docker_builders() -> Option<(u64, u64)> {
     let builders =
         match exec::run_command_get_stdout(&["docker", "buildx", "ls", "--format", "{{.Name}}"]) {
             Ok(output) => output,
-            Err(_) => return (0, 0),
+            Err(_) => return None,
         };
     let mut total = 0_u64;
     let mut count = 0_u64;
@@ -180,46 +183,48 @@ fn estimate_docker_builders() -> (u64, u64) {
         .map(str::trim)
         .filter(|name| !name.is_empty() && *name != "default")
     {
-        if let Ok(output) =
-            exec::run_command_get_stdout(&["docker", "buildx", "du", "--builder", builder])
-        {
-            total = total.saturating_add(exec::parse_buildx_du_total(&output));
-            count = count.saturating_add(1);
-        }
+        let output =
+            exec::run_command_get_stdout(&["docker", "buildx", "du", "--builder", builder]).ok()?;
+        total = total.saturating_add(exec::parse_buildx_du_total_checked(&output)?);
+        count = count.saturating_add(1);
     }
-    (total, count)
+    Some((total, count))
 }
 
 /// Estimate the reclaimable bytes for `xcrun simctl erase all` by summing the
 /// size of the local simulator devices directory.
 #[cfg(target_os = "macos")]
-fn estimate_simctl_erase(pool: &Arc<ThreadPool>) -> (u64, u64) {
+fn estimate_simctl_erase(pool: &Arc<ThreadPool>) -> Option<(u64, u64)> {
     let path = expand_tilde("~/Library/Developer/CoreSimulator/Devices");
+    if !std::fs::symlink_metadata(&path).ok()?.is_dir() {
+        return None;
+    }
     let mut bytes = 0_u64;
     let mut files = 0_u64;
     let walker = WalkDir::new(&path)
         .follow_links(false)
         .parallelism(dedicated_walk_parallelism(pool))
         .into_iter();
-    for entry in walker.flatten() {
+    for entry in walker {
+        let entry = entry.ok()?;
         if entry.file_type().is_file() {
-            bytes = bytes.saturating_add(entry.metadata().map_or(0, |m| m.len()));
+            bytes = bytes.saturating_add(entry.metadata().ok()?.len());
             files = files.saturating_add(1);
         }
     }
-    (bytes, files)
+    Some((bytes, files))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn estimate_simctl_erase(_pool: &Arc<ThreadPool>) -> (u64, u64) {
-    (0, 0)
+fn estimate_simctl_erase(_pool: &Arc<ThreadPool>) -> Option<(u64, u64)> {
+    None
 }
 
 #[cfg(target_os = "macos")]
-fn estimate_apfs_snapshots() -> (u64, u64) {
+fn estimate_apfs_snapshots() -> Option<(u64, u64)> {
     let snap_count = match exec::run_command_get_stdout(&["tmutil", "listlocalsnapshots", "/"]) {
         Ok(stdout) => exec::parse_tmutil_list_output(&stdout),
-        Err(_) => return (0, 0),
+        Err(_) => return None,
     };
 
     // Cache the diskutil query per process so concurrent command-target
@@ -232,23 +237,23 @@ fn estimate_apfs_snapshots() -> (u64, u64) {
     });
 
     let bytes = purgeable.unwrap_or(snap_count.saturating_mul(5_000_000_000));
-    (bytes, snap_count)
+    Some((bytes, snap_count))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn estimate_apfs_snapshots() -> (u64, u64) {
-    (0, 0)
+fn estimate_apfs_snapshots() -> Option<(u64, u64)> {
+    None
 }
 
 /// Estimate what `docker system prune -a --force` actually reclaims:
 /// unused images, stopped containers and build cache. Local volumes are
 /// never removed by prune, so they must not be part of the estimate.
-fn estimate_docker_reclaimable() -> (u64, u64) {
+fn estimate_docker_reclaimable() -> Option<(u64, u64)> {
     if let Ok(stdout) =
         exec::run_command_get_stdout(&["docker", "system", "df", "--format", "{{json .}}"])
         && let Some(bytes) = exec::parse_docker_df_json(&stdout)
     {
-        return (bytes, 1);
+        return Some((bytes, 1));
     }
     // Keep the type in the fallback so local volumes are not counted: the
     // selected `system prune` command intentionally leaves them untouched.
@@ -259,33 +264,30 @@ fn estimate_docker_reclaimable() -> (u64, u64) {
         "--format",
         "{{.Type}}|{{.Reclaimable}}",
     ]) {
-        Ok(stdout) => {
-            let bytes = exec::parse_docker_df_legacy_by_type(&stdout);
-            (bytes, 1)
-        }
-        Err(_) => (0, 0),
+        Ok(stdout) => Some((exec::parse_docker_df_legacy_by_type_checked(&stdout)?, 1)),
+        Err(_) => None,
     }
 }
 
-fn estimate_apt_autoremove() -> (u64, u64) {
+fn estimate_apt_autoremove() -> Option<(u64, u64)> {
     match exec::run_command_get_stdout(&["apt", "--just-print", "autoremove"]) {
-        Ok(stdout) => exec::parse_apt_autoremove_output(&stdout),
-        Err(_) => (0, 0),
+        Ok(stdout) => Some(exec::parse_apt_autoremove_output(&stdout)),
+        Err(_) => None,
     }
 }
 
-fn estimate_journalctl_usage() -> (u64, u64) {
+fn estimate_journalctl_usage() -> Option<(u64, u64)> {
     match exec::run_command_get_stdout(&["journalctl", "--disk-usage"]) {
         Ok(stdout) => {
-            let current = exec::parse_journalctl_output(&stdout).unwrap_or(0);
+            let current = exec::parse_journalctl_output(&stdout)?;
             let reclaimable = current.saturating_sub(100_000_000);
             if reclaimable > 0 {
-                (reclaimable, 1)
+                Some((reclaimable, 1))
             } else {
-                (0, 0)
+                Some((0, 0))
             }
         }
-        Err(_) => (0, 0),
+        Err(_) => None,
     }
 }
 
@@ -428,11 +430,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_command_target_returns_zero() {
+    fn unknown_command_target_has_no_estimate() {
         let pool = test_pool();
         assert_eq!(
             estimate_command_target_bytes("Some Unknown Target", &pool),
-            (0, 0)
+            None
         );
     }
 
@@ -453,12 +455,13 @@ mod tests {
         let pool = test_pool();
         let result = scan_target(&target, &tx, &[], &pool, false);
 
-        // Byte estimate is only guaranteed to be zero on non-macOS where the
-        // APFS snapshot estimation is a no-op.
+        // This target cannot be estimated on Linux because its platform tools
+        // are unavailable; it must not be confused with a valid zero estimate.
         #[cfg(target_os = "linux")]
         {
             assert_eq!(result.bytes, 0);
             assert_eq!(result.files_scanned, 0);
+            assert_eq!(result.scan_errors, 1);
         }
         #[cfg(not(target_os = "linux"))]
         let _ = result;
