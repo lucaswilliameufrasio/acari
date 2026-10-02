@@ -907,6 +907,12 @@ fn cleanup_metrics_label(
                 crate::domain::format_bytes(bytes)
             );
         }
+        if target.name == "Journalctl Vacuum" && (bytes > 0 || entries > 0) {
+            return format!(
+                "estimativa máxima indicativa {} · arquivos arquivados apenas",
+                crate::domain::format_bytes(bytes)
+            );
+        }
         if bytes == 0 && entries == 0 {
             "nenhum item ou espaço recuperável (estimativa válida: 0 bytes)".into()
         } else {
@@ -1347,6 +1353,15 @@ mod tests {
         let apt_estimate = cleanup_metrics_label(&apt, 20_000_000, 2, false);
         assert!(apt_estimate.contains("estimativa aproximada"));
         assert!(apt_estimate.contains("2 pacotes"));
+
+        let journal = CleanTarget {
+            name: "Journalctl Vacuum".into(),
+            command: &["sudo", "journalctl", "--vacuum-size=100M"],
+            ..CleanTarget::default()
+        };
+        let journal_estimate = cleanup_metrics_label(&journal, 500_000_000, 1, false);
+        assert!(journal_estimate.contains("máxima indicativa"));
+        assert!(journal_estimate.contains("arquivados apenas"));
 
         let files = CleanTarget {
             path: "/tmp/cache".into(),

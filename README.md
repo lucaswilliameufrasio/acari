@@ -175,6 +175,9 @@ owned by root. Its cleanup preview is indicative, not a per-snapshot reclaim
 guarantee: it is bounded by the helper's 10 GB thinning request, while macOS
 does not provide a matching per-snapshot reclaim estimate through the current
 read-only query.
+The Linux `Journalctl Vacuum` preview is also an upper-bound indication: the
+usage query includes active and archived journals, while vacuuming can remove
+archived journal files only.
 The helper accepts only fixed operation IDs; unsupported commands and
 privileged targets remain unavailable in the desktop UI. Other macOS privileged
 operations are not yet supported there.
