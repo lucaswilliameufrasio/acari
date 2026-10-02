@@ -64,7 +64,7 @@ struct DesktopApp {
     target_scan_busy: bool,
     dry_run: bool,
     confirm_clean: bool,
-    confirmation_snapshot: Option<(Vec<(String, String)>, bool)>,
+    confirmation_snapshot: Option<(Vec<(CleanTarget, PathBuf)>, bool)>,
     cleanup_status: String,
     cleanup_errors: Vec<String>,
     privileged_clean: bool,
@@ -374,19 +374,20 @@ impl DesktopApp {
         }
     }
 
-    fn selected_target_snapshot(&self) -> (Vec<(String, String)>, bool) {
+    fn selected_target_snapshot(&self) -> (Vec<(CleanTarget, PathBuf)>, bool) {
         let mut targets = self
             .targets
             .iter()
             .filter(|(_, _, _, selected)| *selected)
-            .map(|(target, _, _, _)| {
-                (
-                    target.name.to_string(),
-                    target.resolved_path().to_string_lossy().into_owned(),
-                )
-            })
+            .map(|(target, _, _, _)| (target.clone(), target.resolved_path()))
             .collect::<Vec<_>>();
-        targets.sort();
+        targets.sort_by(|(left_target, left_path), (right_target, right_path)| {
+            left_target
+                .name
+                .cmp(&right_target.name)
+                .then_with(|| left_target.path.cmp(&right_target.path))
+                .then_with(|| left_path.cmp(right_path))
+        });
         (targets, self.dry_run)
     }
 
