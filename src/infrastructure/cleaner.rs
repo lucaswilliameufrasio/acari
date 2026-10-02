@@ -512,9 +512,11 @@ fn clean_docker_builder_prune(
         {
             Ok(child) => child,
             Err(error) => {
-                return command_error(
+                return command_error_with_partial(
                     target,
                     format!("failed to run docker buildx prune: {error}"),
+                    reclaimed_bytes,
+                    cleaned_builders,
                 );
             }
         };
@@ -566,9 +568,11 @@ fn clean_docker_builder_prune(
                 Err(error) => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return command_error(
+                    return command_error_with_partial(
                         target,
                         format!("error waiting for docker buildx prune: {error}"),
+                        reclaimed_bytes,
+                        cleaned_builders,
                     );
                 }
             }
@@ -577,7 +581,14 @@ fn clean_docker_builder_prune(
             let stderr = stderr_reader
                 .and_then(|reader| reader.join().ok())
                 .unwrap_or_default();
-            return command_failure(target, "docker buildx prune", status, stderr.as_bytes());
+            return command_failure_with_partial(
+                target,
+                "docker buildx prune",
+                status,
+                stderr.as_bytes(),
+                reclaimed_bytes,
+                cleaned_builders,
+            );
         }
         let stdout = stdout_reader
             .and_then(|reader| reader.join().ok())
@@ -607,6 +618,21 @@ fn command_error(target: &CleanTarget, error_detail: String) -> CleanResult {
     }
 }
 
+fn command_error_with_partial(
+    target: &CleanTarget,
+    error_detail: String,
+    reclaimed_bytes: u64,
+    removed_entries: u64,
+) -> CleanResult {
+    CleanResult {
+        target: target.clone(),
+        reclaimed_bytes,
+        removed_entries,
+        errors: 1,
+        error_detail: Some(error_detail),
+    }
+}
+
 fn command_failure(
     target: &CleanTarget,
     command: &str,
@@ -622,6 +648,20 @@ fn command_failure(
             format!("{command} failed: {details}")
         },
     )
+}
+
+fn command_failure_with_partial(
+    target: &CleanTarget,
+    command: &str,
+    status: std::process::ExitStatus,
+    stderr: &[u8],
+    reclaimed_bytes: u64,
+    removed_entries: u64,
+) -> CleanResult {
+    let mut result = command_failure(target, command, status, stderr);
+    result.reclaimed_bytes = reclaimed_bytes;
+    result.removed_entries = removed_entries;
+    result
 }
 
 fn clean_command_target(
@@ -1128,6 +1168,45 @@ mod tests {
             injection_marker.display()
         )));
         assert!(!arguments.contains("<default>"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn builder_prune_failure_preserves_completed_builder_totals() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let directory = tempfile::tempdir().unwrap();
+        let docker = directory.path().join("docker");
+        let script = "#!/bin/sh\nif [ \"$1\" = buildx ] && [ \"$2\" = ls ]; then printf '%s\\n' default first second; exit 0; fi\nif [ \"$1\" = buildx ] && [ \"$2\" = prune ]; then if [ \"$6\" = first ]; then echo 'Total reclaimed space: 1GB'; exit 0; fi; echo 'second builder failed' >&2; exit 7; fi\nexit 9\n";
+        fs::write(&docker, script).unwrap();
+        let mut permissions = fs::metadata(&docker).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+        fs::set_permissions(&docker, permissions).unwrap();
+        let target =
+            crate::domain::targets::build_targets(&["Docker Builder Prune".to_string()], &[])
+                .pop()
+                .expect("Docker builder target");
+
+        let result = clean_docker_builder_prune(
+            &target,
+            0,
+            0,
+            CleanMode::Execute,
+            &mut |_| {},
+            &Arc::new(AtomicBool::new(false)),
+            docker.as_os_str(),
+        );
+
+        assert_eq!(result.errors, 1);
+        assert_eq!(result.reclaimed_bytes, 1_000_000_000);
+        assert_eq!(result.removed_entries, 1);
+        assert!(
+            result
+                .error_detail
+                .unwrap()
+                .contains("second builder failed")
+        );
     }
 
     #[cfg(unix)]
