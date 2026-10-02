@@ -211,6 +211,12 @@ impl DesktopApp {
     }
 
     fn poll_target_events(&mut self, ctx: &egui::Context) {
+        if self.target_scan_busy || self.clean_rx.is_some() {
+            // Tokio workers send through an unbounded channel; keep the UI
+            // repainting while a worker is active so progress and disconnect
+            // recovery are observed even if no further event arrives.
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         if let Some(rx) = &mut self.target_rx {
             while let Ok(event) = rx.try_recv() {
                 match event {
@@ -1474,6 +1480,24 @@ mod tests {
         assert!(!app.target_scan_done);
         assert!(app.target_rx.is_none());
         assert!(app.cleanup_status.contains("cancelada"));
+    }
+
+    #[test]
+    fn disconnected_target_scan_recovers_without_marking_preview_complete() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(tx);
+        let mut app = super::DesktopApp {
+            target_rx: Some(rx),
+            target_scan_busy: true,
+            target_scan_done: false,
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(!app.target_scan_busy);
+        assert!(!app.target_scan_done);
+        assert!(app.cleanup_status.contains("interrompida"));
     }
 
     #[test]
