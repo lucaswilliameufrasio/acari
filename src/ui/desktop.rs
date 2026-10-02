@@ -852,6 +852,12 @@ fn cleanup_metrics_label(
         if scan_incomplete {
             return "estimativa indisponível · consulta incompleta".into();
         }
+        if target.name == "Time Machine Local Snapshots" && (bytes > 0 || entries > 0) {
+            return format!(
+                "estimativa indicativa (máx. solicitado) {} · {entries} snapshots",
+                crate::domain::format_bytes(bytes)
+            );
+        }
         if bytes == 0 && entries == 0 {
             "nenhum item ou espaço recuperável (estimativa válida: 0 bytes)".into()
         } else {
@@ -1273,6 +1279,16 @@ mod tests {
             cleanup_metrics_label(&command, 0, 0, false).contains("estimativa válida: 0 bytes")
         );
         assert!(cleanup_metrics_label(&command, 0, 0, true).contains("indisponível"));
+
+        let snapshots = CleanTarget {
+            name: "Time Machine Local Snapshots".into(),
+            command: &["tmutil", "thinlocalsnapshots"],
+            ..CleanTarget::default()
+        };
+        let snapshot_estimate = cleanup_metrics_label(&snapshots, 10_000_000_000, 2, false);
+        assert!(snapshot_estimate.contains("indicativa"));
+        assert!(snapshot_estimate.contains("máx. solicitado"));
+        assert!(snapshot_estimate.contains("2 snapshots"));
 
         let files = CleanTarget {
             path: "/tmp/cache".into(),

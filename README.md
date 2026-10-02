@@ -171,7 +171,10 @@ is installed under `/usr/local/libexec/acari`, owned by root, and not writable
 by group/others. On macOS, `Time Machine Local Snapshots` uses the system
 administrator prompt through a fixed AppleScript operation; its helper must be
 installed at `/Library/PrivilegedHelperTools/com.acari.privileged-helper` and
-owned by root.
+owned by root. Its cleanup preview is indicative, not a per-snapshot reclaim
+guarantee: it is bounded by the helper's 10 GB thinning request, while macOS
+does not provide a matching per-snapshot reclaim estimate through the current
+read-only query.
 The helper accepts only fixed operation IDs; unsupported commands and
 privileged targets remain unavailable in the desktop UI. Other macOS privileged
 operations are not yet supported there.
