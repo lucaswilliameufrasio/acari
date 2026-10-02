@@ -226,7 +226,7 @@ pub fn clean_target_with_progress(
         };
     }
 
-    let (path, target_is_symlink) = match canonicalize_cleanup_target(&raw_path) {
+    let (path, target_is_symlink, target_identity) = match canonicalize_cleanup_target(&raw_path) {
         Some(resolved) => resolved,
         None => {
             return CleanResult {
@@ -246,6 +246,18 @@ pub fn clean_target_with_progress(
             removed_entries: estimated_entries,
             errors: 0,
             error_detail: None,
+        };
+    }
+
+    // The confirmation and preview happen before execution. Refuse to clean if
+    // the selected entry was replaced between resolution and this check.
+    if !cleanup_target_identity_matches(&path, target_is_symlink, target_identity) {
+        return CleanResult {
+            target: target.clone(),
+            reclaimed_bytes: 0,
+            removed_entries: 0,
+            errors: 1,
+            error_detail: Some("target changed before cleanup; scan and confirm it again".into()),
         };
     }
 
@@ -310,15 +322,55 @@ pub fn clean_target_with_progress(
     }
 }
 
-fn canonicalize_cleanup_target(raw_path: &Path) -> Option<(PathBuf, bool)> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CleanupTargetIdentity {
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    is_dir: bool,
+    is_file: bool,
+    is_symlink: bool,
+}
+
+fn cleanup_target_identity(path: &Path) -> Option<CleanupTargetIdentity> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+    Some(CleanupTargetIdentity {
+        #[cfg(unix)]
+        device: metadata.dev(),
+        #[cfg(unix)]
+        inode: metadata.ino(),
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+        is_symlink: metadata.file_type().is_symlink(),
+    })
+}
+
+fn cleanup_target_identity_matches(
+    path: &Path,
+    target_is_symlink: bool,
+    expected: CleanupTargetIdentity,
+) -> bool {
+    cleanup_target_identity(path)
+        .is_some_and(|actual| actual == expected && actual.is_symlink == target_is_symlink)
+}
+
+fn canonicalize_cleanup_target(raw_path: &Path) -> Option<(PathBuf, bool, CleanupTargetIdentity)> {
     let metadata = fs::symlink_metadata(raw_path).ok()?;
+    let identity = cleanup_target_identity(raw_path)?;
     if metadata.file_type().is_symlink() {
         // A symlink target itself is a valid cleanup entry: remove the link,
         // never follow it to its destination.
-        return Some((raw_path.to_path_buf(), true));
+        return Some((raw_path.to_path_buf(), true, identity));
     }
     let canonical = fs::canonicalize(raw_path).ok()?;
-    Some((canonical, false))
+    let canonical_identity = cleanup_target_identity(&canonical)?;
+    if canonical_identity != identity {
+        return None;
+    }
+    Some((canonical, false, canonical_identity))
 }
 
 fn is_builtin_ios_simulator_reset(target: &CleanTarget) -> bool {
@@ -857,8 +909,8 @@ mod tests {
     use crate::domain::{CleanTarget, TargetOrigin};
 
     use super::{
-        clean_docker_builder_prune, clean_ios_simulator_reset, clean_target,
-        clean_target_with_progress,
+        canonicalize_cleanup_target, clean_docker_builder_prune, clean_ios_simulator_reset,
+        clean_target, clean_target_with_progress, cleanup_target_identity_matches,
     };
     use crate::application::cleaner::CleanMode;
 
@@ -1726,6 +1778,37 @@ mod tests {
         assert_eq!(result.errors, 0, "{:?}", result.error_detail);
         assert!(!link.exists());
         assert_eq!(fs::read(outside.join("precious.txt")).unwrap(), b"keep me");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_refuses_target_replaced_after_resolution() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let selected = temp.path().join("selected");
+        let replacement = temp.path().join("replacement");
+        fs::create_dir(&selected).unwrap();
+        fs::write(selected.join("keep.txt"), b"preserve selected directory").unwrap();
+        fs::create_dir(&replacement).unwrap();
+        fs::write(
+            replacement.join("keep.txt"),
+            b"preserve replacement directory",
+        )
+        .unwrap();
+        let resolved = canonicalize_cleanup_target(&selected).unwrap();
+        fs::remove_dir_all(&selected).unwrap();
+        symlink(&replacement, &selected).unwrap();
+
+        assert!(!cleanup_target_identity_matches(
+            &resolved.0,
+            resolved.1,
+            resolved.2
+        ));
+        assert_eq!(
+            fs::read(replacement.join("keep.txt")).unwrap(),
+            b"preserve replacement directory"
+        );
     }
 
     #[cfg(unix)]
