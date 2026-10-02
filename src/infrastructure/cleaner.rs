@@ -594,8 +594,15 @@ fn clean_docker_builder_prune(
             .and_then(|reader| reader.join().ok())
             .unwrap_or_default();
         let _ = stderr_reader.and_then(|reader| reader.join().ok());
-        reclaimed_bytes =
-            reclaimed_bytes.saturating_add(exec::parse_total_reclaimed_space(&stdout).unwrap_or(0));
+        let Some(builder_reclaimed_bytes) = exec::parse_total_reclaimed_space(&stdout) else {
+            return command_error_with_partial(
+                target,
+                "docker buildx prune completed for a builder, but its reclaimed-space summary could not be read".into(),
+                reclaimed_bytes,
+                cleaned_builders.saturating_add(1),
+            );
+        };
+        reclaimed_bytes = reclaimed_bytes.saturating_add(builder_reclaimed_bytes);
         cleaned_builders = cleaned_builders.saturating_add(1);
     }
 
@@ -1206,6 +1213,45 @@ mod tests {
                 .error_detail
                 .unwrap()
                 .contains("second builder failed")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn builder_prune_unreadable_reclaim_summary_is_not_reported_as_zero_success() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let directory = tempfile::tempdir().unwrap();
+        let docker = directory.path().join("docker");
+        let script = "#!/bin/sh\nif [ \"$1\" = buildx ] && [ \"$2\" = ls ]; then printf '%s\\n' first second; exit 0; fi\nif [ \"$1\" = buildx ] && [ \"$2\" = prune ]; then if [ \"$6\" = first ]; then echo 'Total reclaimed space: 1GB'; else echo 'unexpected successful output'; fi; exit 0; fi\nexit 9\n";
+        fs::write(&docker, script).unwrap();
+        let mut permissions = fs::metadata(&docker).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+        fs::set_permissions(&docker, permissions).unwrap();
+        let target =
+            crate::domain::targets::build_targets(&["Docker Builder Prune".to_string()], &[])
+                .pop()
+                .expect("Docker builder target");
+
+        let result = clean_docker_builder_prune(
+            &target,
+            0,
+            0,
+            CleanMode::Execute,
+            &mut |_| {},
+            &Arc::new(AtomicBool::new(false)),
+            docker.as_os_str(),
+        );
+
+        assert_eq!(result.errors, 1);
+        assert_eq!(result.reclaimed_bytes, 1_000_000_000);
+        assert_eq!(result.removed_entries, 2);
+        assert!(
+            result
+                .error_detail
+                .unwrap()
+                .contains("summary could not be read")
         );
     }
 
