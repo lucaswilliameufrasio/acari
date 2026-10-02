@@ -3,6 +3,7 @@ pub enum AppEvent {
     Tick,
     ScanProgress {
         target_name: String,
+        target_path: String,
         bytes_found: u64,
         files_scanned: u64,
     },

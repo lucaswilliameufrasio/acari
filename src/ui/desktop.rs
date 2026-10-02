@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{
@@ -55,6 +55,7 @@ struct DesktopApp {
     page: Page,
     targets: Vec<(CleanTarget, u64, u64, bool)>,
     incomplete_scan_targets: HashSet<String>,
+    target_scan_progress: HashMap<(String, String), (u64, u64)>,
     target_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
     target_scan_cancel: Option<Arc<AtomicBool>>,
     clean_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AppEvent>>,
@@ -91,6 +92,7 @@ impl Default for DesktopApp {
             page: Page::Disk,
             targets: Vec::new(),
             incomplete_scan_targets: HashSet::new(),
+            target_scan_progress: HashMap::new(),
             target_rx: None,
             target_scan_cancel: None,
             clean_rx: None,
@@ -187,6 +189,19 @@ impl DesktopApp {
             .map(|target| (target, 0, 0, false))
             .collect();
         self.incomplete_scan_targets.clear();
+        self.target_scan_progress = self
+            .targets
+            .iter()
+            .map(|(target, _, _, _)| {
+                (
+                    (
+                        target.name.to_string(),
+                        target.resolved_path().to_string_lossy().into_owned(),
+                    ),
+                    (0, 0),
+                )
+            })
+            .collect();
         self.target_rx = Some(rx);
         self.target_scan_cancel = Some(cancel);
         self.target_scan_done = false;
@@ -199,6 +214,23 @@ impl DesktopApp {
         if let Some(rx) = &mut self.target_rx {
             while let Ok(event) = rx.try_recv() {
                 match event {
+                    AppEvent::ScanProgress {
+                        target_name,
+                        target_path,
+                        bytes_found,
+                        files_scanned,
+                    } => {
+                        self.target_scan_progress.insert(
+                            (target_name.clone(), target_path.clone()),
+                            (bytes_found, files_scanned),
+                        );
+                        if let Some(row) = self.targets.iter_mut().find(|row| {
+                            target_matches_scan_result(&row.0, &target_name, &target_path)
+                        }) {
+                            row.1 = bytes_found;
+                            row.2 = files_scanned;
+                        }
+                    }
                     AppEvent::TargetCompleted {
                         target_name,
                         target_path,
@@ -206,6 +238,8 @@ impl DesktopApp {
                         files_scanned,
                         scan_errors,
                     } => {
+                        self.target_scan_progress
+                            .remove(&(target_name.clone(), target_path.clone()));
                         if scan_errors > 0 {
                             self.incomplete_scan_targets.insert(target_path.clone());
                         }
@@ -235,6 +269,7 @@ impl DesktopApp {
                         };
                         self.target_rx = None;
                         self.target_scan_cancel = None;
+                        self.target_scan_progress.clear();
                         break;
                     }
                     _ => {}
@@ -244,6 +279,7 @@ impl DesktopApp {
         if self.target_rx.as_ref().is_some_and(|rx| rx.is_closed()) && self.target_scan_busy {
             self.target_rx = None;
             self.target_scan_cancel = None;
+            self.target_scan_progress.clear();
             self.target_scan_busy = false;
             self.target_scan_done = false;
             self.cleanup_status =
@@ -590,6 +626,24 @@ impl eframe::App for DesktopApp {
                         });
                         ui.label(format!("{} — {}", target.path, target.description));
                         ui.label(format!("Escopo: {}", cleanup_scope_label(target)));
+                        if self.target_scan_busy {
+                            let progress_key = (
+                                target.name.to_string(),
+                                target.resolved_path().to_string_lossy().into_owned(),
+                            );
+                            if let Some((progress_bytes, progress_files)) =
+                                self.target_scan_progress.get(&progress_key)
+                            {
+                                if *progress_bytes == 0 && *progress_files == 0 {
+                                    ui.small("Verificando alvo…");
+                                } else {
+                                    ui.small(format!(
+                                        "Lidos: {progress_files} arquivos · {}",
+                                        crate::domain::format_bytes(*progress_bytes)
+                                    ));
+                                }
+                            }
+                        }
                         ui.separator();
                     }
                 });
@@ -1374,6 +1428,41 @@ mod tests {
         assert!(!app.target_scan_done);
         assert!(app.target_rx.is_none());
         assert!(app.cleanup_status.contains("cancelada"));
+    }
+
+    #[test]
+    fn target_scan_progress_updates_only_matching_target_identity() {
+        let target = CleanTarget {
+            name: "Same Name".into(),
+            path: "/tmp/acari-progress-a".into(),
+            ..CleanTarget::default()
+        };
+        let other = CleanTarget {
+            name: "Same Name".into(),
+            path: "/tmp/acari-progress-b".into(),
+            ..CleanTarget::default()
+        };
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(crate::domain::AppEvent::ScanProgress {
+            target_name: "Same Name".into(),
+            target_path: "/tmp/acari-progress-b".into(),
+            bytes_found: 4096,
+            files_scanned: 500,
+        })
+        .unwrap();
+        let mut app = super::DesktopApp {
+            targets: vec![(target, 0, 0, false), (other, 0, 0, false)],
+            target_rx: Some(rx),
+            target_scan_busy: true,
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert_eq!(app.targets[0].1, 0);
+        assert_eq!(app.targets[0].2, 0);
+        assert_eq!(app.targets[1].1, 4096);
+        assert_eq!(app.targets[1].2, 500);
     }
 
     #[test]

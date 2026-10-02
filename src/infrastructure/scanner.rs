@@ -125,6 +125,7 @@ pub fn scan_target_cancellable(
             if files_scanned.is_multiple_of(500) {
                 let _ = tx.send(AppEvent::ScanProgress {
                     target_name: target.name.to_string(),
+                    target_path: target.resolved_path().to_string_lossy().into_owned(),
                     bytes_found: total_bytes,
                     files_scanned,
                 });

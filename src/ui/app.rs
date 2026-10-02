@@ -457,6 +457,7 @@ fn handle_event(
     match event {
         AppEvent::ScanProgress {
             target_name,
+            target_path: _,
             bytes_found,
             files_scanned,
         } => {
