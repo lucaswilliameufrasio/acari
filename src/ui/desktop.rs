@@ -617,7 +617,12 @@ impl eframe::App for DesktopApp {
                                 ui.checkbox(selected, "");
                             });
                             ui.strong(target.name.as_ref());
-                            ui.label(cleanup_metrics_label(target, *bytes, *files));
+                            ui.label(cleanup_metrics_label(
+                                target,
+                                *bytes,
+                                *files,
+                                scan_incomplete,
+                            ));
                             if !desktop_cleanup_supported(target) { ui.colored_label(Color32::GRAY, "não compatível com execução segura na UI"); }
                             else if target.is_command() { ui.colored_label(Color32::YELLOW, "comando permitido · confirmação individual obrigatória"); }
                             else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "operação perigosa · confirmação individual obrigatória"); }
@@ -656,7 +661,20 @@ impl eframe::App for DesktopApp {
                             egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
                                 for (target, bytes, files, _) in self.targets.iter().filter(|(_, _, _, selected)| *selected) {
                                     ui.strong(target.name.as_ref());
-                                    ui.label(format!("{} · {} · {}", target.resolved_path().display(), cleanup_scope_label(target), cleanup_metrics_label(target, *bytes, *files)));
+                                    ui.label(format!(
+                                        "{} · {} · {}",
+                                        target.resolved_path().display(),
+                                        cleanup_scope_label(target),
+                                        cleanup_metrics_label(
+                                            target,
+                                            *bytes,
+                                            *files,
+                                            scan_target_is_incomplete(
+                                                target,
+                                                &self.incomplete_scan_targets,
+                                            ),
+                                        )
+                                    ));
                                 }
                             });
                             let special = self.targets.iter().filter(|(target, _, _, selected)| *selected && requires_individual_confirmation(target)).collect::<Vec<_>>();
@@ -665,7 +683,18 @@ impl eframe::App for DesktopApp {
                                 ui.label(target.description.as_ref());
                                 ui.label(format!("Escopo: {}", target.resolved_path().display()));
                                 if let Some((_, bytes, files, _)) = self.targets.iter().find(|(candidate, _, _, selected)| *selected && candidate.name == target.name) {
-                                    ui.label(format!("Prévia: {}", cleanup_metrics_label(target, *bytes, *files)));
+                                    ui.label(format!(
+                                        "Prévia: {}",
+                                        cleanup_metrics_label(
+                                            target,
+                                            *bytes,
+                                            *files,
+                                            scan_target_is_incomplete(
+                                                target,
+                                                &self.incomplete_scan_targets,
+                                            ),
+                                        )
+                                    ));
                                 }
                                 ui.label(if target.requires_sudo { "Este alvo requer privilégio; a autorização será solicitada pelo sistema." } else if target.is_custom() { "Este caminho personalizado vem da sua configuração e pode conter dados únicos." } else { "Esta operação pode remover dados não regeneráveis." });
                             }
@@ -807,10 +836,18 @@ fn cleanup_matches(row: &(CleanTarget, u64, u64, bool), query: &str) -> bool {
         || row.0.path.to_lowercase().contains(&query.to_lowercase())
 }
 
-fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> String {
+fn cleanup_metrics_label(
+    target: &CleanTarget,
+    bytes: u64,
+    entries: u64,
+    scan_incomplete: bool,
+) -> String {
     if target.is_command() {
+        if scan_incomplete {
+            return "estimativa indisponível · consulta incompleta".into();
+        }
         if bytes == 0 && entries == 0 {
-            "estimativa indisponível ou sem espaço recuperável".into()
+            "nenhum item ou espaço recuperável (estimativa válida: 0 bytes)".into()
         } else {
             format!(
                 "estimativa {} · {entries} itens",
@@ -821,6 +858,11 @@ fn cleanup_metrics_label(target: &CleanTarget, bytes: u64, entries: u64) -> Stri
         .is_ok_and(|metadata| metadata.file_type().is_symlink())
     {
         "1 link simbólico · destino preservado · bytes do destino não contabilizados".into()
+    } else if scan_incomplete {
+        format!(
+            "estimativa parcial · {} · {entries} arquivos",
+            crate::domain::format_bytes(bytes)
+        )
     } else {
         format!(
             "{} · {entries} arquivos",
@@ -1219,15 +1261,19 @@ mod tests {
             command: &["example", "clean"],
             ..CleanTarget::default()
         };
-        assert!(cleanup_metrics_label(&command, 1024, 2).contains("estimativa"));
-        assert!(cleanup_metrics_label(&command, 1024, 2).contains("2 itens"));
-        assert!(cleanup_metrics_label(&command, 0, 0).contains("indisponível"));
+        assert!(cleanup_metrics_label(&command, 1024, 2, false).contains("estimativa"));
+        assert!(cleanup_metrics_label(&command, 1024, 2, false).contains("2 itens"));
+        assert!(
+            cleanup_metrics_label(&command, 0, 0, false).contains("estimativa válida: 0 bytes")
+        );
+        assert!(cleanup_metrics_label(&command, 0, 0, true).contains("indisponível"));
 
         let files = CleanTarget {
             path: "/tmp/cache".into(),
             ..CleanTarget::default()
         };
-        assert!(cleanup_metrics_label(&files, 1024, 2).contains("2 arquivos"));
+        assert!(cleanup_metrics_label(&files, 1024, 2, false).contains("2 arquivos"));
+        assert!(cleanup_metrics_label(&files, 1024, 2, true).contains("estimativa parcial"));
     }
 
     #[test]
@@ -1360,7 +1406,7 @@ mod tests {
 
         assert!(cleanup_scope_label(&whole_directory).contains("pasta raiz"));
         assert!(cleanup_scope_label(&link_target).contains("destino será preservado"));
-        let metrics = cleanup_metrics_label(&link_target, 0, 0);
+        let metrics = cleanup_metrics_label(&link_target, 0, 0, false);
         assert!(metrics.contains("1 link simbólico"));
         assert!(metrics.contains("destino preservado"));
     }
