@@ -913,6 +913,12 @@ fn cleanup_metrics_label(
                 crate::domain::format_bytes(bytes)
             );
         }
+        if target.name == "iOS Simulators Reset" && (bytes > 0 || entries > 0) {
+            return format!(
+                "dados encontrados {} · liberação real pode variar · {entries} arquivos",
+                crate::domain::format_bytes(bytes)
+            );
+        }
         if bytes == 0 && entries == 0 {
             "nenhum item ou espaço recuperável (estimativa válida: 0 bytes)".into()
         } else {
@@ -1362,6 +1368,16 @@ mod tests {
         let journal_estimate = cleanup_metrics_label(&journal, 500_000_000, 1, false);
         assert!(journal_estimate.contains("máxima indicativa"));
         assert!(journal_estimate.contains("arquivados apenas"));
+
+        let simulators = CleanTarget {
+            name: "iOS Simulators Reset".into(),
+            command: &["xcrun", "simctl", "erase", "all"],
+            ..CleanTarget::default()
+        };
+        let simulator_estimate = cleanup_metrics_label(&simulators, 200_000_000, 20, false);
+        assert!(simulator_estimate.contains("dados encontrados"));
+        assert!(simulator_estimate.contains("liberação real pode variar"));
+        assert!(simulator_estimate.contains("20 arquivos"));
 
         let files = CleanTarget {
             path: "/tmp/cache".into(),
