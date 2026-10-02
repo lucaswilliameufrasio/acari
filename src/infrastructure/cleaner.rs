@@ -352,8 +352,17 @@ fn clean_ios_simulator_reset(
     }
     let mut shutdown = std::process::Command::new(xcrun_executable);
     shutdown.args(["simctl", "shutdown", "all"]);
-    if let Err(error) = run_cancellable_command(shutdown, cancel, progress) {
-        return command_error(target, error);
+    let shutdown_output = match run_cancellable_command(shutdown, cancel, progress) {
+        Ok(output) => output,
+        Err(error) => return command_error(target, error),
+    };
+    if !shutdown_output.status.success() {
+        return command_failure(
+            target,
+            "xcrun simctl shutdown all",
+            shutdown_output.status,
+            &shutdown_output.stderr,
+        );
     }
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return command_error(target, "simulator reset was cancelled".into());
@@ -1318,6 +1327,57 @@ mod tests {
         assert_eq!(
             fs::read_to_string(arguments_log).unwrap(),
             "simctl shutdown all\nsimctl erase all\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn simulator_reset_does_not_erase_when_shutdown_fails() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let directory = tempfile::tempdir().unwrap();
+        let xcrun = directory.path().join("xcrun");
+        let arguments_log = directory.path().join("xcrun-arguments.log");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}';\nif [ \"$2\" = shutdown ]; then echo 'shutdown failed' >&2; exit 7; fi\nif [ \"$2\" = erase ]; then echo 'erase must not run' >&2; exit 9; fi\n",
+            arguments_log.display()
+        );
+        fs::write(&xcrun, script).unwrap();
+        let mut permissions = fs::metadata(&xcrun).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+        fs::set_permissions(&xcrun, permissions).unwrap();
+        let target = CleanTarget {
+            name: Cow::Borrowed("iOS Simulators Reset"),
+            path: Cow::Borrowed(""),
+            description: Cow::Borrowed("test"),
+            command: &[
+                "sh",
+                "-c",
+                "xcrun simctl shutdown all 2>/dev/null; xcrun simctl erase all",
+            ],
+            requires_sudo: false,
+            dangerous: true,
+            delete_entire: false,
+            origin: TargetOrigin::Builtin,
+        };
+
+        let result = clean_ios_simulator_reset(
+            &target,
+            100,
+            2,
+            CleanMode::Execute,
+            &mut |_| {},
+            &Arc::new(AtomicBool::new(false)),
+            xcrun.as_os_str(),
+        );
+
+        assert_eq!(result.errors, 1);
+        assert_eq!(result.reclaimed_bytes, 0);
+        assert!(result.error_detail.unwrap().contains("shutdown failed"));
+        assert_eq!(
+            fs::read_to_string(arguments_log).unwrap(),
+            "simctl shutdown all\n"
         );
     }
 
