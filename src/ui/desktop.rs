@@ -901,6 +901,12 @@ fn cleanup_metrics_label(
                 crate::domain::format_bytes(bytes)
             );
         }
+        if target.name == "Apt Autoremove" && (bytes > 0 || entries > 0) {
+            return format!(
+                "estimativa aproximada {} · {entries} pacotes",
+                crate::domain::format_bytes(bytes)
+            );
+        }
         if bytes == 0 && entries == 0 {
             "nenhum item ou espaço recuperável (estimativa válida: 0 bytes)".into()
         } else {
@@ -1332,6 +1338,15 @@ mod tests {
         assert!(snapshot_estimate.contains("indicativa"));
         assert!(snapshot_estimate.contains("máx. solicitado"));
         assert!(snapshot_estimate.contains("2 snapshots"));
+
+        let apt = CleanTarget {
+            name: "Apt Autoremove".into(),
+            command: &["sudo", "apt", "autoremove", "-y"],
+            ..CleanTarget::default()
+        };
+        let apt_estimate = cleanup_metrics_label(&apt, 20_000_000, 2, false);
+        assert!(apt_estimate.contains("estimativa aproximada"));
+        assert!(apt_estimate.contains("2 pacotes"));
 
         let files = CleanTarget {
             path: "/tmp/cache".into(),
