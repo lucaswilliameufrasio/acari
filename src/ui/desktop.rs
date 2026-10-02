@@ -64,6 +64,7 @@ struct DesktopApp {
     target_scan_busy: bool,
     dry_run: bool,
     confirm_clean: bool,
+    confirmation_snapshot: Option<(Vec<(String, String)>, bool)>,
     cleanup_status: String,
     cleanup_errors: Vec<String>,
     privileged_clean: bool,
@@ -101,6 +102,7 @@ impl Default for DesktopApp {
             target_scan_busy: false,
             dry_run: false,
             confirm_clean: false,
+            confirmation_snapshot: None,
             cleanup_status: String::new(),
             cleanup_errors: Vec::new(),
             privileged_clean: false,
@@ -207,6 +209,7 @@ impl DesktopApp {
         self.target_scan_done = false;
         self.target_scan_busy = true;
         self.confirm_clean = false;
+        self.confirmation_snapshot = None;
         self.cleanup_status = "Verificando alvos…".into();
     }
 
@@ -371,9 +374,33 @@ impl DesktopApp {
         }
     }
 
+    fn selected_target_snapshot(&self) -> (Vec<(String, String)>, bool) {
+        let mut targets = self
+            .targets
+            .iter()
+            .filter(|(_, _, _, selected)| *selected)
+            .map(|(target, _, _, _)| {
+                (
+                    target.name.to_string(),
+                    target.resolved_path().to_string_lossy().into_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        targets.sort();
+        (targets, self.dry_run)
+    }
+
     fn begin_clean(&mut self) {
+        if self.confirmation_snapshot.as_ref() != Some(&self.selected_target_snapshot()) {
+            self.confirm_clean = false;
+            self.confirmation_snapshot = None;
+            self.cleanup_status =
+                "A seleção ou o modo de execução mudou; revise e confirme novamente.".into();
+            return;
+        }
         if !self.target_scan_done || self.target_scan_busy {
             self.confirm_clean = false;
+            self.confirmation_snapshot = None;
             self.cleanup_status =
                 "Verifique os alvos novamente antes de confirmar a limpeza.".into();
             return;
@@ -388,6 +415,8 @@ impl DesktopApp {
                 || scan_target_is_incomplete(target, &self.incomplete_scan_targets)
         }) {
             self.cleanup_status = "A seleção contém alvos incompatíveis ou com verificação incompleta; revise-a antes de continuar.".into();
+            self.confirm_clean = false;
+            self.confirmation_snapshot = None;
             return;
         }
         let selected: Vec<_> = selected_rows
@@ -396,6 +425,8 @@ impl DesktopApp {
             .collect();
         if selected.is_empty() {
             self.cleanup_status = "Selecione um alvo compatível com a limpeza desktop.".into();
+            self.confirm_clean = false;
+            self.confirmation_snapshot = None;
             return;
         }
         if selected.iter().enumerate().any(|(index, (target, _, _))| {
@@ -404,6 +435,8 @@ impl DesktopApp {
                 .any(|(other, _, _)| cleanup_targets_overlap(target, other))
         }) {
             self.cleanup_status = "Há caminhos sobrepostos na seleção; execute esses alvos individualmente para evitar prévias e resultados duplicados.".into();
+            self.confirm_clean = false;
+            self.confirmation_snapshot = None;
             return;
         }
         let special_count = selected
@@ -413,6 +446,8 @@ impl DesktopApp {
         if special_count > 0 && (special_count != 1 || selected.len() != 1) {
             self.cleanup_status =
                 "Alvos perigosos/comando devem ser executados individualmente.".into();
+            self.confirm_clean = false;
+            self.confirmation_snapshot = None;
             return;
         }
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -454,6 +489,7 @@ impl DesktopApp {
         }
         self.clean_rx = Some(rx);
         self.confirm_clean = false;
+        self.confirmation_snapshot = None;
         self.cleanup_status = if self.dry_run {
             "Executando simulação…"
         } else {
@@ -566,7 +602,10 @@ impl eframe::App for DesktopApp {
                         self.cleanup_status = "Cancelando verificação; uma consulta de sistema em andamento pode concluir antes da interrupção…".into();
                     }
                     ui.checkbox(&mut self.dry_run, "Simular (dry-run)");
-                    if ui.add_enabled(self.target_scan_done && self.clean_rx.is_none(), egui::Button::new("Limpar selecionados…")).clicked() { self.confirm_clean = true; }
+                    if ui.add_enabled(self.target_scan_done && self.clean_rx.is_none(), egui::Button::new("Limpar selecionados…")).clicked() {
+                        self.confirmation_snapshot = Some(self.selected_target_snapshot());
+                        self.confirm_clean = true;
+                    }
                     if self.clean_rx.is_some()
                         && !self.privileged_clean
                         && ui.button("Cancelar limpeza").clicked()
@@ -707,7 +746,10 @@ impl eframe::App for DesktopApp {
                             ui.label("A limpeza é irreversível. Revise o alvo e a estimativa; a análise visual de disco não será afetada.");
                             ui.horizontal(|ui| {
                                 if ui.button(if self.dry_run { "Executar simulação" } else { "Confirmar limpeza" }).clicked() { confirm = true; }
-                                if ui.button("Cancelar").clicked() { self.confirm_clean = false; }
+                                if ui.button("Cancelar").clicked() {
+                                    self.confirm_clean = false;
+                                    self.confirmation_snapshot = None;
+                                }
                             });
                         });
                     if confirm { self.begin_clean(); }
@@ -1563,6 +1605,7 @@ mod tests {
             confirm_clean: true,
             ..super::DesktopApp::default()
         };
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
 
         app.begin_clean();
         assert!(app.clean_rx.is_none());
@@ -1573,10 +1616,49 @@ mod tests {
         app.incomplete_scan_targets
             .insert(target.resolved_path().to_string_lossy().into_owned());
         app.confirm_clean = true;
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
         app.begin_clean();
         assert!(app.clean_rx.is_none());
-        assert!(app.confirm_clean);
+        assert!(!app.confirm_clean);
         assert!(app.cleanup_status.contains("incompleta"));
+    }
+
+    #[test]
+    fn changing_selection_or_dry_run_invalidates_confirmation() {
+        let first = CleanTarget {
+            name: "First cache".into(),
+            path: "/tmp/acari-first-cache".into(),
+            ..CleanTarget::default()
+        };
+        let second = CleanTarget {
+            name: "Second cache".into(),
+            path: "/tmp/acari-second-cache".into(),
+            ..CleanTarget::default()
+        };
+        let mut app = super::DesktopApp {
+            targets: vec![(first, 10, 1, true), (second, 20, 2, false)],
+            target_scan_done: true,
+            confirm_clean: true,
+            ..super::DesktopApp::default()
+        };
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
+
+        app.targets[0].3 = false;
+        app.targets[1].3 = true;
+        app.begin_clean();
+        assert!(app.clean_rx.is_none());
+        assert!(!app.confirm_clean);
+        assert!(app.cleanup_status.contains("mudou"));
+
+        app.targets[0].3 = true;
+        app.targets[1].3 = false;
+        app.confirm_clean = true;
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
+        app.dry_run = true;
+        app.begin_clean();
+        assert!(app.clean_rx.is_none());
+        assert!(!app.confirm_clean);
+        assert!(app.cleanup_status.contains("mudou"));
     }
 
     #[test]
