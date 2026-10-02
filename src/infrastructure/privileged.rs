@@ -226,9 +226,53 @@ mod tests {
         let mut unprivileged = target("Apt Autoremove", &["sudo", "apt", "autoremove", "-y"]);
         unprivileged.requires_sudo = false;
         assert_eq!(super::operation_for_target(&unprivileged), None);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn helper_validation_rejects_symlinks_and_writable_ancestors() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let helper_dir = temp.path().join("helper-dir");
+        std::fs::create_dir(&helper_dir).expect("create helper directory");
+        let helper = helper_dir.join("helper");
+        std::fs::write(&helper, b"not executed").expect("write placeholder helper");
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))
+            .expect("set helper permissions");
+
+        assert!(
+            !super::is_root_owned_system_helper(&helper),
+            "non-root-owned temporary files must not qualify as installed helpers"
+        );
+
+        let link = helper_dir.join("helper-link");
+        symlink(&helper, &link).expect("create helper symlink");
+        assert!(
+            !super::is_root_owned_system_helper(&link),
+            "a symlink must never qualify as the privileged helper"
+        );
+
         #[cfg(target_os = "linux")]
-        assert!(!super::is_root_owned_system_helper(std::path::Path::new(
-            "/tmp/nonexistent-acari-helper"
-        )));
+        {
+            use std::os::unix::fs::MetadataExt;
+            if unsafe { libc::geteuid() } == 0 {
+                let uid = unsafe { libc::getuid() };
+                let gid = unsafe { libc::getgid() };
+                let chown_status = std::process::Command::new("chown")
+                    .arg(format!("{uid}:{gid}"))
+                    .arg(&helper_dir)
+                    .status();
+                if chown_status.is_ok_and(|status| status.success()) {
+                    std::fs::set_permissions(&helper_dir, std::fs::Permissions::from_mode(0o777))
+                        .expect("make temporary ancestor writable");
+                    assert_eq!(std::fs::symlink_metadata(&helper_dir).unwrap().uid(), uid);
+                    assert!(
+                        !super::is_root_owned_system_helper(&helper),
+                        "a writable/non-root-owned ancestor must invalidate the helper"
+                    );
+                }
+            }
+        }
     }
 }
