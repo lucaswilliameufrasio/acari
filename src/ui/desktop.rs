@@ -1743,6 +1743,37 @@ mod tests {
     }
 
     #[test]
+    fn dry_run_completion_preserves_preview_and_selection() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(crate::domain::AppEvent::CleaningFinished {
+            cleaned_targets: 1,
+            reclaimed_bytes: 12,
+            errors: 0,
+            cancelled: false,
+        })
+        .unwrap();
+        let target = CleanTarget {
+            name: "Cache".into(),
+            path: "/tmp/acari-dry-run-cache".into(),
+            ..CleanTarget::default()
+        };
+        let mut app = super::DesktopApp {
+            clean_rx: Some(rx),
+            dry_run: true,
+            target_scan_done: true,
+            targets: vec![(target, 12, 1, true)],
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(app.target_scan_done);
+        assert!(app.targets[0].3);
+        assert!(app.cleanup_status.contains("Simulação"));
+        assert!(!app.cleanup_status.contains("Verifique os alvos novamente"));
+    }
+
+    #[test]
     fn disconnected_cleanup_worker_releases_ui_and_reports_incomplete_result() {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         drop(tx);
