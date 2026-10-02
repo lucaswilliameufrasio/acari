@@ -1670,6 +1670,34 @@ mod tests {
     }
 
     #[test]
+    fn special_target_cannot_start_as_part_of_batch_cleanup() {
+        let ordinary = CleanTarget {
+            name: "Ordinary cache".into(),
+            path: "/tmp/acari-ordinary-cache".into(),
+            ..CleanTarget::default()
+        };
+        let custom = CleanTarget {
+            name: "Custom target".into(),
+            path: "/tmp/acari-custom-target".into(),
+            origin: TargetOrigin::Custom,
+            ..CleanTarget::default()
+        };
+        let mut app = super::DesktopApp {
+            targets: vec![(ordinary, 0, 0, true), (custom, 0, 0, true)],
+            target_scan_done: true,
+            confirm_clean: true,
+            ..super::DesktopApp::default()
+        };
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
+
+        app.begin_clean();
+
+        assert!(app.clean_rx.is_none());
+        assert!(!app.confirm_clean);
+        assert!(app.cleanup_status.contains("individualmente"));
+    }
+
+    #[test]
     fn cleanup_completion_keeps_error_detail_and_partial_cancel_state() {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tx.send(crate::domain::AppEvent::TargetCleaned {
