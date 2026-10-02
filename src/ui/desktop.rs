@@ -1820,6 +1820,38 @@ mod tests {
     }
 
     #[test]
+    fn privileged_completion_never_reports_estimated_bytes_as_reclaimed() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(crate::domain::AppEvent::CleaningFinished {
+            cleaned_targets: 1,
+            reclaimed_bytes: 0,
+            errors: 0,
+            cancelled: false,
+        })
+        .unwrap();
+        let target = CleanTarget {
+            name: "Apt Autoremove".into(),
+            command: &["sudo", "apt", "autoremove", "-y"],
+            requires_sudo: true,
+            ..CleanTarget::default()
+        };
+        let mut app = super::DesktopApp {
+            clean_rx: Some(rx),
+            privileged_clean: true,
+            target_scan_done: true,
+            targets: vec![(target, 30_000_000, 3, true)],
+            ..super::DesktopApp::default()
+        };
+
+        app.poll_target_events(&eframe::egui::Context::default());
+
+        assert!(app.cleanup_status.contains("espaço recuperado não medido"));
+        assert!(!app.cleanup_status.contains("30"));
+        assert!(!app.target_scan_done);
+        assert!(!app.targets[0].3);
+    }
+
+    #[test]
     fn disconnected_cleanup_worker_releases_ui_and_reports_incomplete_result() {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         drop(tx);
