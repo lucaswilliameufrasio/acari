@@ -1491,6 +1491,41 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn overlapping_file_targets_are_rejected_before_cleanup_worker_starts() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("cache");
+        let child = parent.join("nested");
+        std::fs::create_dir_all(&child).unwrap();
+        let parent_target = CleanTarget {
+            name: "Parent cache".into(),
+            path: std::borrow::Cow::Owned(parent.to_string_lossy().into_owned()),
+            description: "test parent".into(),
+            ..CleanTarget::default()
+        };
+        let child_target = CleanTarget {
+            name: "Nested cache".into(),
+            path: std::borrow::Cow::Owned(child.to_string_lossy().into_owned()),
+            description: "test child".into(),
+            ..CleanTarget::default()
+        };
+        let mut app = super::DesktopApp {
+            targets: vec![(parent_target, 10, 1, true), (child_target, 5, 1, true)],
+            target_scan_done: true,
+            confirm_clean: true,
+            ..super::DesktopApp::default()
+        };
+        app.confirmation_snapshot = Some(app.selected_target_snapshot());
+
+        app.begin_clean();
+
+        assert!(app.clean_rx.is_none());
+        assert!(!app.confirm_clean);
+        assert!(app.cleanup_status.contains("sobrepostos"));
+        assert!(parent.is_dir());
+        assert!(child.is_dir());
+    }
+
     #[cfg(unix)]
     #[test]
     fn cleanup_scope_label_explains_root_deletion_and_symlink_handling() {
