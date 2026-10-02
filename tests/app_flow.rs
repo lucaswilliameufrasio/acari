@@ -62,6 +62,61 @@ async fn scanner_emits_target_and_finished_events() {
 }
 
 #[tokio::test]
+async fn scanner_progress_includes_target_path_and_final_scan_totals() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let root = temp.path().join("large-scan-root");
+    fs::create_dir_all(&root).expect("create root");
+    for index in 0..501 {
+        fs::write(root.join(format!("file-{index:04}.bin")), b"x").expect("write file");
+    }
+    let target = test_target("Large Scan", &root);
+    let expected_path = target.resolved_path().to_string_lossy().into_owned();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+    let handle = start_background_scan(tx, vec![target], vec![], IoPriority::Normal, false);
+
+    let mut saw_progress = false;
+    let mut saw_completion = false;
+    let mut saw_finished = false;
+    while let Some(event) = rx.recv().await {
+        match event {
+            AppEvent::ScanProgress {
+                target_name,
+                target_path,
+                files_scanned,
+                ..
+            } if target_name == "Large Scan" => {
+                assert_eq!(target_path, expected_path);
+                assert!(files_scanned >= 500);
+                saw_progress = true;
+            }
+            AppEvent::TargetCompleted {
+                target_name,
+                target_path,
+                total_bytes,
+                files_scanned,
+                scan_errors,
+            } if target_name == "Large Scan" => {
+                assert_eq!(target_path, expected_path);
+                assert_eq!(total_bytes, 501);
+                assert_eq!(files_scanned, 501);
+                assert_eq!(scan_errors, 0);
+                saw_completion = true;
+            }
+            AppEvent::ScanFinished => {
+                saw_finished = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    handle.await.expect("join scan task");
+
+    assert!(saw_progress, "large scans should emit progress");
+    assert!(saw_completion, "large scans should report final totals");
+    assert!(saw_finished, "scan should emit a terminal event");
+}
+
+#[tokio::test]
 async fn cancelled_background_scan_finishes_without_reporting_targets_complete() {
     let temp = tempfile::tempdir().expect("create tempdir");
     fs::write(temp.path().join("a.txt"), b"abc").expect("write file");
