@@ -22,6 +22,14 @@ enum Page {
     Cleanup,
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum ChartStyle {
+    #[default]
+    Treemap,
+    Bars,
+    Sunburst,
+}
+
 enum Message {
     Progress(ScanProgress),
     Finished(Result<DiskNode, String>),
@@ -73,6 +81,7 @@ struct DesktopApp {
     cleanup_search: String,
     cleanup_sort_by_size: bool,
     allocated_size: bool,
+    chart_style: ChartStyle,
 }
 
 impl Default for DesktopApp {
@@ -111,6 +120,7 @@ impl Default for DesktopApp {
             cleanup_search: String::new(),
             cleanup_sort_by_size: true,
             allocated_size: false,
+            chart_style: ChartStyle::default(),
         }
     }
 }
@@ -833,27 +843,34 @@ impl eframe::App for DesktopApp {
                 ));
             });
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(260.0).hint_text("Filtrar itens deste diretório…"));
+            ui.horizontal_wrapped(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(220.0).hint_text("Filtrar itens deste diretório…"));
                 if ui.button(if self.sort_largest_first { "Maior primeiro" } else { "Nome A–Z" }).clicked() { self.sort_largest_first = !self.sort_largest_first; }
                 ui.checkbox(&mut self.allocated_size, "Tamanho alocado");
-                if ui.button("Voltar um nível").clicked() { self.current.pop(); }
+                if ui.add_enabled(!self.current.is_empty(), egui::Button::new("Voltar um nível")).clicked() { self.current.pop(); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Visualização");
+                ui.selectable_value(&mut self.chart_style, ChartStyle::Treemap, "Treemap");
+                ui.selectable_value(&mut self.chart_style, ChartStyle::Bars, "Barras");
+                ui.selectable_value(&mut self.chart_style, ChartStyle::Sunburst, "Sunburst");
             });
             let selected = self.selected.clone();
             let current = self.current_node().unwrap_or(root).clone();
             let mut navigate = None;
             let rect = ui.available_rect_before_wrap();
-            draw_treemap(
-                ui,
-                &current,
-                rect,
-                &selected,
-                &mut navigate,
-                &mut self.selected,
-                &self.search,
-                self.sort_largest_first,
-                self.allocated_size,
-            );
+            let children = visible_children(&current, &self.search, self.sort_largest_first, self.allocated_size);
+            if children.is_empty() {
+                ui.centered_and_justified(|ui| {
+                    ui.label(if self.search.trim().is_empty() { "Este diretório não contém itens para exibir." } else { "Nenhum item corresponde à busca." });
+                });
+                return;
+            }
+            match self.chart_style {
+                ChartStyle::Treemap => draw_treemap(ui, &children, rect, &selected, &mut navigate, &mut self.selected, self.allocated_size),
+                ChartStyle::Bars => draw_bars(ui, &children, rect, &selected, &mut navigate, &mut self.selected, self.allocated_size),
+                ChartStyle::Sunburst => draw_sunburst(ui, &children, rect, &selected, &mut navigate, &mut self.selected, self.allocated_size),
+            }
             if let Some(path) = navigate {
                 let mut indices = self.current.clone();
                 if find_child_indices(root, &path, &mut indices) {
@@ -1112,20 +1129,12 @@ fn desktop_cleanup_supported(target: &CleanTarget) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_treemap(
-    ui: &mut egui::Ui,
-    node: &DiskNode,
-    rect: Rect,
-    selected: &Option<PathBuf>,
-    navigate: &mut Option<PathBuf>,
-    selected_path: &mut Option<PathBuf>,
+fn visible_children<'a>(
+    node: &'a DiskNode,
     search: &str,
     sort_largest_first: bool,
     allocated_size: bool,
-) {
-    if node.children.is_empty() {
-        return;
-    }
+) -> Vec<&'a DiskNode> {
     let query = search.trim().to_lowercase();
     let mut children: Vec<_> = node
         .children
@@ -1143,7 +1152,22 @@ fn draw_treemap(
                 .then_with(|| a.name.cmp(&b.name))
         });
     } else {
-        children.sort_by_key(|a| a.name.to_lowercase());
+        children.sort_by_key(|child| child.name.to_lowercase());
+    }
+    children
+}
+
+fn draw_treemap(
+    ui: &mut egui::Ui,
+    children: &[&DiskNode],
+    rect: Rect,
+    selected: &Option<PathBuf>,
+    navigate: &mut Option<PathBuf>,
+    selected_path: &mut Option<PathBuf>,
+    allocated_size: bool,
+) {
+    if children.is_empty() {
+        return;
     }
     let boxes = squarified_layout(
         rect,
@@ -1189,6 +1213,166 @@ fn draw_treemap(
                 crate::domain::format_bytes(node_bytes(child, allocated_size))
             ));
         }
+    }
+}
+
+fn draw_bars(
+    ui: &mut egui::Ui,
+    children: &[&DiskNode],
+    rect: Rect,
+    selected: &Option<PathBuf>,
+    navigate: &mut Option<PathBuf>,
+    selected_path: &mut Option<PathBuf>,
+    allocated: bool,
+) {
+    if children.is_empty() {
+        return;
+    }
+    let max_bytes = children
+        .iter()
+        .map(|child| node_bytes(child, allocated))
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for child in children {
+            let (row, response) =
+                ui.allocate_exact_size(Vec2::new(rect.width(), 38.0), Sense::click());
+            let amount = node_bytes(child, allocated);
+            let fraction = amount as f32 / max_bytes as f32;
+            let bar = Rect::from_min_size(
+                row.left_top(),
+                Vec2::new((row.width() * fraction).max(2.0), row.height() - 3.0),
+            );
+            let color = if selected.as_ref() == Some(&child.path) {
+                Color32::from_rgb(220, 137, 58)
+            } else {
+                color_for(&child.name)
+            };
+            ui.painter().rect_filled(
+                bar,
+                3.0,
+                color.gamma_multiply(if response.hovered() { 1.25 } else { 1.0 }),
+            );
+            ui.painter().text(
+                row.left_center() + Vec2::new(8.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                &child.name,
+                egui::FontId::proportional(13.0),
+                Color32::WHITE,
+            );
+            ui.painter().text(
+                row.right_center() - Vec2::new(8.0, 0.0),
+                egui::Align2::RIGHT_CENTER,
+                crate::domain::format_bytes(amount),
+                egui::FontId::proportional(12.0),
+                ui.visuals().text_color(),
+            );
+            if response.clicked() {
+                *selected_path = Some(child.path.clone());
+                if child.is_dir {
+                    *navigate = Some(child.path.clone());
+                }
+            }
+            response.on_hover_text(child.path.display().to_string());
+        }
+    });
+}
+
+fn draw_sunburst(
+    ui: &mut egui::Ui,
+    children: &[&DiskNode],
+    rect: Rect,
+    selected: &Option<PathBuf>,
+    navigate: &mut Option<PathBuf>,
+    selected_path: &mut Option<PathBuf>,
+    allocated: bool,
+) {
+    let weights: Vec<u64> = children
+        .iter()
+        .map(|child| node_bytes(child, allocated))
+        .collect();
+    let total: u64 = weights.iter().sum();
+    if total == 0 {
+        return;
+    }
+    let side = rect.width().min(rect.height()).min(520.0);
+    let center = rect.center();
+    let radius = side * 0.46;
+    let inner = radius * 0.34;
+    let circle = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
+    let response = ui.allocate_rect(circle, Sense::click());
+    let mut start = -std::f32::consts::FRAC_PI_2;
+    let pointer_angle = response
+        .hover_pos()
+        .map(|pos| (pos.y - center.y).atan2(pos.x - center.x));
+    let mut hovered = None;
+    for (index, child) in children.iter().enumerate() {
+        let sweep = std::f32::consts::TAU * weights[index] as f32 / total as f32;
+        let end = start + sweep;
+        let steps = ((sweep * 28.0).ceil() as usize).clamp(2, 48);
+        let is_hovered = pointer_angle.is_some_and(|angle| {
+            let normalized = (angle - start).rem_euclid(std::f32::consts::TAU);
+            response
+                .hover_pos()
+                .is_some_and(|pos| pos.distance(center) >= inner && pos.distance(center) <= radius)
+                && normalized <= sweep
+        });
+        if is_hovered {
+            hovered = Some(index);
+        }
+        let color = if selected.as_ref() == Some(&child.path) {
+            Color32::from_rgb(235, 148, 65)
+        } else {
+            color_for(&child.name)
+        };
+        let color = color.gamma_multiply(if is_hovered { 1.25 } else { 1.0 });
+        let mut mesh = egui::Mesh::default();
+        for step in 0..=steps {
+            let angle = start + sweep * step as f32 / steps as f32;
+            mesh.colored_vertex(center + Vec2::angled(angle) * radius, color);
+            mesh.colored_vertex(center + Vec2::angled(angle) * inner, color);
+        }
+        for step in 0..steps {
+            let outer = (step * 2) as u32;
+            let inner_index = outer + 1;
+            mesh.add_triangle(outer, outer + 2, inner_index);
+            mesh.add_triangle(inner_index, outer + 2, inner_index + 2);
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+        ui.painter().line_segment(
+            [
+                center + Vec2::angled(start) * inner,
+                center + Vec2::angled(start) * radius,
+            ],
+            Stroke::new(1.0_f32, ui.visuals().panel_fill),
+        );
+        start = end;
+    }
+    ui.painter()
+        .circle_filled(center, inner - 1.0, ui.visuals().panel_fill);
+    ui.painter().text(
+        center,
+        egui::Align2::CENTER_CENTER,
+        "Uso\nde disco",
+        egui::FontId::proportional(13.0),
+        ui.visuals().text_color(),
+    );
+    if response.clicked()
+        && let Some(child) = hovered.and_then(|index| children.get(index))
+    {
+        *selected_path = Some(child.path.clone());
+        if child.is_dir {
+            *navigate = Some(child.path.clone());
+        }
+    }
+    if let Some(child) = hovered.and_then(|index| children.get(index)) {
+        response.on_hover_text(format!(
+            "{}\n{} · {:.1}%",
+            child.name,
+            crate::domain::format_bytes(node_bytes(child, allocated)),
+            node_bytes(child, allocated) as f64 * 100.0 / total as f64
+        ));
     }
 }
 
@@ -1302,6 +1486,7 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    use super::visible_children;
     #[cfg(unix)]
     use super::{
         cleanup_metrics_label, cleanup_scope_label, cleanup_target_selectable,
@@ -1333,6 +1518,42 @@ mod tests {
         };
         assert_eq!(node_bytes(&node, false), 3);
         assert_eq!(node_bytes(&node, true), 512);
+    }
+
+    #[test]
+    fn disk_chart_order_toggle_switches_between_size_and_name() {
+        let node = DiskNode {
+            name: "root".into(),
+            path: PathBuf::from("root"),
+            bytes: 30,
+            allocated_bytes: 30,
+            is_dir: true,
+            children: vec![
+                DiskNode {
+                    name: "zeta".into(),
+                    path: PathBuf::from("root/zeta"),
+                    bytes: 30,
+                    allocated_bytes: 10,
+                    is_dir: false,
+                    children: vec![],
+                },
+                DiskNode {
+                    name: "alpha".into(),
+                    path: PathBuf::from("root/alpha"),
+                    bytes: 10,
+                    allocated_bytes: 30,
+                    is_dir: false,
+                    children: vec![],
+                },
+            ],
+        };
+
+        let largest = visible_children(&node, "", true, false);
+        let alphabetical = visible_children(&node, "", false, false);
+        let allocated_largest = visible_children(&node, "", true, true);
+        assert_eq!(largest[0].name, "zeta");
+        assert_eq!(alphabetical[0].name, "alpha");
+        assert_eq!(allocated_largest[0].name, "alpha");
     }
 
     #[test]
