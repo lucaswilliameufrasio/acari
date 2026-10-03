@@ -822,6 +822,7 @@ impl eframe::App for DesktopApp {
                     ui.label("A análise não remove arquivos.");
                 });
             ui.horizontal(|ui| {
+                let mut breadcrumb_depth = None;
                 if ui.button("Início").clicked() {
                     self.current.clear();
                 }
@@ -831,10 +832,13 @@ impl eframe::App for DesktopApp {
                     if let Some(child) = node.children.get(index) {
                         ui.label("›");
                         if ui.button(&child.name).clicked() {
-                            self.current.truncate(depth + 1);
+                            breadcrumb_depth = Some(depth + 1);
                         }
                         node = child;
                     }
+                }
+                if let Some(depth) = breadcrumb_depth {
+                    apply_breadcrumb_navigation(&mut self.current, depth);
                 }
                 ui.separator();
                 ui.label(format!(
@@ -871,11 +875,10 @@ impl eframe::App for DesktopApp {
                 ChartStyle::Bars => draw_bars(ui, &children, rect, &selected, &mut navigate, &mut self.selected, self.allocated_size),
                 ChartStyle::Sunburst => draw_sunburst(ui, &children, rect, &selected, &mut navigate, &mut self.selected, self.allocated_size),
             }
-            if let Some(path) = navigate {
-                let mut indices = self.current.clone();
-                if find_child_indices(root, &path, &mut indices) {
-                    self.current = indices;
-                }
+            if let Some(path) = navigate
+                && let Some(indices) = indices_for_path(root, &path)
+            {
+                self.current = indices;
             }
         });
     }
@@ -893,6 +896,15 @@ fn find_child_indices(node: &DiskNode, path: &std::path::Path, indices: &mut Vec
         indices.pop();
     }
     false
+}
+
+fn indices_for_path(root: &DiskNode, path: &std::path::Path) -> Option<Vec<usize>> {
+    let mut indices = Vec::new();
+    find_child_indices(root, path, &mut indices).then_some(indices)
+}
+
+fn apply_breadcrumb_navigation(current: &mut Vec<usize>, depth: usize) {
+    current.truncate(depth);
 }
 
 fn cleanup_matches(row: &(CleanTarget, u64, u64, bool), query: &str) -> bool {
@@ -1486,7 +1498,7 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use super::visible_children;
+    use super::{apply_breadcrumb_navigation, indices_for_path, visible_children};
     #[cfg(unix)]
     use super::{
         cleanup_metrics_label, cleanup_scope_label, cleanup_target_selectable,
@@ -1554,6 +1566,48 @@ mod tests {
         assert_eq!(largest[0].name, "zeta");
         assert_eq!(alphabetical[0].name, "alpha");
         assert_eq!(allocated_largest[0].name, "alpha");
+    }
+
+    #[test]
+    fn breadcrumb_navigation_truncates_deep_path_safely() {
+        let mut current = vec![0, 1, 2];
+
+        apply_breadcrumb_navigation(&mut current, 1);
+
+        assert_eq!(current, vec![0]);
+    }
+
+    #[test]
+    fn path_navigation_rebuilds_indices_from_tree_root() {
+        let leaf = DiskNode {
+            name: "leaf".into(),
+            path: PathBuf::from("/root/branch/leaf"),
+            bytes: 1,
+            allocated_bytes: 1,
+            is_dir: true,
+            children: vec![],
+        };
+        let branch = DiskNode {
+            name: "branch".into(),
+            path: PathBuf::from("/root/branch"),
+            bytes: 1,
+            allocated_bytes: 1,
+            is_dir: true,
+            children: vec![leaf],
+        };
+        let root = DiskNode {
+            name: "root".into(),
+            path: PathBuf::from("/root"),
+            bytes: 1,
+            allocated_bytes: 1,
+            is_dir: true,
+            children: vec![branch],
+        };
+
+        assert_eq!(
+            indices_for_path(&root, PathBuf::from("/root/branch/leaf").as_path()),
+            Some(vec![0, 0])
+        );
     }
 
     #[test]
