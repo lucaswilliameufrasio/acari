@@ -170,4 +170,6 @@ jobs:
         with:
           tool: cargo-about@0.9.1
       - name: Validate third-party licenses
-        run: cargo about generate about.hbs -o /dev/null
+        run: |
+          cargo about generate about.hbs -o "$RUNNER_TEMP/THIRD-PARTY-LICENSES.md"
+          diff -u THIRD-PARTY-LICENSES.md "$RUNNER_TEMP/THIRD-PARTY-LICENSES.md"

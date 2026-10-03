@@ -1301,11 +1301,18 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::{
         cleanup_metrics_label, cleanup_scope_label, cleanup_target_selectable,
         cleanup_targets_overlap, desktop_cleanup_supported, node_bytes,
         requires_individual_confirmation, scan_target_is_incomplete, squarified_layout,
         target_matches_scan_result,
+    };
+    #[cfg(windows)]
+    use super::{
+        cleanup_metrics_label, cleanup_target_selectable, cleanup_targets_overlap,
+        desktop_cleanup_supported, node_bytes, requires_individual_confirmation,
+        scan_target_is_incomplete, squarified_layout, target_matches_scan_result,
     };
     use crate::domain::{CleanTarget, TargetOrigin};
     use crate::infrastructure::disk_scan::DiskNode;

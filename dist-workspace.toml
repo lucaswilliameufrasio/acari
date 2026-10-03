@@ -17,5 +17,6 @@ install-path = "~/.local/bin"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+include = ["THIRD-PARTY-LICENSES.md"]
 # Whether to allow hand-edits to CI files (e.g. pinned SHAs, permission scoping)
 allow-dirty = ["ci"]

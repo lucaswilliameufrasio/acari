@@ -84,6 +84,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Install cargo-about
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.1
+      - name: Generate third-party licenses
+        run: cargo about generate about.hbs -o THIRD-PARTY-LICENSES.md
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -215,6 +221,8 @@ jobs:
       - name: Cleanup
         run: |
           rm -f artifacts/*-dist-manifest.json
+      - name: Copy third-party licenses
+        run: cp THIRD-PARTY-LICENSES.md artifacts/
       - name: Create GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"

@@ -957,6 +957,9 @@ mod tests {
 
     use crate::domain::{CleanTarget, TargetOrigin};
 
+    #[cfg(windows)]
+    use super::clean_target;
+    #[cfg(unix)]
     use super::{
         CleanupTargetIdentity, canonicalize_cleanup_target, clean_docker_builder_prune,
         clean_ios_simulator_reset, clean_target, clean_target_with_progress,
