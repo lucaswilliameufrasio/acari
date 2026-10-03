@@ -992,7 +992,8 @@ fn cleanup_targets_overlap(left: &CleanTarget, right: &CleanTarget) -> bool {
 }
 
 fn canonicalize_for_overlap(path: &std::path::Path) -> PathBuf {
-    let mut unresolved = path;
+    let normalized = normalize_overlap_path(path);
+    let mut unresolved = normalized.as_path();
     let mut suffix = Vec::new();
     loop {
         if let Ok(mut canonical) = std::fs::canonicalize(unresolved) {
@@ -1002,11 +1003,11 @@ fn canonicalize_for_overlap(path: &std::path::Path) -> PathBuf {
             return normalize_overlap_path(&canonical);
         }
         let Some(file_name) = unresolved.file_name() else {
-            return normalize_overlap_path(path);
+            return normalized;
         };
         suffix.push(file_name.to_os_string());
         let Some(parent) = unresolved.parent() else {
-            return normalize_overlap_path(path);
+            return normalized;
         };
         unresolved = parent;
     }
