@@ -1468,33 +1468,37 @@ mod tests {
 
     #[test]
     fn cleanup_targets_detect_equal_and_nested_paths_but_not_siblings() {
-        let target = |path: &'static str| CleanTarget {
-            path: path.into(),
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("acari-cache");
+        let nested = root.join("nested");
+        let target = |path: std::path::PathBuf| CleanTarget {
+            path: path.to_string_lossy().into_owned().into(),
             ..CleanTarget::default()
         };
 
         assert!(cleanup_targets_overlap(
-            &target("/tmp/acari-cache"),
-            &target("/tmp/acari-cache")
+            &target(root.clone()),
+            &target(root.clone())
         ));
         assert!(cleanup_targets_overlap(
-            &target("/tmp/acari-cache"),
-            &target("/tmp/acari-cache/nested")
+            &target(root.clone()),
+            &target(nested.clone())
         ));
         assert!(!cleanup_targets_overlap(
-            &target("/tmp/acari-cache"),
-            &target("/tmp/acari-cache-other")
+            &target(root.clone()),
+            &target(root.with_file_name("acari-cache-other"))
         ));
+        let dotdot_path = root.join("stale").join("..").join("nested");
         assert!(cleanup_targets_overlap(
-            &target("/tmp/acari-cache/stale/../nested"),
-            &target("/tmp/acari-cache/nested")
+            &target(dotdot_path),
+            &target(nested)
         ));
         assert!(!cleanup_targets_overlap(
             &CleanTarget {
                 command: &["docker", "system", "prune"],
                 ..CleanTarget::default()
             },
-            &target("/tmp/acari-cache")
+            &target(root)
         ));
     }
 
