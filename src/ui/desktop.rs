@@ -45,9 +45,38 @@ pub fn run_desktop() -> anyhow::Result<()> {
     eframe::run_native(
         "Acarí — Disk Analyzer",
         options,
-        Box::new(|_| Ok(Box::<DesktopApp>::default())),
+        Box::new(|creation| {
+            configure_desktop_style(&creation.egui_ctx);
+            Ok(Box::<DesktopApp>::default())
+        }),
     )
     .map_err(|error| anyhow::anyhow!(error.to_string()))
+}
+
+fn configure_desktop_style(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = Vec2::new(12.0, 10.0);
+    style.spacing.button_padding = Vec2::new(12.0, 7.0);
+    style.spacing.interact_size = Vec2::new(32.0, 32.0);
+    style
+        .text_styles
+        .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Small, egui::FontId::proportional(13.0));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Heading, egui::FontId::proportional(24.0));
+    style.visuals = egui::Visuals::dark();
+    style.visuals.panel_fill = Color32::from_rgb(24, 29, 33);
+    style.visuals.window_fill = Color32::from_rgb(31, 38, 42);
+    style.visuals.override_text_color = Some(Color32::from_rgb(228, 233, 231));
+    style.visuals.selection.bg_fill = Color32::from_rgb(38, 91, 83);
+    style.visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(144, 219, 195));
+    ctx.set_style(style);
 }
 
 struct DesktopApp {
@@ -179,6 +208,7 @@ impl DesktopApp {
     }
 
     fn start_target_scan(&mut self) {
+        self.cleanup_errors.clear();
         let config = target_config::load_config();
         let targets = prepare_targets(&[], &[], &config.custom_targets);
         if targets.is_empty() {
@@ -313,29 +343,21 @@ impl DesktopApp {
                         cancelled,
                         ..
                     } => {
-                        let error_suffix = if self.cleanup_errors.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" Detalhes: {}", self.cleanup_errors.join("; "))
-                        };
                         self.cleanup_status = if self.privileged_clean && errors == 0 {
                             "Operação privilegiada concluída; espaço recuperado não medido.".into()
                         } else if self.privileged_clean {
-                            format!(
-                                "Operação privilegiada falhou; espaço recuperado não medido.{error_suffix}"
-                            )
+                            "Operação privilegiada falhou; espaço recuperado não medido.".into()
                         } else {
                             format!(
-                                "{}{} liberados; {} erros{}.{}",
+                                "{}{}; {} erros{}.",
                                 if self.dry_run {
-                                    "Simulação: "
+                                    "Simulação — estimativa: "
                                 } else {
-                                    "Limpeza: "
+                                    "Limpeza — espaço liberado: "
                                 },
                                 crate::domain::format_bytes(reclaimed_bytes),
                                 errors,
-                                if cancelled { " (cancelada)" } else { "" },
-                                error_suffix
+                                if cancelled { " (cancelada)" } else { "" }
                             )
                         };
                         if !self.dry_run {
@@ -546,13 +568,19 @@ impl eframe::App for DesktopApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_scan(ctx);
         self.poll_target_events(ctx);
-        if !ctx.wants_keyboard_input() && ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+        if !self.confirm_clean
+            && self.page == Page::Disk
+            && !ctx.wants_keyboard_input()
+            && ctx.input(|input| input.key_pressed(egui::Key::Escape))
+        {
             self.current.pop();
             self.selected = None;
         }
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.heading("Acarí");
+                ui.separator();
                 if ui
                     .selectable_label(self.page == Page::Disk, "Análise de disco")
                     .clicked()
@@ -565,57 +593,90 @@ impl eframe::App for DesktopApp {
                 {
                     self.page = Page::Cleanup;
                 }
-                if self.page == Page::Cleanup {
-                    return;
-                }
-                ui.separator();
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.path)
-                        .desired_width(420.0)
-                        .hint_text("Volume mount ou caminho da pasta"),
-                );
-                if ui.button("Escolher pasta…").clicked()
-                    && let Some(path) = rfd::FileDialog::new().pick_folder()
-                {
-                    self.path = path.display().to_string();
-                }
-                egui::ComboBox::from_id_salt("mounts")
-                    .selected_text("Volumes montados")
-                    .show_ui(ui, |ui| {
-                        for mount in &self.mounts {
-                            if ui
-                                .selectable_label(false, mount.display().to_string())
-                                .clicked()
-                            {
-                                self.path = mount.display().to_string();
-                            }
-                        }
-                    });
-                if ui
-                    .add_enabled(self.rx.is_none(), egui::Button::new("Analisar"))
-                    .clicked()
-                {
-                    self.start_scan();
-                }
             });
+            ui.add_space(8.0);
+            if self.page == Page::Disk {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.path)
+                            .desired_width(340.0)
+                            .hint_text("Caminho da pasta ou volume"),
+                    );
+                    if ui.button("Escolher pasta…").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.path = path.display().to_string();
+                    }
+                    egui::ComboBox::from_id_salt("mounts")
+                        .selected_text("Volumes montados")
+                        .show_ui(ui, |ui| {
+                            for mount in &self.mounts {
+                                if ui
+                                    .selectable_label(false, mount.display().to_string())
+                                    .clicked()
+                                {
+                                    self.path = mount.display().to_string();
+                                }
+                            }
+                        });
+                    if ui
+                        .add_enabled(self.rx.is_none(), egui::Button::new("Analisar"))
+                        .clicked()
+                    {
+                        self.start_scan();
+                    }
+                });
+                ui.add_space(8.0);
+            }
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        if self.page == Page::Cleanup {
+            egui::TopBottomPanel::bottom("cleanup-selection-summary").show(ctx, |ui| {
+                ui.add_space(8.0);
+                let (count, bytes) = self
+                    .targets
+                    .iter()
+                    .filter(|row| row.3)
+                    .fold((0_usize, 0_u64), |(count, bytes), row| {
+                        (count + 1, bytes.saturating_add(row.1))
+                    });
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(format!("{count} alvos selecionados"));
+                    ui.label(format!(
+                        "Estimativa: {}",
+                        crate::domain::format_bytes(bytes)
+                    ));
+                    ui.checkbox(&mut self.dry_run, "Simular sem remover arquivos");
+                    if ui
+                        .add_enabled(
+                            count > 0
+                                && self.target_scan_done
+                                && !self.target_scan_busy
+                                && self.clean_rx.is_none(),
+                            egui::Button::new("Revisar limpeza…"),
+                        )
+                        .clicked()
+                    {
+                        self.confirmation_snapshot = Some(self.selected_target_snapshot());
+                        self.confirm_clean = true;
+                    }
+                });
+                ui.add_space(8.0);
+            });
+        }
+
+        egui::CentralPanel::default().frame(egui::Frame::central_panel(&ctx.style()).inner_margin(18)).show(ctx, |ui| {
             if self.page == Page::Cleanup {
                 ui.heading("Limpeza de alvos conhecidos");
-                ui.label("A análise de disco é somente leitura. Esta tela usa os alvos de limpeza configurados no Acarí.");
-                ui.horizontal(|ui| {
+                ui.label("Revise estimativas e escopos antes de remover dados. A análise de disco permanece somente leitura.");
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
                     if ui.add_enabled(!self.target_scan_busy && self.clean_rx.is_none(), egui::Button::new("Verificar alvos")).clicked() { self.start_target_scan(); }
                     if ui.add_enabled(self.target_scan_busy, egui::Button::new("Cancelar verificação")).clicked()
                         && let Some(cancel) = &self.target_scan_cancel
                     {
                         cancel.store(true, Ordering::Relaxed);
                         self.cleanup_status = "Cancelando verificação; uma consulta de sistema em andamento pode concluir antes da interrupção…".into();
-                    }
-                    ui.checkbox(&mut self.dry_run, "Simular (dry-run)");
-                    if ui.add_enabled(self.target_scan_done && self.clean_rx.is_none(), egui::Button::new("Limpar selecionados…")).clicked() {
-                        self.confirmation_snapshot = Some(self.selected_target_snapshot());
-                        self.confirm_clean = true;
                     }
                     if self.clean_rx.is_some()
                         && !self.privileged_clean
@@ -626,14 +687,26 @@ impl eframe::App for DesktopApp {
                         self.cleanup_status = "Cancelando limpeza… itens já removidos não podem ser restaurados.".into();
                     }
                 });
-                if !self.cleanup_status.is_empty() { ui.label(&self.cleanup_status); }
+                if !self.cleanup_status.is_empty() {
+                    egui::Frame::group(ui.style()).inner_margin(12).show(ui, |ui| {
+                        ui.strong(if self.clean_rx.is_some() || self.target_scan_busy { "Em andamento" } else { "Última operação" });
+                        ui.label(&self.cleanup_status);
+                        if !self.cleanup_errors.is_empty() {
+                            ui.collapsing(format!("Detalhes de {} falha(s)", self.cleanup_errors.len()), |ui| {
+                                egui::ScrollArea::vertical().id_salt("cleanup-failures").max_height(100.0).show(ui, |ui| {
+                                    for error in &self.cleanup_errors { ui.label(error); }
+                                });
+                            });
+                        }
+                    });
+                }
                 if !self.targets.is_empty() && !self.target_scan_done && !self.target_scan_busy {
                     ui.colored_label(
                         Color32::YELLOW,
                         "Preview expirado ou indisponível — verifique os alvos para habilitar a seleção.",
                     );
                 }
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.cleanup_search).desired_width(260.0).hint_text("Filtrar alvos por nome ou caminho…"));
                     if ui.button(if self.cleanup_sort_by_size { "Tamanho ↓" } else { "Nome A–Z" }).clicked() { self.cleanup_sort_by_size = !self.cleanup_sort_by_size; }
                     if ui.add_enabled(self.target_scan_done && !self.target_scan_busy, egui::Button::new("Selecionar visíveis")).clicked() {
@@ -658,10 +731,18 @@ impl eframe::App for DesktopApp {
                 }
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("cleanup-target-table").num_columns(3).striped(true)
+                         .min_col_width(160.0).max_col_width((ui.available_width() - 36.0) / 3.0)
+                        .spacing(Vec2::new(18.0, 18.0)).show(ui, |ui| {
+                    ui.strong("Alvo e escopo");
+                    ui.strong("Estimativa");
+                    ui.strong("Estado / risco");
+                    ui.end_row();
                     for index in visible {
                         let (target, bytes, files, selected) = &mut self.targets[index];
                         let scan_incomplete = scan_target_is_incomplete(target, &self.incomplete_scan_targets);
-                        ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.add_enabled_ui(
                                 cleanup_target_selectable(
                                     target,
@@ -673,20 +754,18 @@ impl eframe::App for DesktopApp {
                                 ui.checkbox(selected, "");
                             });
                             ui.strong(target.name.as_ref());
+                        });
+                        ui.label(target.description.as_ref());
+                        ui.small(target.path.as_ref()).on_hover_text(target.resolved_path().display().to_string());
+                        ui.small(format!("Escopo: {}", cleanup_scope_label(target)));
+                        });
+                        ui.vertical(|ui| {
                             ui.label(cleanup_metrics_label(
                                 target,
                                 *bytes,
                                 *files,
                                 scan_incomplete,
                             ));
-                            if !desktop_cleanup_supported(target) { ui.colored_label(Color32::GRAY, "não compatível com execução segura na UI"); }
-                            else if target.is_command() { ui.colored_label(Color32::YELLOW, "comando permitido · confirmação individual obrigatória"); }
-                            else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "operação perigosa · confirmação individual obrigatória"); }
-                            else if target.is_custom() { ui.colored_label(Color32::YELLOW, "alvo personalizado · confirmação individual obrigatória"); }
-                            if scan_incomplete { ui.colored_label(Color32::LIGHT_RED, "scan incompleto · limpeza bloqueada"); }
-                        });
-                        ui.label(format!("{} — {}", target.path, target.description));
-                        ui.label(format!("Escopo: {}", cleanup_scope_label(target)));
                         if self.target_scan_busy {
                             let progress_key = (
                                 target.name.to_string(),
@@ -705,13 +784,29 @@ impl eframe::App for DesktopApp {
                                 }
                             }
                         }
-                        ui.separator();
+                        });
+                        ui.vertical(|ui| {
+                            if !desktop_cleanup_supported(target) { ui.colored_label(Color32::GRAY, "Indisponível").on_hover_text("Não compatível com execução segura na UI"); }
+                            else if target.is_command() { ui.colored_label(Color32::YELLOW, "Comando · individual"); }
+                            else if target.is_dangerous() { ui.colored_label(Color32::LIGHT_RED, "Risco · individual"); }
+                            else if target.is_custom() { ui.colored_label(Color32::YELLOW, "Personalizado · individual"); }
+                            else { ui.label("Padrão"); }
+                            if scan_incomplete { ui.colored_label(Color32::LIGHT_RED, "Verificação incompleta · bloqueado"); }
+                            if target.requires_sudo { ui.small("Autorização do sistema"); }
+                        });
+                        ui.end_row();
                     }
+                    });
                 });
                 if self.confirm_clean {
                     let mut confirm = false;
-                    egui::Window::new("Confirmar limpeza").collapsible(false).resizable(false)
+                    let modal = egui::Modal::new(egui::Id::new("cleanup-confirmation"))
                         .show(ctx, |ui| {
+                            ui.set_width(460.0_f32.min(ctx.available_rect().width() - 64.0).max(240.0));
+                            ui.heading(if self.dry_run { "Revisar simulação" } else { "Confirmar limpeza" });
+                            ui.separator();
+                            egui::ScrollArea::vertical().id_salt("confirmation-review")
+                                .max_height((ctx.available_rect().height() - 200.0).max(120.0)).show(ui, |ui| {
                             let count = self.targets.iter().filter(|(_, _, _, selected)| *selected).count();
                             ui.label(format!("{} {} alvo(s) selecionado(s).", if self.dry_run { "Simular" } else { "Limpar" }, count));
                             egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
@@ -754,7 +849,9 @@ impl eframe::App for DesktopApp {
                                 }
                                 ui.label(if target.requires_sudo { "Este alvo requer privilégio; a autorização será solicitada pelo sistema." } else if target.is_custom() { "Este caminho personalizado vem da sua configuração e pode conter dados únicos." } else { "Esta operação pode remover dados não regeneráveis." });
                             }
-                            ui.label("A limpeza é irreversível. Revise o alvo e a estimativa; a análise visual de disco não será afetada.");
+                             ui.label(if self.dry_run { "A simulação não remove arquivos. Revise os alvos e seus escopos." } else { "A limpeza é irreversível. Revise os alvos e seus escopos antes de confirmar." });
+                            });
+                            ui.separator();
                             ui.horizontal(|ui| {
                                 if ui.button(if self.dry_run { "Executar simulação" } else { "Confirmar limpeza" }).clicked() { confirm = true; }
                                 if ui.button("Cancelar").clicked() {
@@ -763,7 +860,10 @@ impl eframe::App for DesktopApp {
                                 }
                             });
                         });
-                    if confirm { self.begin_clean(); }
+                    if modal.should_close() {
+                        self.confirm_clean = false;
+                        self.confirmation_snapshot = None;
+                    } else if confirm { self.begin_clean(); }
                 }
                 return;
             }
@@ -797,7 +897,7 @@ impl eframe::App for DesktopApp {
             }
             let root = self.tree.as_ref().unwrap();
             egui::SidePanel::right("selection-details")
-                .default_width(275.0)
+                .default_width(285.0)
                 .resizable(true)
                 .show_inside(ui, |ui| {
                     ui.heading("Detalhes");
@@ -809,7 +909,8 @@ impl eframe::App for DesktopApp {
                             ui.separator();
                             let node_size = node_bytes(node, self.allocated_size);
                             let root_size = node_bytes(root, self.allocated_size);
-                            ui.label(format!("{}: {}", if self.allocated_size { "Alocado" } else { "Aparente" }, crate::domain::format_bytes(node_size)));
+                            ui.heading(crate::domain::format_bytes(node_size));
+                            ui.label(if self.allocated_size { "Tamanho alocado" } else { "Tamanho aparente" });
                             let share = if root_size > 0 { node_size as f64 * 100.0 / root_size as f64 } else { 0.0 };
                             ui.label(format!("{share:.2}% da análise"));
                             if node.is_dir { ui.label(format!("{} itens diretos", node.children.len())); }
@@ -818,7 +919,7 @@ impl eframe::App for DesktopApp {
                         ui.label("Selecione um bloco para ver os detalhes.");
                     }
                     ui.separator();
-                    ui.label("Esc volta um nível no treemap.");
+                    ui.label("Esc volta um nível na análise.");
                     ui.label("A análise não remove arquivos.");
                 });
             ui.horizontal(|ui| {
@@ -849,7 +950,12 @@ impl eframe::App for DesktopApp {
             ui.separator();
             ui.horizontal_wrapped(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(220.0).hint_text("Filtrar itens deste diretório…"));
-                if ui.button(if self.sort_largest_first { "Maior primeiro" } else { "Nome A–Z" }).clicked() { self.sort_largest_first = !self.sort_largest_first; }
+                egui::ComboBox::from_id_salt("disk-order")
+                    .selected_text(if self.sort_largest_first { "Maior primeiro" } else { "Nome A–Z" })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.sort_largest_first, true, "Maior primeiro");
+                        ui.selectable_value(&mut self.sort_largest_first, false, "Nome A–Z");
+                    });
                 ui.checkbox(&mut self.allocated_size, "Tamanho alocado");
                 if ui.add_enabled(!self.current.is_empty(), egui::Button::new("Voltar um nível")).clicked() { self.current.pop(); }
             });
@@ -1191,26 +1297,45 @@ fn draw_treemap(
     for (index, child_rect) in boxes {
         let child = children[index];
         let response = ui.allocate_rect(child_rect, Sense::click());
-        let color = if selected.as_ref() == Some(&child.path) {
-            Color32::from_rgb(245, 155, 65)
-        } else {
-            color_for(&child.name)
-        };
+        let is_selected = selected.as_ref() == Some(&child.path);
+        let color =
+            color_for(&child.name).gamma_multiply(if response.hovered() { 1.12 } else { 1.0 });
         ui.painter().rect_filled(child_rect.shrink(1.0), 3.0, color);
         ui.painter().rect_stroke(
             child_rect.shrink(1.0),
             3.0,
-            Stroke::new(1.0_f32, Color32::from_gray(30)),
+            if is_selected {
+                Stroke::new(3.0_f32, Color32::from_rgb(198, 242, 223))
+            } else {
+                Stroke::new(1.0_f32, Color32::from_gray(30))
+            },
             egui::StrokeKind::Inside,
         );
         if child_rect.width() > 44.0 && child_rect.height() > 24.0 {
-            ui.painter().text(
+            let painter = ui.painter().with_clip_rect(child_rect.shrink(5.0));
+            let mut job = egui::text::LayoutJob::simple(
+                child.name.clone(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+                (child_rect.width() - 14.0).max(1.0),
+            );
+            job.wrap.max_rows = 1;
+            job.wrap.break_anywhere = true;
+            let label = painter.layout_job(job);
+            painter.galley(
                 child_rect.left_top() + Vec2::splat(7.0),
-                egui::Align2::LEFT_TOP,
-                &child.name,
-                egui::FontId::proportional(13.0),
+                label,
                 Color32::WHITE,
             );
+            if child_rect.height() > 48.0 {
+                painter.text(
+                    child_rect.left_top() + Vec2::new(7.0, 28.0),
+                    egui::Align2::LEFT_TOP,
+                    crate::domain::format_bytes(node_bytes(child, allocated_size)),
+                    egui::FontId::proportional(13.0),
+                    Color32::WHITE,
+                );
+            }
         }
         if response.clicked() {
             *selected_path = Some(child.path.clone());
@@ -1256,16 +1381,20 @@ fn draw_bars(
                 row.left_top(),
                 Vec2::new((row.width() * fraction).max(2.0), row.height() - 3.0),
             );
-            let color = if selected.as_ref() == Some(&child.path) {
-                Color32::from_rgb(220, 137, 58)
-            } else {
-                color_for(&child.name)
-            };
+            let color = color_for(&child.name);
             ui.painter().rect_filled(
                 bar,
                 3.0,
                 color.gamma_multiply(if response.hovered() { 1.25 } else { 1.0 }),
             );
+            if selected.as_ref() == Some(&child.path) {
+                ui.painter().rect_stroke(
+                    bar,
+                    3.0,
+                    Stroke::new(2.0_f32, Color32::from_rgb(198, 242, 223)),
+                    egui::StrokeKind::Inside,
+                );
+            }
             ui.painter().text(
                 row.left_center() + Vec2::new(8.0, 0.0),
                 egui::Align2::LEFT_CENTER,
@@ -1333,11 +1462,12 @@ fn draw_sunburst(
         if is_hovered {
             hovered = Some(index);
         }
-        let color = if selected.as_ref() == Some(&child.path) {
-            Color32::from_rgb(235, 148, 65)
-        } else {
-            color_for(&child.name)
-        };
+        let color =
+            color_for(&child.name).gamma_multiply(if selected.as_ref() == Some(&child.path) {
+                1.15
+            } else {
+                1.0
+            });
         let color = color.gamma_multiply(if is_hovered { 1.25 } else { 1.0 });
         let mut mesh = egui::Mesh::default();
         for step in 0..=steps {
@@ -1498,6 +1628,79 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn desktop_style_and_chart_rendering_work_at_small_and_large_sizes() {
+        let context = eframe::egui::Context::default();
+        super::configure_desktop_style(&context);
+        assert!(context.style().spacing.interact_size.y >= 32.0);
+        let child = DiskNode {
+            name: "Um nome muito longo para caber no bloco do gráfico".repeat(3),
+            path: PathBuf::from("root/item"),
+            bytes: 1024,
+            allocated_bytes: 2048,
+            is_dir: false,
+            children: vec![],
+        };
+        for size in [
+            eframe::egui::Vec2::new(760.0, 520.0),
+            eframe::egui::Vec2::new(1120.0, 760.0),
+        ] {
+            for chart in [
+                super::ChartStyle::Treemap,
+                super::ChartStyle::Bars,
+                super::ChartStyle::Sunburst,
+            ] {
+                let output = context.run(
+                    eframe::egui::RawInput {
+                        screen_rect: Some(eframe::egui::Rect::from_min_size(
+                            eframe::egui::Pos2::ZERO,
+                            size,
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                            let rect = ui.available_rect_before_wrap();
+                            let mut navigate = None;
+                            let mut selection = Some(child.path.clone());
+                            let children = [&child];
+                            match chart {
+                                super::ChartStyle::Treemap => super::draw_treemap(
+                                    ui,
+                                    &children,
+                                    rect,
+                                    &Some(child.path.clone()),
+                                    &mut navigate,
+                                    &mut selection,
+                                    false,
+                                ),
+                                super::ChartStyle::Bars => super::draw_bars(
+                                    ui,
+                                    &children,
+                                    rect,
+                                    &None,
+                                    &mut navigate,
+                                    &mut selection,
+                                    false,
+                                ),
+                                super::ChartStyle::Sunburst => super::draw_sunburst(
+                                    ui,
+                                    &children,
+                                    rect,
+                                    &None,
+                                    &mut navigate,
+                                    &mut selection,
+                                    false,
+                                ),
+                            }
+                            assert!(navigate.is_none());
+                        });
+                    },
+                );
+                assert!(!output.shapes.is_empty());
+            }
+        }
+    }
     use super::{apply_breadcrumb_navigation, indices_for_path, visible_children};
     #[cfg(unix)]
     use super::{
@@ -2131,7 +2334,8 @@ mod tests {
 
         assert!(app.cleanup_status.contains("cancelada"));
         assert!(app.cleanup_status.contains("1 erros"));
-        assert!(app.cleanup_status.contains("Cache: permission denied"));
+        assert_eq!(app.cleanup_errors, vec!["Cache: permission denied"]);
+        assert!(!app.cleanup_status.contains("permission denied"));
         assert!(app.cleanup_status.contains("Verifique os alvos novamente"));
         assert!(!app.target_scan_done);
         assert!(!app.targets[0].3);
