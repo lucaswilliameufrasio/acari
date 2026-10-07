@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-10-07
+
+### Bug Fixes
+
+- Drop Intel macOS release target
+- Refresh third-party license inventory
 ## [0.9.0] - 2026-10-07
 
 ### Bug Fixes
@@ -49,6 +55,10 @@ All notable changes to this project will be documented in this file.
 - Include third-party license notices
 - Normalize cleanup paths before overlap checks
 - Prevent desktop breadcrumb navigation panic
+
+### Chores
+
+- Prepare for v0.9.0
 
 ### Documentation
 
