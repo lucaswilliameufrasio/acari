@@ -2,6 +2,95 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-10-07
+
+### Bug Fixes
+
+- Report privileged cleanup results accurately
+- Validate privileged helper path ancestry
+- Clarify cleanup previews and cache broker checks
+- Require individual confirmation for custom cleanup targets
+- Keep cleanup symlinks within selected scope
+- Preserve cleanup roots and report cancellation accurately
+- Report actual filesystem cleanup results
+- Align desktop cleanup preview with execution scope
+- Keep interrupted cleanup scans unconfirmed
+- Preserve cleanup error details after cancellation
+- Recover desktop UI from cleanup worker exit
+- Report actual removed entry counts
+- Honor cancellation before removing single files
+- Validate exact targets before privileged cleanup
+- Match desktop scan results by target path
+- Reject overlapping desktop cleanup selections
+- Resolve symlinked paths in cleanup overlap checks
+- Normalize cleanup paths before overlap checks
+- Block cleanup after incomplete desktop scans
+- Require fresh scans before desktop cleanup
+- Clarify symlink cleanup preview metrics
+- Invalidate cleanup previews after execution
+- Disable selection when cleanup preview expires
+- Distinguish failed command estimates from zero
+- Reject malformed cleanup estimate output
+- Distinguish zero and unavailable cleanup estimates
+- Bound Time Machine cleanup preview to operation
+- Keep desktop cleanup UI polling active workers
+- Bind cleanup confirmation to reviewed selection
+- Update all duplicate cleanup scan rows
+- Compare exact cleanup confirmation targets
+- Label apt cleanup preview as approximate
+- Qualify journal vacuum reclaim estimate
+- Preserve partial Docker builder cleanup results
+- Report unreadable Docker builder reclaim totals
+- Stop simulator erase when shutdown fails
+- Qualify simulator reset preview size
+- Reject replaced cleanup targets
+- Recheck cleanup identity during path resolution
+- Preserve partial filesystem cleanup totals
+- Include third-party license notices
+- Normalize cleanup paths before overlap checks
+- Prevent desktop breadcrumb navigation panic
+
+### Documentation
+
+- Describe desktop cleanup preview safety
+- Qualify Time Machine cleanup estimate
+
+### Features
+
+- Add egui desktop disk analyzer
+- Add treemap filtering and cleanup controls
+- Use squarified disk treemap layout
+- Add bulk target selection and filtering
+- Improve treemap selection details
+- Compare apparent and allocated disk size
+- Add guarded desktop cleanup for allowlisted commands
+- Add constrained Linux desktop privilege broker
+- Add opt-in secure Linux helper installation
+- Add constrained macOS desktop privilege flow
+- Support safe Docker builder pruning in desktop UI
+- Support safe iOS simulator reset in desktop UI
+- Allow cancelling desktop cleanup operations
+- Clarify desktop cleanup scope before confirmation
+- Allow cancelling desktop cleanup scans
+- Show cleanup scan progress per target
+- Add disk analysis chart views
+- Refine desktop analysis and cleanup interface
+
+### Performance
+
+- Build disk tree bottom-up
+- Isolate desktop scans in rayon pool
+
+### Testing
+
+- Cover path-qualified cleanup scan progress
+- Harden privileged helper path validation coverage
+- Ensure special cleanup targets cannot run in batches
+- Preserve cleanup preview after dry run
+- Keep privileged cleanup results unmeasured
+- Reject overlapping cleanup targets before execution
+- Reject modified privileged cleanup targets
+- Use portable paths for cleanup overlap
 ## [0.8.3] - 2026-09-28
 
 ### Bug Fixes
@@ -9,6 +98,10 @@ All notable changes to this project will be documented in this file.
 - Report actual volume prune results
 - Stream prune output parsing
 - Surface volume prune metric errors
+
+### Chores
+
+- Prepare for v0.8.3
 
 ### Documentation
 
