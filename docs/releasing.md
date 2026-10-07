@@ -27,7 +27,7 @@ Types: `feat`, `fix`, `ci`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`
 
 Everything is already configured. [cargo-dist](https://github.com/axodotdev/cargo-dist) handles:
 
-- Cross-platform builds (Linux x86_64/arm64, macOS x86_64/arm64, Windows x86_64)
+- Cross-platform builds (Linux x86_64/arm64, macOS Apple Silicon, Windows x86_64)
 - Tarballs/zips with SHA256 checksums
 - Install scripts (shell + powershell)
 - Homebrew formula (if enabled)

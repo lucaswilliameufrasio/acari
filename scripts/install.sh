@@ -99,7 +99,6 @@ case "$OS" in
   Darwin)
     case "$ARCH" in
       arm64|aarch64) TARGET="aarch64-apple-darwin" ;;
-      x86_64|amd64) TARGET="x86_64-apple-darwin" ;;
       *)
         echo "Unsupported macOS architecture: $ARCH" >&2
         exit 1
