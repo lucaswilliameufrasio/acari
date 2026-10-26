@@ -198,10 +198,24 @@ pub fn discover_junk_dirs_report(
     if errors > 0 {
         eprintln!("[project-scan] incomplete discovery: {errors} error(s)");
     }
-    DiscoveryReport {
-        targets: discovered.lock().unwrap().clone(),
-        errors,
+    let mut targets = discovered.lock().unwrap().clone();
+    let mut name_counts = std::collections::HashMap::new();
+    for target in &targets {
+        *name_counts
+            .entry(target.name.to_string())
+            .or_insert(0_usize) += 1;
     }
+    for target in &mut targets {
+        if name_counts
+            .get(target.name.as_ref())
+            .copied()
+            .unwrap_or_default()
+            > 1
+        {
+            target.name = Cow::Owned(format!("{} ({})", target.name, target.path));
+        }
+    }
+    DiscoveryReport { targets, errors }
 }
 
 #[cfg(test)]
@@ -288,6 +302,21 @@ mod tests {
 
         let count = results.iter().filter(|t| t.name == "node_modules").count();
         assert_eq!(count, 1, "same path should not appear twice");
+    }
+
+    #[test]
+    fn same_relative_candidate_in_distinct_roots_gets_unique_event_names() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        fs::create_dir(first.path().join("node_modules")).unwrap();
+        fs::create_dir(second.path().join("node_modules")).unwrap();
+
+        let targets = discover_junk_dirs(&[first.path(), second.path()], &[], false, &[]);
+        assert_eq!(targets.len(), 2);
+        assert_ne!(targets[0].name, targets[1].name);
+        assert!(targets[0].name.contains("node_modules"));
+        assert!(targets[1].name.contains("node_modules"));
+        assert_ne!(targets[0].path, targets[1].path);
     }
 
     #[test]
