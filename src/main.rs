@@ -591,6 +591,7 @@ async fn main() -> Result<()> {
                             io_priority,
                             cli.allocated_size,
                             true,
+                            discovery.errors,
                         )?;
                     }
                 }
@@ -645,6 +646,7 @@ async fn main() -> Result<()> {
             io_priority,
             cli.allocated_size,
             false,
+            0,
         )
     }
 }

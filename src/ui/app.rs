@@ -174,6 +174,7 @@ pub fn run_tui(
     io_priority: IoPriority,
     allocated: bool,
     project_scan: bool,
+    discovery_errors: u64,
 ) -> Result<()> {
     let mut terminal = setup_terminal()?;
     let result = run_loop(
@@ -184,11 +185,13 @@ pub fn run_tui(
         io_priority,
         allocated,
         project_scan,
+        discovery_errors,
     );
     restore_terminal(&mut terminal)?;
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     targets: &[CleanTarget],
@@ -197,6 +200,7 @@ fn run_loop(
     io_priority: IoPriority,
     allocated: bool,
     project_scan: bool,
+    discovery_errors: u64,
 ) -> Result<()> {
     let targets_owned = targets.to_vec();
     let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
@@ -257,6 +261,17 @@ fn run_loop(
             }
         }
 
+        let mut visible_status = status_line.clone();
+        if roots_missing {
+            visible_status = format!("{} {}", msg::project_not_scanned(lang), visible_status);
+        }
+        if discovery_errors > 0 {
+            visible_status = format!(
+                "{} {}",
+                msg::incomplete_scan(lang).replace("{errors}", &discovery_errors.to_string()),
+                visible_status
+            );
+        }
         terminal.draw(|frame| {
             draw_ui(
                 frame.area(),
@@ -267,11 +282,7 @@ fn run_loop(
                 total_targets,
                 total_scanned_bytes,
                 &phase,
-                &if roots_missing {
-                    format!("{} {}", msg::project_not_scanned(lang), status_line)
-                } else {
-                    status_line.clone()
-                },
+                &visible_status,
                 dry_run,
                 lang,
                 &mut target_scroll,
@@ -286,7 +297,7 @@ fn run_loop(
             && key.kind == KeyEventKind::Press
         {
             let key_code = handle_error_popup_key(&mut error_popups, key.code);
-            match handle_key(
+            let command = handle_key(
                 &mut rows,
                 &mut selected_idx,
                 &mut phase,
@@ -296,7 +307,10 @@ fn run_loop(
                 scan_res.is_some(),
                 &mut sort_mode,
                 &mut search_filter,
-            ) {
+            );
+            let command =
+                block_incomplete_discovery(command, discovery_errors, lang, &mut status_line);
+            match command {
                 UiCommand::None => {}
                 UiCommand::Quit => break,
                 UiCommand::ConfigureProjects => {
@@ -808,7 +822,9 @@ fn handle_key(
             }
             KeyCode::Char('i') if *phase == Phase::ReadyToClean => {
                 for (_, state) in rows {
-                    state.selected = !state.selected && state.scan_errors == 0;
+                    if state.scan_errors == 0 {
+                        state.selected = !state.selected;
+                    }
                 }
                 UiCommand::None
             }
@@ -843,6 +859,25 @@ fn handle_key(
             }
             _ => UiCommand::None,
         }
+    }
+}
+
+fn block_incomplete_discovery(
+    command: UiCommand,
+    discovery_errors: u64,
+    lang: Language,
+    status_line: &mut String,
+) -> UiCommand {
+    if discovery_errors == 0 {
+        return command;
+    }
+    match command {
+        UiCommand::Confirm(_, _) | UiCommand::Clean(_) => {
+            *status_line =
+                msg::incomplete_scan(lang).replace("{errors}", &discovery_errors.to_string());
+            UiCommand::None
+        }
+        other => other,
     }
 }
 
@@ -1158,9 +1193,9 @@ mod tests {
     use ratatui::widgets::ListItem;
 
     use super::{
-        Phase, SortMode, TargetState, UiCommand, clean_target_status, dispatch_clean_execution,
-        draw_ui, format_scanning_label, handle_error_popup_key, handle_event, handle_key,
-        should_suspend_terminal_for_sudo, visible_target_list,
+        Phase, SortMode, TargetState, UiCommand, block_incomplete_discovery, clean_target_status,
+        dispatch_clean_execution, draw_ui, format_scanning_label, handle_error_popup_key,
+        handle_event, handle_key, should_suspend_terminal_for_sudo, visible_target_list,
     };
     use crate::ui::resolve_scroll;
 
@@ -1692,7 +1727,12 @@ mod tests {
     #[test]
     fn i_inverts_selection() {
         let mut rows = build_rows();
+        let mut incomplete = rows[1].clone();
+        incomplete.0.name = Cow::Borrowed("C");
+        rows.push(incomplete);
         rows[0].1.selected = true;
+        rows[2].1.selected = true;
+        rows[2].1.scan_errors = 1;
         let mut idx = 0_usize;
         let mut phase = Phase::ReadyToClean;
         let mut status = String::new();
@@ -1712,6 +1752,35 @@ mod tests {
         assert!(matches!(cmd, UiCommand::None));
         assert!(!rows[0].1.selected, "0 should now be deselected");
         assert!(rows[1].1.selected, "1 should now be selected");
+        assert!(
+            rows[2].1.selected,
+            "incomplete rows should remain unchanged"
+        );
+    }
+
+    #[test]
+    fn incomplete_project_discovery_blocks_clean_confirmation() {
+        let mut status = String::new();
+        let command = block_incomplete_discovery(
+            UiCommand::Confirm(Vec::new(), false),
+            2,
+            Language::English,
+            &mut status,
+        );
+        assert!(matches!(command, UiCommand::None));
+        assert!(status.contains("2 error(s)"));
+    }
+
+    #[test]
+    fn complete_project_discovery_keeps_clean_confirmation() {
+        let mut status = String::new();
+        let command = block_incomplete_discovery(
+            UiCommand::Confirm(Vec::new(), false),
+            0,
+            Language::English,
+            &mut status,
+        );
+        assert!(matches!(command, UiCommand::Confirm(_, false)));
     }
 
     #[test]

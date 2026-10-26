@@ -537,7 +537,7 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
             continue;
         }
 
-        run_tui(&discovered, excludes, lang, io_priority, false, true)?;
+        run_tui(&discovered, excludes, lang, io_priority, false, true, 0)?;
 
         current_cfg = target_config::load_config();
     }
