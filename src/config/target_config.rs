@@ -195,18 +195,7 @@ pub fn normalized_project_root(raw: &str) -> Result<PathBuf> {
     if !path.is_dir() {
         anyhow::bail!("project root must be a directory");
     }
-    let system_alias = [
-        "/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64",
-        "/usr", "/run",
-    ]
-    .iter()
-    .any(|root| {
-        std::path::Path::new(root)
-            .canonicalize()
-            .is_ok_and(|system| path.starts_with(system))
-    });
-    if path.parent().is_none()
-        || system_alias
+    if is_protected_project_root(&path)
         || !crate::application::commands::is_safe_path(&path.to_string_lossy())
         || dirs::home_dir()
             .and_then(|home| home.canonicalize().ok())
@@ -216,6 +205,42 @@ pub fn normalized_project_root(raw: &str) -> Result<PathBuf> {
         anyhow::bail!("choose a project directory, not home or a system directory");
     }
     Ok(path)
+}
+
+fn is_protected_project_root(path: &std::path::Path) -> bool {
+    if path.parent().is_none() {
+        return true;
+    }
+
+    #[cfg(unix)]
+    let protected = [
+        "/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64",
+        "/usr", "/run",
+    ]
+    .iter()
+    .map(std::path::PathBuf::from)
+    .collect::<Vec<_>>();
+
+    #[cfg(windows)]
+    let protected = [
+        "SystemRoot",
+        "windir",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramData",
+    ]
+    .iter()
+    .filter_map(std::env::var_os)
+    .map(std::path::PathBuf::from)
+    .collect::<Vec<_>>();
+
+    #[cfg(not(any(unix, windows)))]
+    let protected: Vec<std::path::PathBuf> = Vec::new();
+
+    protected.iter().any(|root| {
+        root.canonicalize()
+            .is_ok_and(|system| path.starts_with(system))
+    })
 }
 
 /// Shallow suggestions only: no recursive discovery, persistence or scanning.
@@ -289,6 +314,30 @@ mod project_root_tests {
         }
         if let Some(home) = dirs::home_dir() {
             assert!(cfg.add_project_root(home.to_str().unwrap()).is_err());
+        }
+        assert!(cfg.project_scan.roots.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_windows_system_and_program_directories() {
+        let mut cfg = TargetConfig::default();
+        for variable in [
+            "SystemRoot",
+            "windir",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramData",
+        ] {
+            if let Some(path) = std::env::var_os(variable) {
+                let path = PathBuf::from(path);
+                if path.is_dir() {
+                    assert!(
+                        cfg.add_project_root(&path.display().to_string()).is_err(),
+                        "{variable}"
+                    );
+                }
+            }
         }
         assert!(cfg.project_scan.roots.is_empty());
     }
