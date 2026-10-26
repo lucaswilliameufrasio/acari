@@ -32,6 +32,7 @@ struct TargetState {
     bytes: u64,
     files: u64,
     scan_done: bool,
+    scan_errors: u64,
     selected: bool,
     cleaned: bool,
     removed_entries: u64,
@@ -64,8 +65,81 @@ enum UiCommand {
     Rescan,
     ToggleDryRun,
     SortBySize,
+    ConfigureProjects,
     Confirm(Vec<(CleanTarget, u64, u64)>, bool),
     Clean(Vec<(CleanTarget, u64, u64)>),
+}
+
+#[cfg(test)]
+mod project_shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_scan_cannot_be_selected_for_cleanup() {
+        let target = crate::domain::build_targets(&[], &[]).remove(0);
+        let mut rows = vec![(
+            target,
+            TargetState {
+                scan_done: true,
+                scan_errors: 1,
+                ..Default::default()
+            },
+        )];
+        let mut status = String::new();
+        handle_key(
+            &mut rows,
+            &mut 0,
+            &mut Phase::ReadyToClean,
+            &mut status,
+            KeyCode::Char(' '),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+        assert!(!rows[0].1.selected);
+        assert!(status.contains("Incomplete scan"));
+        handle_key(
+            &mut rows,
+            &mut 0,
+            &mut Phase::ReadyToClean,
+            &mut status,
+            KeyCode::Char('a'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+        assert!(!rows[0].1.selected);
+    }
+
+    #[test]
+    fn setup_shortcut_is_available_only_outside_scan_and_cleanup() {
+        for mut phase in [
+            Phase::ReadyToClean,
+            Phase::Finished,
+            Phase::Scanning,
+            Phase::Cleaning {
+                completed_targets: 0,
+                total_targets: 1,
+                elapsed_seconds: 0,
+            },
+        ] {
+            let allowed = matches!(phase, Phase::ReadyToClean | Phase::Finished);
+            let command = handle_key(
+                &mut [],
+                &mut 0,
+                &mut phase,
+                &mut String::new(),
+                KeyCode::Char('p'),
+                Language::English,
+                false,
+                &mut SortMode::BytesDesc,
+                &mut None,
+            );
+            assert_eq!(matches!(command, UiCommand::ConfigureProjects), allowed);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +173,7 @@ pub fn run_tui(
     lang: Language,
     io_priority: IoPriority,
     allocated: bool,
+    project_scan: bool,
 ) -> Result<()> {
     let mut terminal = setup_terminal()?;
     let result = run_loop(
@@ -108,6 +183,7 @@ pub fn run_tui(
         lang,
         io_priority,
         allocated,
+        project_scan,
     );
     restore_terminal(&mut terminal)?;
     result
@@ -120,6 +196,7 @@ fn run_loop(
     lang: Language,
     io_priority: IoPriority,
     allocated: bool,
+    project_scan: bool,
 ) -> Result<()> {
     let targets_owned = targets.to_vec();
     let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
@@ -153,6 +230,11 @@ fn run_loop(
     let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
     let mut clean_cancel: Option<CancellationToken> = None;
     let mut error_popups = VecDeque::new();
+    let mut roots_missing = !project_scan
+        && crate::config::target_config::load_config()
+            .project_scan
+            .roots
+            .is_empty();
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
@@ -185,7 +267,11 @@ fn run_loop(
                 total_targets,
                 total_scanned_bytes,
                 &phase,
-                &status_line,
+                &if roots_missing {
+                    format!("{} {}", msg::project_not_scanned(lang), status_line)
+                } else {
+                    status_line.clone()
+                },
                 dry_run,
                 lang,
                 &mut target_scroll,
@@ -213,6 +299,20 @@ fn run_loop(
             ) {
                 UiCommand::None => {}
                 UiCommand::Quit => break,
+                UiCommand::ConfigureProjects => {
+                    restore_terminal(terminal)?;
+                    let result = crate::ui::project::run_project_tui(
+                        &crate::config::target_config::load_config(),
+                        lang,
+                    );
+                    *terminal = setup_terminal()?;
+                    result?;
+                    roots_missing = !project_scan
+                        && crate::config::target_config::load_config()
+                            .project_scan
+                            .roots
+                            .is_empty();
+                }
                 UiCommand::CancelScan => {
                     if let Some(res) = scan_res.as_mut() {
                         res.handle.abort();
@@ -472,7 +572,7 @@ fn handle_event(
             target_path: _,
             total_bytes,
             files_scanned,
-            scan_errors: _,
+            scan_errors,
         } => {
             if let Some(idx) = by_name.get(&target_name).copied() {
                 let (_, state) = &mut rows[idx];
@@ -480,6 +580,7 @@ fn handle_event(
                     state.bytes = total_bytes;
                     state.files = files_scanned;
                     state.scan_done = true;
+                    state.scan_errors = scan_errors;
                     *finished_targets = finished_targets.saturating_add(1);
                     *total_scanned_bytes = total_scanned_bytes.saturating_add(total_bytes);
                 }
@@ -616,6 +717,9 @@ fn handle_key(
         }
     } else {
         match key_code {
+            KeyCode::Char('p') if matches!(phase, Phase::ReadyToClean | Phase::Finished) => {
+                UiCommand::ConfigureProjects
+            }
             KeyCode::Char('/') if *phase == Phase::ReadyToClean => {
                 *search_filter = Some(String::new());
                 *status_line = String::from("Search: ");
@@ -686,20 +790,25 @@ fn handle_key(
             }
             KeyCode::Char(' ') if *phase == Phase::ReadyToClean => {
                 if let Some((_, state)) = rows.get_mut(*selected_idx) {
-                    state.selected = !state.selected;
+                    if state.scan_errors == 0 {
+                        state.selected = !state.selected;
+                    } else {
+                        *status_line = msg::incomplete_scan(lang)
+                            .replace("{errors}", &state.scan_errors.to_string());
+                    }
                 }
                 UiCommand::None
             }
             KeyCode::Char('a') if *phase == Phase::ReadyToClean => {
                 let should_select_all = rows.iter().any(|(_, s)| !s.selected);
                 for (_, state) in rows {
-                    state.selected = should_select_all;
+                    state.selected = should_select_all && state.scan_errors == 0;
                 }
                 UiCommand::None
             }
             KeyCode::Char('i') if *phase == Phase::ReadyToClean => {
                 for (_, state) in rows {
-                    state.selected = !state.selected;
+                    state.selected = !state.selected && state.scan_errors == 0;
                 }
                 UiCommand::None
             }
@@ -712,7 +821,7 @@ fn handle_key(
             KeyCode::Enter if *phase == Phase::ReadyToClean => {
                 let selected: Vec<(CleanTarget, u64, u64)> = rows
                     .iter()
-                    .filter(|(_, s)| s.selected)
+                    .filter(|(_, s)| s.selected && s.scan_errors == 0)
                     .map(|(target, s)| (target.clone(), s.bytes, s.files))
                     .collect();
 
@@ -890,7 +999,9 @@ fn draw_ui(
                 " "
             };
             let sel = if state.selected { "[x]" } else { "[ ]" };
-            let scan_mark = if state.scan_done {
+            let scan_mark = if state.scan_errors > 0 {
+                "scan:partial"
+            } else if state.scan_done {
                 "scan:ok"
             } else {
                 "scan:.."
@@ -973,11 +1084,14 @@ fn draw_ui(
     } else {
         Style::default().fg(Color::Green)
     };
-    let footer = Paragraph::new(footer_text).style(footer_style).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(msg::panel_footer(lang)),
-    );
+    let footer = Paragraph::new(footer_text)
+        .wrap(Wrap { trim: true })
+        .style(footer_style)
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            "{} | {}",
+            msg::panel_footer(lang),
+            msg::project_configure_shortcut(lang)
+        )));
     frame.render_widget(footer, vertical[3]);
 
     if let Some(detail) = error_popup {

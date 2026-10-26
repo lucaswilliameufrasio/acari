@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- Add opt-in project-root setup with validated, deduplicated directories and suggestions.
+- Surface project-root configuration from the main TUI and desktop.
+
+### Bug Fixes
+
+- Distinguish unconfigured project roots from measured zero project artifacts.
+- Honor configured project patterns/exclusions in the disk breakdown and use allocated blocks.
+- Present candidates instead of an exact used-space partition or guaranteed savings.
+- Expose scan errors, dangerous targets and overlap accounting in JSON; mark ambiguous project directories for review.
+- Prevent selecting incomplete TUI scan results for cleanup.
+
 ## [0.9.1] - 2026-10-07
 
 ### Bug Fixes

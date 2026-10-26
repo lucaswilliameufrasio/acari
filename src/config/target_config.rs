@@ -91,6 +91,31 @@ fn default_description() -> String {
 }
 
 impl TargetConfig {
+    /// Register a directory only after an explicit user action.
+    pub fn add_project_root(&mut self, raw: &str) -> Result<bool> {
+        let path = normalized_project_root(raw)?;
+        if self
+            .project_scan
+            .roots
+            .iter()
+            .any(|root| normalized_project_root(root).is_ok_and(|existing| existing == path))
+        {
+            return Ok(false);
+        }
+        self.project_scan.roots.push(path.display().to_string());
+        Ok(true)
+    }
+
+    pub fn remove_project_root(&mut self, raw: &str) -> bool {
+        let normalized = normalized_project_root(raw).ok();
+        let before = self.project_scan.roots.len();
+        self.project_scan.roots.retain(|root| {
+            root != raw
+                && !(normalized.is_some() && normalized_project_root(root).ok() == normalized)
+        });
+        self.project_scan.roots.len() != before
+    }
+
     pub fn add(&mut self, name: &str, path: &str, description: &str) -> Result<bool> {
         if self
             .custom_targets
@@ -158,6 +183,141 @@ impl TargetConfig {
         self.custom_targets
             .retain(|t| !t.name.eq_ignore_ascii_case(name));
         self.custom_targets.len() < len
+    }
+}
+
+pub fn normalized_project_root(raw: &str) -> Result<PathBuf> {
+    let expanded = crate::domain::expand_tilde(raw.trim());
+    if raw.trim().is_empty() {
+        anyhow::bail!("project root must not be empty");
+    }
+    let path = expanded.canonicalize().context("Project root must exist")?;
+    if !path.is_dir() {
+        anyhow::bail!("project root must be a directory");
+    }
+    let system_alias = [
+        "/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64",
+        "/usr", "/run",
+    ]
+    .iter()
+    .any(|root| {
+        std::path::Path::new(root)
+            .canonicalize()
+            .is_ok_and(|system| path.starts_with(system))
+    });
+    if path.parent().is_none()
+        || system_alias
+        || !crate::application::commands::is_safe_path(&path.to_string_lossy())
+        || dirs::home_dir()
+            .and_then(|home| home.canonicalize().ok())
+            .as_ref()
+            == Some(&path)
+    {
+        anyhow::bail!("choose a project directory, not home or a system directory");
+    }
+    Ok(path)
+}
+
+/// Shallow suggestions only: no recursive discovery, persistence or scanning.
+pub fn suggested_project_roots(home: &std::path::Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for name in [
+        "projects",
+        "Projects",
+        "Developer",
+        "code",
+        "src",
+        "git",
+        "git-worktrees",
+    ] {
+        if let Ok(path) = normalized_project_root(&home.join(name).display().to_string())
+            && !roots.contains(&path)
+        {
+            roots.push(path);
+        }
+    }
+    roots
+}
+
+#[cfg(test)]
+mod project_root_tests {
+    use super::*;
+
+    fn root_fixture() -> tempfile::TempDir {
+        #[cfg(target_os = "macos")]
+        {
+            tempfile::tempdir_in("/tmp").unwrap()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            tempfile::tempdir().unwrap()
+        }
+    }
+
+    #[test]
+    fn validates_and_deduplicates_existing_directories() {
+        let temp = root_fixture();
+        let root = temp.path().join("projects");
+        fs::create_dir(&root).unwrap();
+        let mut cfg = TargetConfig::default();
+        cfg.project_scan.patterns.push(".custom".into());
+        assert!(cfg.add_project_root(root.to_str().unwrap()).unwrap());
+        assert!(
+            !cfg.add_project_root(root.join(".").to_str().unwrap())
+                .unwrap()
+        );
+        assert_eq!(cfg.project_scan.roots.len(), 1);
+        assert!(cfg.remove_project_root(root.join(".").to_str().unwrap()));
+        assert!(root.is_dir());
+        assert_eq!(cfg.project_scan.patterns, [".custom"]);
+    }
+
+    #[test]
+    fn rejects_missing_files_home_and_system_roots_without_mutation() {
+        let temp = root_fixture();
+        let file = temp.path().join("file");
+        fs::write(&file, "data").unwrap();
+        let mut cfg = TargetConfig::default();
+        for raw in [
+            "",
+            "/",
+            "/etc",
+            file.to_str().unwrap(),
+            temp.path().join("missing").to_str().unwrap(),
+        ] {
+            assert!(cfg.add_project_root(raw).is_err(), "{raw}");
+        }
+        if let Some(home) = dirs::home_dir() {
+            assert!(cfg.add_project_root(home.to_str().unwrap()).is_err());
+        }
+        assert!(cfg.project_scan.roots.is_empty());
+    }
+
+    #[test]
+    fn suggestions_are_shallow_existing_and_never_persisted() {
+        let temp = root_fixture();
+        fs::create_dir(temp.path().join("projects")).unwrap();
+        fs::create_dir(temp.path().join("unrelated")).unwrap();
+        let roots = suggested_project_roots(temp.path());
+        assert_eq!(
+            roots,
+            [temp.path().join("projects").canonicalize().unwrap()]
+        );
+        assert!(!temp.path().join("acari").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn aliases_are_deduplicated_and_system_symlinks_rejected() {
+        let temp = root_fixture();
+        let alias = temp.path().join("alias");
+        std::os::unix::fs::symlink(temp.path(), &alias).unwrap();
+        let mut cfg = TargetConfig::default();
+        assert!(cfg.add_project_root(temp.path().to_str().unwrap()).unwrap());
+        assert!(!cfg.add_project_root(alias.to_str().unwrap()).unwrap());
+        let system = temp.path().join("system");
+        std::os::unix::fs::symlink("/etc", &system).unwrap();
+        assert!(cfg.add_project_root(system.to_str().unwrap()).is_err());
     }
 }
 

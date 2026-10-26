@@ -230,9 +230,13 @@ acari --headless --allocated-size
 # Disk usage overview (fast, no full scan)
 acari df
 
-# Disk usage with a used-space breakdown (runs a full scan):
-# used = acari junk + project junk + others
+# Candidate estimates by source (runs a scan; not an exact partition of used space)
 acari df --breakdown
+
+# Show project-root setup guidance and existing-directory suggestions (no changes)
+acari project setup
+# Explicitly register existing project directories (no scan or cleanup)
+acari project setup ~/projects ~/git-worktrees
 
 # Largest directories under a path (du-style, ancestors aggregate children)
 acari du                       # defaults to your home directory
@@ -247,6 +251,38 @@ acari history --clear
 # Structured JSON output for scripting (headless)
 acari --headless --json
 ```
+
+### Do not forget project roots
+
+Without configured roots, projects are **not scanned** — this is not a measured
+zero. `acari df --breakdown` and normal CLI scans explain this and point to
+`acari project setup`. Suggestions never add directories automatically.
+
+- **CLI:** `acari project setup <directory>...` or `acari project add-root <directory>`.
+  `list-roots` lists them; `remove-root` only removes configuration, not files.
+- **TUI:** after the normal scan, press **p** to open project configuration.
+  In that manager, **p** opens an editable root field with an existing-directory
+  suggestion when available; Enter validates and saves, Esc cancels.
+- **Desktop:** open **Projetos / raízes**, choose/type a folder or explicitly add
+  a suggestion. **Analisar pasta** opens that root in the read-only disk analyzer.
+  Project artifact cleanup remains available through `acari project scan`.
+
+New roots must be existing directories; canonical aliases are deduplicated, and
+home/system-wide roots are rejected. Legacy roots remain visible/removable.
+Review each project candidate: names such as `bin`, `vendor`, `build` and `dist`
+can contain maintained files, so discovery flags them as dangerous. A `target`
+directory without a sibling `Cargo.toml` also requires extra review.
+
+The breakdown uses allocated blocks for directories and honors configured project
+patterns/exclusions. Its per-source estimates are **not additive guaranteed
+savings**: command estimates can overlap, shared blocks may not be released, and
+roots can belong to different volumes. Use `acari du <path>` to investigate other
+occupied space. Incomplete scans are reported. JSON preserves `bytes` (raw) and
+`total_bytes` (path-deduplicated), adding per-target `counted_bytes`, `dangerous`,
+`command_estimate`, `scan_errors`, plus top-level `scan_errors`, `discovery_errors`
+and `estimate_only`. Project JSON also remains valid when no candidates are found;
+discovery diagnostics go to stderr, not into the JSON stream.
+Command estimates are not deduplicated against one another.
 
 `acari df` shows the primary volume's total/used/free space plus the APFS
 purgeable space (macOS). Use `acari --headless` to get the full reclaimable

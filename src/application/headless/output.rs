@@ -10,22 +10,55 @@ use crate::i18n::msg;
 pub fn print_scan_finished_json(
     completed: &HashMap<String, (CleanTarget, u64, u64)>,
     total_bytes: u64,
+    scan_errors: &HashMap<String, u64>,
+    discovery_errors: u64,
 ) {
+    let aggregate = crate::domain::aggregate_scan(
+        completed
+            .iter()
+            .map(|(name, (target, bytes, _))| {
+                (
+                    name.clone(),
+                    if target.is_command() {
+                        None
+                    } else {
+                        Some(target.resolved_path())
+                    },
+                    *bytes,
+                )
+            })
+            .collect(),
+    );
+    let counted: HashMap<_, _> = aggregate
+        .entries
+        .iter()
+        .map(|entry| (&entry.name, entry.counted_bytes))
+        .collect();
     let mut out = String::from("{\"targets\":[");
     let mut first = true;
-    for (name, (_t, bytes, files)) in completed {
+    for (name, (target, bytes, files)) in completed {
         if !first {
             out.push(',');
         }
         first = false;
         out.push_str(&format!(
-            "{{\"name\":{},\"bytes\":{},\"files\":{}}}",
+            "{{\"name\":{},\"bytes\":{},\"files\":{},\"counted_bytes\":{},\"dangerous\":{},\"command_estimate\":{},\"scan_errors\":{}}}",
             json_escape(name),
             bytes,
-            files
+            files,
+            counted.get(name).copied().unwrap_or(0),
+            target.is_dangerous(),
+            target.is_command(),
+            scan_errors.get(name).copied().unwrap_or(0)
         ));
     }
-    out.push_str(&format!("],\"total_bytes\":{total_bytes}}}"));
+    let errors: u64 = scan_errors
+        .values()
+        .sum::<u64>()
+        .saturating_add(discovery_errors);
+    out.push_str(&format!(
+        "],\"total_bytes\":{total_bytes},\"scan_errors\":{errors},\"discovery_errors\":{discovery_errors},\"estimate_only\":true}}"
+    ));
     println!("{out}");
 }
 

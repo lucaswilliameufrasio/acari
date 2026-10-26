@@ -84,19 +84,19 @@ fn collect_project_targets(
     no_default_patterns: bool,
     excludes: &[String],
     lang: Language,
-) -> Result<Vec<CleanTarget>> {
+) -> project_scan::DiscoveryReport {
     let roots: Vec<&str> = roots.iter().map(|s| s.as_str()).collect();
     let discovered =
-        project_scan::discover_junk_dirs(&roots, patterns, no_default_patterns, excludes);
-    if discovered.is_empty() {
-        println!("{}", msg::no_junk_found(lang));
+        project_scan::discover_junk_dirs_report(&roots, patterns, no_default_patterns, excludes);
+    if discovered.targets.is_empty() {
+        eprintln!("{}", msg::no_junk_found(lang));
     } else {
-        println!(
+        eprintln!(
             "[project-scan] {}",
-            msg::junk_found(lang).replace("{n}", &discovered.len().to_string())
+            msg::junk_found(lang).replace("{n}", &discovered.targets.len().to_string())
         );
     }
-    Ok(discovered)
+    discovered
 }
 
 fn run_history(clear: bool, lang: Language) {
@@ -144,7 +144,10 @@ fn print_df(lang: Language) {
 
 /// Scan the given targets silently and return the grand total that counts
 /// every scanned path exactly once (nested/duplicate targets count once).
-async fn scan_targets_total(targets: Vec<CleanTarget>) -> u64 {
+async fn scan_targets_total(
+    targets: Vec<CleanTarget>,
+    cfg: &target_config::TargetConfig,
+) -> (u64, u64, u64) {
     use std::collections::HashMap;
 
     use acari::application::headless::count_non_overlapping_total;
@@ -155,9 +158,14 @@ async fn scan_targets_total(targets: Vec<CleanTarget>) -> u64 {
         .cloned()
         .map(|target| (target.name.to_string(), target))
         .collect();
-    let (_tx, mut rx, handle) =
-        start_scan(targets, Vec::new(), target_config::IoPriority::Low, false);
+    let (_tx, mut rx, handle) = start_scan(
+        targets,
+        cfg.scan.exclude_patterns.clone(),
+        cfg.scan.io_priority,
+        true,
+    );
     let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
+    let mut errors = 0_u64;
     while let Some(event) = rx.recv().await {
         match event {
             AppEvent::TargetCompleted {
@@ -165,8 +173,9 @@ async fn scan_targets_total(targets: Vec<CleanTarget>) -> u64 {
                 target_path: _,
                 total_bytes,
                 files_scanned,
-                scan_errors: _,
+                scan_errors,
             } => {
+                errors = errors.saturating_add(scan_errors);
                 if let Some(target) = lookup.get(&target_name) {
                     completed.insert(target_name, (target.clone(), total_bytes, files_scanned));
                 }
@@ -175,51 +184,95 @@ async fn scan_targets_total(targets: Vec<CleanTarget>) -> u64 {
             _ => {}
         }
     }
-    let _ = handle.await;
-    count_non_overlapping_total(&completed)
+    if handle.await.is_err() {
+        errors = errors.saturating_add(1);
+    }
+    let dangerous = completed
+        .iter()
+        .filter(|(_, (target, _, _))| target.is_dangerous())
+        .map(|(name, row)| (name.clone(), row.clone()))
+        .collect();
+    (
+        count_non_overlapping_total(&completed),
+        count_non_overlapping_total(&dangerous),
+        errors,
+    )
 }
 
-/// `acari df --breakdown`: explicitly split the used space into acari junk,
-/// project junk and everything else, so the total no longer looks wrong.
+/// Estimates by source, deliberately not an exact partition of volume usage.
 async fn print_df_breakdown(lang: Language) {
-    use acari::infrastructure::df::disk_overview;
-
     let cfg = target_config::load_config();
     println!("{}", msg::df_breakdown_scanning(lang));
 
     let targets = prepare_targets(&[], &[], &cfg.custom_targets);
-    let junk_total = scan_targets_total(targets).await;
+    let (junk_total, dangerous, mut errors) = scan_targets_total(targets, &cfg).await;
 
-    let project_total = if cfg.project_scan.roots.is_empty() {
-        0
+    let (project_total, project_dangerous) = if cfg.project_scan.roots.is_empty() {
+        (0, 0)
     } else {
         let roots: Vec<&str> = cfg.project_scan.roots.iter().map(String::as_str).collect();
-        let discovered = project_scan::discover_junk_dirs(&roots, &[], false, &[]);
+        let discovery = project_scan::discover_junk_dirs_report(
+            &roots,
+            &cfg.project_scan.patterns,
+            false,
+            &cfg.scan.exclude_patterns,
+        );
+        errors = errors.saturating_add(discovery.errors);
+        let discovered = discovery.targets;
         if discovered.is_empty() {
-            0
+            (0, 0)
         } else {
-            scan_targets_total(discovered).await
+            let (bytes, dangerous, scan_errors) = scan_targets_total(discovered, &cfg).await;
+            errors = errors.saturating_add(scan_errors);
+            (bytes, dangerous)
         }
     };
 
-    let overview = disk_overview();
-    let others = overview
-        .used
-        .saturating_sub(junk_total)
-        .saturating_sub(project_total);
-
     println!("  {}", msg::df_breakdown_title(lang));
-    for (label, bytes) in [
-        (msg::df_breakdown_junk_targets(lang), junk_total),
-        (msg::df_breakdown_junk_projects(lang), project_total),
-        (msg::df_breakdown_others(lang), others),
-    ] {
-        let pct = if overview.used > 0 {
-            (bytes as f64 / overview.used as f64) * 100.0
+    println!(
+        "    {} {}",
+        msg::df_breakdown_junk_targets(lang),
+        format_bytes(junk_total)
+    );
+    if cfg.project_scan.roots.is_empty() {
+        println!("    {}", msg::project_not_scanned(lang));
+        println!("    {}", msg::project_setup_help(lang));
+    } else {
+        println!(
+            "    {} {}",
+            msg::df_breakdown_junk_projects(lang),
+            format_bytes(project_total)
+        );
+        for root in &cfg.project_scan.roots {
+            println!("      {root}");
+        }
+    }
+    println!(
+        "    {} {}",
+        if lang == Language::Portuguese {
+            "Incluído nos alvos gerais, perigosos:"
         } else {
-            0.0
-        };
-        println!("    {} {} ({pct:.0}%)", label, format_bytes(bytes));
+            "Included in general targets, dangerous:"
+        },
+        format_bytes(dangerous)
+    );
+    if !cfg.project_scan.roots.is_empty() {
+        println!(
+            "    {} {}",
+            if lang == Language::Portuguese {
+                "Incluído nos projetos, perigosos:"
+            } else {
+                "Included in projects, dangerous:"
+            },
+            format_bytes(project_dangerous)
+        );
+    }
+    println!("  {}", msg::estimate_caveat(lang));
+    if errors > 0 {
+        println!(
+            "  {}",
+            msg::incomplete_scan(lang).replace("{errors}", &errors.to_string())
+        );
     }
 }
 
@@ -338,16 +391,36 @@ async fn main() -> Result<()> {
                 }
             },
             Commands::Project { action } => match action {
+                Some(ProjectAction::Setup { paths }) => {
+                    let mut cfg = target_config::load_config();
+                    if paths.is_empty() {
+                        println!("{}", msg::project_setup_help(lang));
+                        print_project_roots(lang, &cfg);
+                        if let Some(home) = dirs::home_dir() {
+                            for path in target_config::suggested_project_roots(&home) {
+                                println!(
+                                    "  acari project add-root {:?}",
+                                    path.display().to_string()
+                                );
+                            }
+                        }
+                    } else {
+                        for path in paths {
+                            cfg.add_project_root(path)?;
+                        }
+                        target_config::save_config(&cfg)?;
+                        print_project_roots(lang, &cfg);
+                    }
+                }
                 None => {
                     let cfg = target_config::load_config();
                     acari::ui::project::run_project_tui(&cfg, lang)?;
                 }
                 Some(ProjectAction::AddRoot { path }) => {
                     let mut cfg = target_config::load_config();
-                    if cfg.project_scan.roots.contains(path) {
+                    if !cfg.add_project_root(path)? {
                         println!("{}", msg::root_already_exists(lang).replace("{path}", path));
                     } else {
-                        cfg.project_scan.roots.push(path.clone());
                         target_config::save_config(&cfg)?;
                         let time = format_modified_time().unwrap_or_default();
                         println!("{}", msg::root_added(lang).replace("{path}", path));
@@ -356,9 +429,7 @@ async fn main() -> Result<()> {
                 }
                 Some(ProjectAction::RemoveRoot { path }) => {
                     let mut cfg = target_config::load_config();
-                    let len = cfg.project_scan.roots.len();
-                    cfg.project_scan.roots.retain(|r| r != path);
-                    if cfg.project_scan.roots.len() < len {
+                    if cfg.remove_project_root(path) {
                         target_config::save_config(&cfg)?;
                         let time = format_modified_time().unwrap_or_default();
                         println!("{}", msg::root_removed(lang).replace("{path}", path));
@@ -463,20 +534,26 @@ async fn main() -> Result<()> {
                     };
 
                     if roots.is_empty() {
-                        anyhow::bail!("{}", msg::no_roots_configured(lang));
+                        anyhow::bail!(
+                            "{}\n{}",
+                            msg::project_not_scanned(lang),
+                            msg::project_setup_help(lang)
+                        );
                     }
 
                     let all_excludes = merge_excludes(excludes, &cfg.scan.exclude_patterns);
+                    let all_patterns = merge_excludes(patterns, &cfg.project_scan.patterns);
 
-                    let discovered = collect_project_targets(
+                    let discovery = collect_project_targets(
                         &roots,
-                        patterns,
+                        &all_patterns,
                         *no_default_patterns,
                         &all_excludes,
                         lang,
-                    )?;
+                    );
+                    let discovered = discovery.targets;
 
-                    if discovered.is_empty() {
+                    if discovered.is_empty() && !(*headless && *json) {
                         return Ok(());
                     }
 
@@ -495,7 +572,17 @@ async fn main() -> Result<()> {
                             io_priority,
                             cli.allocated_size,
                         );
-                        run_headless(tx, rx, discovered, *clean, clean_mode, lang, *json).await?;
+                        acari::application::headless::run_headless_with_discovery_errors(
+                            tx,
+                            rx,
+                            discovered,
+                            *clean,
+                            clean_mode,
+                            lang,
+                            *json,
+                            discovery.errors,
+                        )
+                        .await?;
                     } else {
                         run_tui(
                             &discovered,
@@ -503,6 +590,7 @@ async fn main() -> Result<()> {
                             lang,
                             io_priority,
                             cli.allocated_size,
+                            true,
                         )?;
                     }
                 }
@@ -514,6 +602,13 @@ async fn main() -> Result<()> {
     enforce_headless_clean_safety_l10n(cli.headless, cli.clean, cli.dry_run, cli.yes, lang)?;
 
     let cfg = target_config::load_config();
+    if cfg.project_scan.roots.is_empty() && !cli.list {
+        eprintln!(
+            "{}\n{}",
+            msg::project_not_scanned(lang),
+            msg::project_setup_help(lang)
+        );
+    }
     let io_priority = cfg.scan.io_priority;
     let excludes = merge_excludes(&cli.excludes, &cfg.scan.exclude_patterns);
     let targets = prepare_targets(&cli.targets, &cli.scan_paths, &cfg.custom_targets);
@@ -543,6 +638,13 @@ async fn main() -> Result<()> {
         };
         run_headless(tx, rx, targets, cli.clean, clean_mode, lang, cli.json).await
     } else {
-        run_tui(&targets, excludes, lang, io_priority, cli.allocated_size)
+        run_tui(
+            &targets,
+            excludes,
+            lang,
+            io_priority,
+            cli.allocated_size,
+            false,
+        )
     }
 }

@@ -50,6 +50,11 @@ pub struct ProjectTui {
 impl ProjectTui {
     fn new(cfg: TargetConfig, lang: Language) -> Self {
         let builtins = builtin_patterns();
+        let focus = if cfg.project_scan.roots.is_empty() {
+            Focus::Roots
+        } else {
+            Focus::Patterns
+        };
         let status = if cfg.project_scan.roots.is_empty() {
             format!(
                 "{} — {}.",
@@ -66,7 +71,7 @@ impl ProjectTui {
             builtins,
             selected_pattern: 0,
             selected_root: 0,
-            focus: Focus::Patterns,
+            focus,
             input_mode: InputMode::Idle,
             input_buf: String::new(),
             status,
@@ -144,14 +149,19 @@ impl ProjectTui {
                 }
             }
             InputMode::AddRoot => {
-                if val.is_empty() {
-                    self.status = msg::root_empty(self.lang).to_string();
-                } else if self.cfg.project_scan.roots.contains(&val) {
-                    self.status = msg::root_already_exists(self.lang).replace("{path}", &val);
-                } else {
-                    self.cfg.project_scan.roots.push(val.clone());
-                    let _ = target_config::save_config(&self.cfg);
-                    self.status = msg::root_added(self.lang).replace("{path}", &val);
+                let mut updated = self.cfg.clone();
+                match updated.add_project_root(&val) {
+                    Ok(true) => match target_config::save_config(&updated) {
+                        Ok(()) => {
+                            self.cfg = updated;
+                            self.status = msg::root_added(self.lang).replace("{path}", &val);
+                        }
+                        Err(error) => self.status = error.to_string(),
+                    },
+                    Ok(false) => {
+                        self.status = msg::root_already_exists(self.lang).replace("{path}", &val)
+                    }
+                    Err(error) => self.status = error.to_string(),
                 }
             }
             InputMode::Idle => {}
@@ -209,9 +219,16 @@ impl ProjectTui {
                 Focus::Roots => {
                     let idx = self.selected_root;
                     if idx < self.cfg.project_scan.roots.len() {
-                        let removed = self.cfg.project_scan.roots.remove(idx);
-                        let _ = target_config::save_config(&self.cfg);
-                        self.status = msg::root_removed(self.lang).replace("{path}", &removed);
+                        let mut updated = self.cfg.clone();
+                        let removed = updated.project_scan.roots.remove(idx);
+                        match target_config::save_config(&updated) {
+                            Ok(()) => {
+                                self.cfg = updated;
+                                self.status =
+                                    msg::root_removed(self.lang).replace("{path}", &removed);
+                            }
+                            Err(error) => self.status = error.to_string(),
+                        }
                     }
                     if self.selected_root >= self.cfg.project_scan.roots.len() {
                         self.selected_root = self.selected_root.saturating_sub(1);
@@ -220,7 +237,20 @@ impl ProjectTui {
             },
             KeyCode::Char('p') => {
                 self.input_mode = InputMode::AddRoot;
-                self.input_buf.clear();
+                self.input_buf = dirs::home_dir()
+                    .and_then(|home| {
+                        target_config::suggested_project_roots(&home)
+                            .into_iter()
+                            .find(|path| {
+                                !self
+                                    .cfg
+                                    .project_scan
+                                    .roots
+                                    .contains(&path.display().to_string())
+                            })
+                    })
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default();
                 self.status = msg::project_prompt_root(self.lang).to_string();
             }
             KeyCode::Char('s') => {
@@ -507,7 +537,7 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
             continue;
         }
 
-        run_tui(&discovered, excludes, lang, io_priority, false)?;
+        run_tui(&discovered, excludes, lang, io_priority, false, true)?;
 
         current_cfg = target_config::load_config();
     }
@@ -533,7 +563,31 @@ mod tests {
         cfg.project_scan.patterns.push(".foo".into());
         cfg.project_scan.patterns.push(".bar".into());
         cfg.project_scan.patterns.push(".baz".into());
-        ProjectTui::new(cfg, Language::English)
+        let mut tui = ProjectTui::new(cfg, Language::English);
+        tui.focus = super::Focus::Patterns;
+        tui
+    }
+
+    #[test]
+    fn empty_roots_focus_setup_and_p_opens_editable_root() {
+        let mut tui = ProjectTui::new(TargetConfig::default(), Language::English);
+        assert!(tui.focus == super::Focus::Roots);
+        assert!(tui.status.contains("root"));
+        tui.handle_key(KeyCode::Char('p'));
+        assert!(tui.input_mode == super::InputMode::AddRoot);
+        assert!(tui.cfg.project_scan.roots.is_empty());
+        tui.handle_input(KeyCode::Esc);
+        assert!(tui.cfg.project_scan.roots.is_empty());
+    }
+
+    #[test]
+    fn invalid_root_keeps_configuration_and_reports_error() {
+        let mut tui = ProjectTui::new(TargetConfig::default(), Language::English);
+        tui.input_mode = super::InputMode::AddRoot;
+        tui.input_buf = "/".into();
+        tui.confirm_input();
+        assert!(tui.cfg.project_scan.roots.is_empty());
+        assert!(tui.status.contains("system"));
     }
 
     // --- resolve_scroll ---

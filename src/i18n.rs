@@ -19,6 +19,46 @@ pub fn detect_language() -> Language {
 pub mod msg {
     use super::Language;
 
+    pub fn project_setup_help(lang: Language) -> &'static str {
+        s(
+            "Projetos não são varridos sem raízes configuradas. Use acari project setup <pasta> ou acari project (TUI). Sugestões abaixo não são adicionadas automaticamente.",
+            "Projects are not scanned without configured roots. Use acari project setup <directory> or acari project (TUI). Suggestions below are not added automatically.",
+            lang,
+        )
+    }
+
+    pub fn project_not_scanned(lang: Language) -> &'static str {
+        s(
+            "Projetos: não varridos (nenhuma raiz configurada).",
+            "Projects: not scanned (no roots configured).",
+            lang,
+        )
+    }
+
+    pub fn project_configure_shortcut(lang: Language) -> &'static str {
+        s(
+            "[p] Configurar raízes de projetos",
+            "[p] Configure project roots",
+            lang,
+        )
+    }
+
+    pub fn estimate_caveat(lang: Language) -> &'static str {
+        s(
+            "Candidatos à limpeza, não economia garantida. Alvos perigosos exigem revisão; estimativas de comandos podem se sobrepor e não pertencem necessariamente a este volume.",
+            "Cleanup candidates, not guaranteed savings. Dangerous targets require review; command estimates may overlap and need not belong to this volume.",
+            lang,
+        )
+    }
+
+    pub fn incomplete_scan(lang: Language) -> &'static str {
+        s(
+            "Varredura incompleta: {errors} erro(s); estimativa parcial.",
+            "Incomplete scan: {errors} error(s); partial estimate.",
+            lang,
+        )
+    }
+
     fn s(pt: &'static str, en: &'static str, lang: Language) -> &'static str {
         match lang {
             Language::Portuguese => pt,
@@ -44,8 +84,8 @@ pub mod msg {
 
     pub fn scan_finished(lang: Language) -> &'static str {
         s(
-            "\nScan finalizado. Total recuperável: {total}",
-            "\nScan finished. Total reclaimable bytes: {total}",
+            "\nScan finalizado. Estimativa de candidatos: {total}",
+            "\nScan finished. Candidate estimate: {total}",
             lang,
         )
     }
@@ -722,26 +762,34 @@ pub mod msg {
 
     pub fn df_breakdown_scanning(lang: Language) -> &'static str {
         s(
-            "Calculando decomposição do espaço usado (pode demorar)...",
-            "Computing used-space breakdown (this may take a while)...",
+            "Estimando candidatos à limpeza (pode demorar)...",
+            "Estimating cleanup candidates (this may take a while)...",
             lang,
         )
     }
 
     pub fn df_breakdown_title(lang: Language) -> &'static str {
         s(
-            "Decomposição do espaço usado:",
-            "Used-space breakdown:",
+            "Estimativas por origem (não somar como espaço livre):",
+            "Estimates by source (do not add as free space):",
             lang,
         )
     }
 
     pub fn df_breakdown_junk_targets(lang: Language) -> &'static str {
-        s("Junk (alvos do acari):", "Junk (acari targets):", lang)
+        s(
+            "Candidatos (alvos do acari, blocos alocados e estimativas de comandos):",
+            "Candidates (acari targets, allocated blocks and command estimates):",
+            lang,
+        )
     }
 
     pub fn df_breakdown_junk_projects(lang: Language) -> &'static str {
-        s("Junk (projetos):", "Junk (projects):", lang)
+        s(
+            "Candidatos (projetos, blocos alocados):",
+            "Candidates (projects, allocated blocks):",
+            lang,
+        )
     }
 
     pub fn df_breakdown_others(lang: Language) -> &'static str {

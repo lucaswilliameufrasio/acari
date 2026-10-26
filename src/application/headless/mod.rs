@@ -16,14 +16,30 @@ pub mod output;
 
 pub async fn run_headless(
     tx: UnboundedSender<AppEvent>,
-    mut rx: UnboundedReceiver<AppEvent>,
+    rx: UnboundedReceiver<AppEvent>,
     targets: Vec<CleanTarget>,
     clean_after_scan: bool,
     clean_mode: CleanMode,
     lang: Language,
     json: bool,
 ) -> Result<()> {
+    run_headless_with_discovery_errors(tx, rx, targets, clean_after_scan, clean_mode, lang, json, 0)
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_headless_with_discovery_errors(
+    tx: UnboundedSender<AppEvent>,
+    mut rx: UnboundedReceiver<AppEvent>,
+    targets: Vec<CleanTarget>,
+    clean_after_scan: bool,
+    clean_mode: CleanMode,
+    lang: Language,
+    json: bool,
+    discovery_errors: u64,
+) -> Result<()> {
     let mut completed: HashMap<String, (CleanTarget, u64, u64)> = HashMap::new();
+    let mut scan_errors_by_target = HashMap::new();
     let mut waiting_clean_finish = false;
     let target_lookup: HashMap<String, CleanTarget> = targets
         .iter()
@@ -48,8 +64,9 @@ pub async fn run_headless(
                 target_path: _,
                 total_bytes: bytes,
                 files_scanned,
-                scan_errors: _,
+                scan_errors,
             } => {
+                scan_errors_by_target.insert(target_name.clone(), scan_errors);
                 if !json {
                     print_target_done(&target_name, bytes, files_scanned, lang);
                 }
@@ -63,9 +80,26 @@ pub async fn run_headless(
                 // and its children) and exact duplicates are counted once.
                 let counted_total = count_non_overlapping_total(&completed);
                 if json {
-                    output::print_scan_finished_json(&completed, counted_total);
+                    output::print_scan_finished_json(
+                        &completed,
+                        counted_total,
+                        &scan_errors_by_target,
+                        discovery_errors,
+                    );
                 } else {
                     print_scan_finished(counted_total, lang);
+                    println!("{}", crate::i18n::msg::estimate_caveat(lang));
+                    let errors: u64 = scan_errors_by_target
+                        .values()
+                        .sum::<u64>()
+                        .saturating_add(discovery_errors);
+                    if errors > 0 {
+                        eprintln!(
+                            "{}",
+                            crate::i18n::msg::incomplete_scan(lang)
+                                .replace("{errors}", &errors.to_string())
+                        );
+                    }
                 }
 
                 if clean_after_scan {
