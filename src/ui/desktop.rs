@@ -1749,6 +1749,7 @@ mod tests {
         }
         app.save_project_root("/", true);
         assert!(app.project_root_status.contains("Não foi possível salvar"));
+        // The valid root added above remains, but the rejected system root does not.
         assert_eq!(app.project_config.project_scan.roots.len(), 1);
     }
 

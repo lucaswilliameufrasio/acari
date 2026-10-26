@@ -821,7 +821,9 @@ fn handle_key(
                 UiCommand::None
             }
             KeyCode::Char('a') if *phase == Phase::ReadyToClean => {
-                let should_select_all = rows.iter().any(|(_, s)| !s.selected);
+                let should_select_all = rows
+                    .iter()
+                    .any(|(_, state)| state.scan_errors == 0 && !state.selected);
                 for (_, state) in rows {
                     state.selected = should_select_all && state.scan_errors == 0;
                 }
@@ -1763,6 +1765,37 @@ mod tests {
             rows[2].1.selected,
             "incomplete rows should remain unchanged"
         );
+    }
+
+    #[test]
+    fn select_all_toggle_ignores_incomplete_rows_when_deselecting() {
+        let mut rows = build_rows();
+        let mut incomplete = rows[1].clone();
+        incomplete.0.name = Cow::Borrowed("C");
+        incomplete.1.scan_errors = 1;
+        rows.push(incomplete);
+        rows[0].1.selected = true;
+        rows[1].1.selected = true;
+        rows[2].1.selected = false;
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+
+        handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('a'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+
+        assert!(!rows[0].1.selected);
+        assert!(!rows[1].1.selected);
+        assert!(!rows[2].1.selected);
     }
 
     #[test]
