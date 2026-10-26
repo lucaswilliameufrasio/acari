@@ -527,17 +527,34 @@ pub fn run_project_tui(cfg: &TargetConfig, lang: Language) -> Result<()> {
         let patterns = tui.cfg.project_scan.patterns.clone();
         let excludes = merge_excludes(&[], &tui.cfg.scan.exclude_patterns);
 
-        let discovered = project_scan::discover_junk_dirs(&roots, &patterns, false, &excludes);
+        let discovery =
+            project_scan::discover_junk_dirs_report(&roots, &patterns, false, &excludes);
+        let discovered = discovery.targets;
 
         if discovered.is_empty() {
-            println!("{}", msg::no_junk_found(lang));
+            if discovery.errors == 0 {
+                println!("{}", msg::no_junk_found(lang));
+            } else {
+                println!(
+                    "{}",
+                    msg::incomplete_scan(lang).replace("{errors}", &discovery.errors.to_string())
+                );
+            }
             println!("Press Enter to continue...");
             current_cfg = tui.cfg;
             wait_for_key();
             continue;
         }
 
-        run_tui(&discovered, excludes, lang, io_priority, false, true, 0)?;
+        run_tui(
+            &discovered,
+            excludes,
+            lang,
+            io_priority,
+            false,
+            true,
+            discovery.errors,
+        )?;
 
         current_cfg = target_config::load_config();
     }

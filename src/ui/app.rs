@@ -239,6 +239,7 @@ fn run_loop(
             .project_scan
             .roots
             .is_empty();
+    let mut project_roots_changed = false;
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
@@ -264,6 +265,9 @@ fn run_loop(
         let mut visible_status = status_line.clone();
         if roots_missing {
             visible_status = format!("{} {}", msg::project_not_scanned(lang), visible_status);
+        }
+        if project_roots_changed {
+            visible_status = format!("{} {}", msg::project_roots_changed(lang), visible_status);
         }
         if discovery_errors > 0 {
             visible_status = format!(
@@ -315,17 +319,20 @@ fn run_loop(
                 UiCommand::Quit => break,
                 UiCommand::ConfigureProjects => {
                     restore_terminal(terminal)?;
+                    let roots_before = crate::config::target_config::load_config()
+                        .project_scan
+                        .roots;
                     let result = crate::ui::project::run_project_tui(
                         &crate::config::target_config::load_config(),
                         lang,
                     );
                     *terminal = setup_terminal()?;
                     result?;
-                    roots_missing = !project_scan
-                        && crate::config::target_config::load_config()
-                            .project_scan
-                            .roots
-                            .is_empty();
+                    let roots_after = crate::config::target_config::load_config()
+                        .project_scan
+                        .roots;
+                    project_roots_changed |= roots_before != roots_after;
+                    roots_missing = !project_scan && roots_after.is_empty();
                 }
                 UiCommand::CancelScan => {
                     if let Some(res) = scan_res.as_mut() {

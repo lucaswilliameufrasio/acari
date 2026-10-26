@@ -43,6 +43,14 @@ pub mod msg {
         )
     }
 
+    pub fn project_roots_changed(lang: Language) -> &'static str {
+        s(
+            "Raízes atualizadas; este resultado não inclui uma varredura de projetos. Execute acari project para atualizar candidatos.",
+            "Project roots changed; this result does not include a project scan. Run acari project to refresh candidates.",
+            lang,
+        )
+    }
+
     pub fn estimate_caveat(lang: Language) -> &'static str {
         s(
             "Candidatos à limpeza, não economia garantida. Alvos perigosos exigem revisão; estimativas de comandos podem se sobrepor e não pertencem necessariamente a este volume.",
