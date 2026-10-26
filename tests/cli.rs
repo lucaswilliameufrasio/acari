@@ -485,7 +485,7 @@ fn breakdown_distinguishes_unconfigured_roots_and_honors_custom_patterns() {
 
 #[test]
 fn json_exposes_overlap_and_estimate_metadata() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = safe_scan_tempdir();
     let root = temp.path().join("cache");
     fs::create_dir_all(root.join("nested")).unwrap();
     fs::write(root.join("nested/data"), "abc").unwrap();
@@ -527,11 +527,18 @@ fn json_exposes_overlap_and_estimate_metadata() {
 
 #[test]
 fn json_distinguishes_failed_scan_from_measured_zero() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = safe_scan_tempdir();
+    let missing = temp.path().join("missing-scan-target");
     let output = cmd()
         .env("ACARI_CONFIG_HOME", temp.path())
-        .env("HOME", temp.path())
-        .args(["--headless", "--json", "--target", "Cargo Registry"])
+        .args([
+            "--headless",
+            "--json",
+            "--target",
+            "not-a-target",
+            "--scan-path",
+        ])
+        .arg(missing)
         .assert()
         .success()
         .get_output()
