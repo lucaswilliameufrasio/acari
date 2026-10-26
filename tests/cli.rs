@@ -72,7 +72,7 @@ fn headless_scan_path_scans_custom_directory() {
         .stdout(predicate::str::contains("[done] Custom Path 1"))
         .stdout(predicate::str::contains("8 B"))
         .stdout(predicate::str::contains(
-            "Scan finished. Total reclaimable bytes",
+            "Scan finished. Candidate estimate",
         ));
 }
 
@@ -364,51 +364,221 @@ fn project_list_patterns_shows_builtin_and_custom() {
 
 #[test]
 fn project_add_root_persists_to_config() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
+    let root = temp.path().canonicalize().unwrap().display().to_string();
 
     let mut c = cmd();
     c.env("ACARI_CONFIG_HOME", temp.path());
-    c.args(["project", "add-root", "~/projects"])
+    c.args(["project", "add-root", &root])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Root '~/projects' added."));
+        .stdout(predicate::str::contains("added."));
 
     let config_path = temp.path().join("acari").join("config.toml");
     let content = fs::read_to_string(&config_path).expect("read config");
-    assert!(content.contains("~/projects"));
+    assert!(content.contains(&root));
+}
+
+#[test]
+fn project_setup_is_opt_in_and_persists_validated_roots() {
+    let temp = safe_scan_tempdir();
+    let projects = temp.path().join("projects");
+    fs::create_dir(&projects).unwrap();
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args(["project", "setup"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not added automatically"));
+    assert!(!temp.path().join("acari/config.toml").exists());
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args(["project", "setup"])
+        .arg(&projects)
+        .arg(projects.join("."))
+        .assert()
+        .success();
+    let config: acari::config::target_config::TargetConfig =
+        toml::from_str(&fs::read_to_string(temp.path().join("acari/config.toml")).unwrap())
+            .unwrap();
+    assert_eq!(config.project_scan.roots.len(), 1);
+    assert!(projects.is_dir());
+    let before = fs::read(temp.path().join("acari/config.toml")).unwrap();
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args(["project", "setup"])
+        .arg(&projects)
+        .arg(temp.path().join("missing"))
+        .assert()
+        .failure();
+    assert_eq!(
+        fs::read(temp.path().join("acari/config.toml")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn project_scan_without_roots_explains_setup() {
+    let temp = tempfile::tempdir().unwrap();
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args(["project", "scan", "--headless"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not scanned"))
+        .stderr(predicate::str::contains("acari project setup"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn breakdown_distinguishes_unconfigured_roots_and_honors_custom_patterns() {
+    let temp = tempfile::tempdir().unwrap();
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .env("HOME", temp.path())
+        .env("PATH", "/nonexistent")
+        .args(["df", "--breakdown"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Projects: not scanned"))
+        .stdout(predicate::str::contains("not guaranteed savings"));
+    let project = temp.path().join("projects");
+    fs::create_dir_all(project.join(".custom")).unwrap();
+    fs::write(project.join(".custom/data"), vec![1; 8192]).unwrap();
+    let mut cfg = acari::config::target_config::TargetConfig::default();
+    cfg.project_scan.roots.push(project.display().to_string());
+    cfg.project_scan.patterns.push(".custom".into());
+    fs::create_dir_all(temp.path().join("acari")).unwrap();
+    fs::write(
+        temp.path().join("acari/config.toml"),
+        toml::to_string(&cfg).unwrap(),
+    )
+    .unwrap();
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .env("HOME", temp.path())
+        .env("PATH", "/nonexistent")
+        .args(["df", "--breakdown"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Candidates (projects, allocated blocks): 8.00 KB",
+        ));
+    cfg.scan.exclude_patterns.push(".custom".into());
+    fs::write(
+        temp.path().join("acari/config.toml"),
+        toml::to_string(&cfg).unwrap(),
+    )
+    .unwrap();
+    cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .env("HOME", temp.path())
+        .env("PATH", "/nonexistent")
+        .args(["df", "--breakdown"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Candidates (projects, allocated blocks): 0 B",
+        ));
+    assert!(project.join(".custom/data").is_file());
+}
+
+#[test]
+fn json_exposes_overlap_and_estimate_metadata() {
+    let temp = safe_scan_tempdir();
+    let root = temp.path().join("cache");
+    fs::create_dir_all(root.join("nested")).unwrap();
+    fs::write(root.join("nested/data"), "abc").unwrap();
+    let result = cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args([
+            "--headless",
+            "--json",
+            "--target",
+            "not-a-target",
+            "--scan-path",
+        ])
+        .arg(&root)
+        .arg("--scan-path")
+        .arg(root.join("nested"))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&result).unwrap();
+    assert_eq!(json["total_bytes"], 3);
+    assert_eq!(json["estimate_only"], true);
+    assert_eq!(json["scan_errors"], 0);
+    let targets = json["targets"].as_array().unwrap();
+    assert_eq!(
+        targets
+            .iter()
+            .map(|target| target["counted_bytes"].as_u64().unwrap())
+            .sum::<u64>(),
+        3
+    );
+    assert!(
+        targets
+            .iter()
+            .all(|target| target["dangerous"].is_boolean())
+    );
+}
+
+#[test]
+fn json_distinguishes_failed_scan_from_measured_zero() {
+    let temp = safe_scan_tempdir();
+    let missing = temp.path().join("missing-scan-target");
+    let output = cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args([
+            "--headless",
+            "--json",
+            "--target",
+            "not-a-target",
+            "--scan-path",
+        ])
+        .arg(missing)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["scan_errors"], 1);
+    assert_eq!(json["targets"][0]["scan_errors"], 1);
+    assert_eq!(json["total_bytes"], 0);
 }
 
 #[test]
 fn project_remove_root_removes_from_config() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
+    let root = temp.path().canonicalize().unwrap().display().to_string();
 
     let mut c = cmd();
     c.env("ACARI_CONFIG_HOME", temp.path());
-    c.args(["project", "add-root", "~/projects"])
-        .assert()
-        .success();
+    c.args(["project", "add-root", &root]).assert().success();
 
     let mut c = cmd();
     c.env("ACARI_CONFIG_HOME", temp.path());
-    c.args(["project", "remove-root", "~/projects"])
+    c.args(["project", "remove-root", &root])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Root '~/projects' removed."));
+        .stdout(predicate::str::contains("removed."));
 
     let config_path = temp.path().join("acari").join("config.toml");
     let content = fs::read_to_string(&config_path).expect("read config");
-    assert!(!content.contains("~/projects"));
+    assert!(!content.contains(&root));
 }
 
 #[test]
 fn project_list_roots_shows_roots() {
-    let temp = tempfile::tempdir().expect("tempdir");
+    let temp = safe_scan_tempdir();
+    let root = temp.path().canonicalize().unwrap().display().to_string();
 
     let mut c = cmd();
     c.env("ACARI_CONFIG_HOME", temp.path());
-    c.args(["project", "add-root", "~/projects"])
-        .assert()
-        .success();
+    c.args(["project", "add-root", &root]).assert().success();
 
     let mut c = cmd();
     c.env("ACARI_CONFIG_HOME", temp.path());
@@ -416,7 +586,7 @@ fn project_list_roots_shows_roots() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Project roots:"))
-        .stdout(predicate::str::contains("~/projects"));
+        .stdout(predicate::str::contains(&root));
 }
 
 #[test]
@@ -477,7 +647,13 @@ fn headless_json_scan_path_emits_json() {
     fs::write(root.join("a.bin"), vec![0u8; 8]).expect("write file");
 
     cmd()
-        .args(["--headless", "--json", "--scan-path"])
+        .args([
+            "--headless",
+            "--json",
+            "--target",
+            "not-a-target",
+            "--scan-path",
+        ])
         .arg(root.to_str().unwrap())
         .assert()
         .success()
@@ -492,13 +668,37 @@ fn project_scan_json_emits_json() {
     fs::create_dir_all(proj.join("node_modules")).expect("create dir");
     fs::write(proj.join("node_modules").join("p.js"), b"x").expect("write file");
 
-    cmd()
+    let output = cmd()
         .args(["project", "scan", "--headless", "--json"])
         .arg(proj.to_str().unwrap())
         .assert()
         .success()
         .stdout(predicate::str::contains("\"targets\""))
-        .stdout(predicate::str::contains("\"total_bytes\""));
+        .stdout(predicate::str::contains("\"total_bytes\""))
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["discovery_errors"], 0);
+    assert_eq!(json["total_bytes"], 1);
+}
+
+#[test]
+fn project_json_missing_root_reports_discovery_error_not_clean_zero() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = cmd()
+        .env("ACARI_CONFIG_HOME", temp.path())
+        .args(["project", "scan", "--headless", "--json"])
+        .arg(temp.path().join("missing"))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["discovery_errors"], 1);
+    assert_eq!(json["scan_errors"], 1);
+    assert_eq!(json["targets"].as_array().unwrap().len(), 0);
 }
 
 #[test]

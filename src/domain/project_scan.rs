@@ -67,6 +67,21 @@ pub fn discover_junk_dirs(
     no_default: bool,
     excludes: &[String],
 ) -> Vec<CleanTarget> {
+    discover_junk_dirs_report(roots, extra_patterns, no_default, excludes).targets
+}
+
+pub struct DiscoveryReport {
+    pub targets: Vec<CleanTarget>,
+    pub errors: u64,
+}
+
+pub fn discover_junk_dirs_report(
+    roots: &[impl AsRef<Path>],
+    extra_patterns: &[String],
+    no_default: bool,
+    excludes: &[String],
+) -> DiscoveryReport {
+    let mut errors = 0_u64;
     let patterns: Vec<String> = if no_default {
         extra_patterns.to_vec()
     } else {
@@ -85,9 +100,10 @@ pub fn discover_junk_dirs(
     for root in roots {
         let raw = root.as_ref();
         let path = expand_tilde(&raw.to_string_lossy());
-        if !path.exists() {
+        if !path.is_dir() {
+            errors = errors.saturating_add(1);
             eprintln!(
-                "warning: project root does not exist: {} (expanded: {})",
+                "warning: project root is missing or not a directory: {} (expanded: {})",
                 raw.display(),
                 path.display()
             );
@@ -144,7 +160,14 @@ pub fn discover_junk_dirs(
                                     description: Cow::Owned(desc),
                                     command: &[],
                                     requires_sudo: false,
-                                    dangerous: false,
+                                    // A matching name alone cannot prove this is disposable.
+                                    dangerous: matches!(
+                                        name.as_str(),
+                                        "bin" | "vendor" | "build" | "dist" | "coverage"
+                                    ) || (name == "target"
+                                        && !e.path().parent().is_some_and(|parent| {
+                                            parent.join("Cargo.toml").is_file()
+                                        })),
                                     delete_entire: true,
                                     origin: TargetOrigin::Builtin,
                                 });
@@ -158,7 +181,11 @@ pub fn discover_junk_dirs(
                 });
             });
 
-        for _ in walker {}
+        for entry in walker {
+            if entry.is_err() {
+                errors = errors.saturating_add(1);
+            }
+        }
 
         let found = discovered.lock().unwrap().len() - count_before;
         eprintln!(
@@ -168,7 +195,27 @@ pub fn discover_junk_dirs(
         );
     }
 
-    discovered.lock().unwrap().clone()
+    if errors > 0 {
+        eprintln!("[project-scan] incomplete discovery: {errors} error(s)");
+    }
+    let mut targets = discovered.lock().unwrap().clone();
+    let mut name_counts = std::collections::HashMap::new();
+    for target in &targets {
+        *name_counts
+            .entry(target.name.to_string())
+            .or_insert(0_usize) += 1;
+    }
+    for target in &mut targets {
+        if name_counts
+            .get(target.name.as_ref())
+            .copied()
+            .unwrap_or_default()
+            > 1
+        {
+            target.name = Cow::Owned(format!("{} ({})", target.name, target.path));
+        }
+    }
+    DiscoveryReport { targets, errors }
 }
 
 #[cfg(test)]
@@ -176,6 +223,34 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn ambiguous_names_require_review_but_cargo_target_is_recognized() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["bin", "vendor", "build", "dist", "target"] {
+            fs::create_dir(root.path().join(name)).unwrap();
+        }
+        let targets = discover_junk_dirs(&[root.path()], &[], false, &[]);
+        assert_eq!(targets.len(), 5);
+        assert!(targets.iter().all(|target| target.dangerous));
+        fs::write(root.path().join("Cargo.toml"), "[package]").unwrap();
+        let targets = discover_junk_dirs(&[root.path()], &[], false, &[]);
+        assert!(
+            !targets
+                .iter()
+                .find(|target| target.name == "target")
+                .unwrap()
+                .dangerous
+        );
+    }
+
+    #[test]
+    fn discovery_reports_missing_roots_as_incomplete() {
+        let root = tempfile::tempdir().unwrap();
+        let report = discover_junk_dirs_report(&[root.path().join("missing")], &[], false, &[]);
+        assert_eq!(report.errors, 1);
+        assert!(report.targets.is_empty());
+    }
 
     #[test]
     fn finds_junk_dirs_under_root() {
@@ -227,6 +302,21 @@ mod tests {
 
         let count = results.iter().filter(|t| t.name == "node_modules").count();
         assert_eq!(count, 1, "same path should not appear twice");
+    }
+
+    #[test]
+    fn same_relative_candidate_in_distinct_roots_gets_unique_event_names() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        fs::create_dir(first.path().join("node_modules")).unwrap();
+        fs::create_dir(second.path().join("node_modules")).unwrap();
+
+        let targets = discover_junk_dirs(&[first.path(), second.path()], &[], false, &[]);
+        assert_eq!(targets.len(), 2);
+        assert_ne!(targets[0].name, targets[1].name);
+        assert!(targets[0].name.contains("node_modules"));
+        assert!(targets[1].name.contains("node_modules"));
+        assert_ne!(targets[0].path, targets[1].path);
     }
 
     #[test]

@@ -32,6 +32,7 @@ struct TargetState {
     bytes: u64,
     files: u64,
     scan_done: bool,
+    scan_errors: u64,
     selected: bool,
     cleaned: bool,
     removed_entries: u64,
@@ -64,8 +65,81 @@ enum UiCommand {
     Rescan,
     ToggleDryRun,
     SortBySize,
+    ConfigureProjects,
     Confirm(Vec<(CleanTarget, u64, u64)>, bool),
     Clean(Vec<(CleanTarget, u64, u64)>),
+}
+
+#[cfg(test)]
+mod project_shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_scan_cannot_be_selected_for_cleanup() {
+        let target = crate::domain::build_targets(&[], &[]).remove(0);
+        let mut rows = vec![(
+            target,
+            TargetState {
+                scan_done: true,
+                scan_errors: 1,
+                ..Default::default()
+            },
+        )];
+        let mut status = String::new();
+        handle_key(
+            &mut rows,
+            &mut 0,
+            &mut Phase::ReadyToClean,
+            &mut status,
+            KeyCode::Char(' '),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+        assert!(!rows[0].1.selected);
+        assert!(status.contains("Incomplete scan"));
+        handle_key(
+            &mut rows,
+            &mut 0,
+            &mut Phase::ReadyToClean,
+            &mut status,
+            KeyCode::Char('a'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+        assert!(!rows[0].1.selected);
+    }
+
+    #[test]
+    fn setup_shortcut_is_available_only_outside_scan_and_cleanup() {
+        for mut phase in [
+            Phase::ReadyToClean,
+            Phase::Finished,
+            Phase::Scanning,
+            Phase::Cleaning {
+                completed_targets: 0,
+                total_targets: 1,
+                elapsed_seconds: 0,
+            },
+        ] {
+            let allowed = matches!(phase, Phase::ReadyToClean | Phase::Finished);
+            let command = handle_key(
+                &mut [],
+                &mut 0,
+                &mut phase,
+                &mut String::new(),
+                KeyCode::Char('p'),
+                Language::English,
+                false,
+                &mut SortMode::BytesDesc,
+                &mut None,
+            );
+            assert_eq!(matches!(command, UiCommand::ConfigureProjects), allowed);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +173,8 @@ pub fn run_tui(
     lang: Language,
     io_priority: IoPriority,
     allocated: bool,
+    project_scan: bool,
+    discovery_errors: u64,
 ) -> Result<()> {
     let mut terminal = setup_terminal()?;
     let result = run_loop(
@@ -108,11 +184,14 @@ pub fn run_tui(
         lang,
         io_priority,
         allocated,
+        project_scan,
+        discovery_errors,
     );
     restore_terminal(&mut terminal)?;
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     targets: &[CleanTarget],
@@ -120,6 +199,8 @@ fn run_loop(
     lang: Language,
     io_priority: IoPriority,
     allocated: bool,
+    project_scan: bool,
+    discovery_errors: u64,
 ) -> Result<()> {
     let targets_owned = targets.to_vec();
     let mut rows: Vec<(CleanTarget, TargetState)> = targets_owned
@@ -153,6 +234,12 @@ fn run_loop(
     let mut clean_handle: Option<tokio::task::JoinHandle<()>> = None;
     let mut clean_cancel: Option<CancellationToken> = None;
     let mut error_popups = VecDeque::new();
+    let mut roots_missing = !project_scan
+        && crate::config::target_config::load_config()
+            .project_scan
+            .roots
+            .is_empty();
+    let mut project_roots_changed = false;
 
     let frame_time = Duration::from_millis(16);
     let mut last_tick = Instant::now();
@@ -175,6 +262,20 @@ fn run_loop(
             }
         }
 
+        let mut visible_status = status_line.clone();
+        if roots_missing {
+            visible_status = format!("{} {}", msg::project_not_scanned(lang), visible_status);
+        }
+        if project_roots_changed {
+            visible_status = format!("{} {}", msg::project_roots_changed(lang), visible_status);
+        }
+        if discovery_errors > 0 {
+            visible_status = format!(
+                "{} {}",
+                msg::incomplete_scan(lang).replace("{errors}", &discovery_errors.to_string()),
+                visible_status
+            );
+        }
         terminal.draw(|frame| {
             draw_ui(
                 frame.area(),
@@ -185,7 +286,7 @@ fn run_loop(
                 total_targets,
                 total_scanned_bytes,
                 &phase,
-                &status_line,
+                &visible_status,
                 dry_run,
                 lang,
                 &mut target_scroll,
@@ -200,7 +301,7 @@ fn run_loop(
             && key.kind == KeyEventKind::Press
         {
             let key_code = handle_error_popup_key(&mut error_popups, key.code);
-            match handle_key(
+            let command = handle_key(
                 &mut rows,
                 &mut selected_idx,
                 &mut phase,
@@ -210,9 +311,29 @@ fn run_loop(
                 scan_res.is_some(),
                 &mut sort_mode,
                 &mut search_filter,
-            ) {
+            );
+            let command =
+                block_incomplete_discovery(command, discovery_errors, lang, &mut status_line);
+            match command {
                 UiCommand::None => {}
                 UiCommand::Quit => break,
+                UiCommand::ConfigureProjects => {
+                    restore_terminal(terminal)?;
+                    let roots_before = crate::config::target_config::load_config()
+                        .project_scan
+                        .roots;
+                    let result = crate::ui::project::run_project_tui(
+                        &crate::config::target_config::load_config(),
+                        lang,
+                    );
+                    *terminal = setup_terminal()?;
+                    result?;
+                    let roots_after = crate::config::target_config::load_config()
+                        .project_scan
+                        .roots;
+                    project_roots_changed |= roots_before != roots_after;
+                    roots_missing = !project_scan && roots_after.is_empty();
+                }
                 UiCommand::CancelScan => {
                     if let Some(res) = scan_res.as_mut() {
                         res.handle.abort();
@@ -472,7 +593,7 @@ fn handle_event(
             target_path: _,
             total_bytes,
             files_scanned,
-            scan_errors: _,
+            scan_errors,
         } => {
             if let Some(idx) = by_name.get(&target_name).copied() {
                 let (_, state) = &mut rows[idx];
@@ -480,6 +601,7 @@ fn handle_event(
                     state.bytes = total_bytes;
                     state.files = files_scanned;
                     state.scan_done = true;
+                    state.scan_errors = scan_errors;
                     *finished_targets = finished_targets.saturating_add(1);
                     *total_scanned_bytes = total_scanned_bytes.saturating_add(total_bytes);
                 }
@@ -616,6 +738,9 @@ fn handle_key(
         }
     } else {
         match key_code {
+            KeyCode::Char('p') if matches!(phase, Phase::ReadyToClean | Phase::Finished) => {
+                UiCommand::ConfigureProjects
+            }
             KeyCode::Char('/') if *phase == Phase::ReadyToClean => {
                 *search_filter = Some(String::new());
                 *status_line = String::from("Search: ");
@@ -686,20 +811,29 @@ fn handle_key(
             }
             KeyCode::Char(' ') if *phase == Phase::ReadyToClean => {
                 if let Some((_, state)) = rows.get_mut(*selected_idx) {
-                    state.selected = !state.selected;
+                    if state.scan_errors == 0 {
+                        state.selected = !state.selected;
+                    } else {
+                        *status_line = msg::incomplete_scan(lang)
+                            .replace("{errors}", &state.scan_errors.to_string());
+                    }
                 }
                 UiCommand::None
             }
             KeyCode::Char('a') if *phase == Phase::ReadyToClean => {
-                let should_select_all = rows.iter().any(|(_, s)| !s.selected);
+                let should_select_all = rows
+                    .iter()
+                    .any(|(_, state)| state.scan_errors == 0 && !state.selected);
                 for (_, state) in rows {
-                    state.selected = should_select_all;
+                    state.selected = should_select_all && state.scan_errors == 0;
                 }
                 UiCommand::None
             }
             KeyCode::Char('i') if *phase == Phase::ReadyToClean => {
                 for (_, state) in rows {
-                    state.selected = !state.selected;
+                    if state.scan_errors == 0 {
+                        state.selected = !state.selected;
+                    }
                 }
                 UiCommand::None
             }
@@ -712,7 +846,7 @@ fn handle_key(
             KeyCode::Enter if *phase == Phase::ReadyToClean => {
                 let selected: Vec<(CleanTarget, u64, u64)> = rows
                     .iter()
-                    .filter(|(_, s)| s.selected)
+                    .filter(|(_, s)| s.selected && s.scan_errors == 0)
                     .map(|(target, s)| (target.clone(), s.bytes, s.files))
                     .collect();
 
@@ -734,6 +868,25 @@ fn handle_key(
             }
             _ => UiCommand::None,
         }
+    }
+}
+
+fn block_incomplete_discovery(
+    command: UiCommand,
+    discovery_errors: u64,
+    lang: Language,
+    status_line: &mut String,
+) -> UiCommand {
+    if discovery_errors == 0 {
+        return command;
+    }
+    match command {
+        UiCommand::Confirm(_, _) | UiCommand::Clean(_) => {
+            *status_line =
+                msg::incomplete_scan(lang).replace("{errors}", &discovery_errors.to_string());
+            UiCommand::None
+        }
+        other => other,
     }
 }
 
@@ -890,7 +1043,9 @@ fn draw_ui(
                 " "
             };
             let sel = if state.selected { "[x]" } else { "[ ]" };
-            let scan_mark = if state.scan_done {
+            let scan_mark = if state.scan_errors > 0 {
+                "scan:partial"
+            } else if state.scan_done {
                 "scan:ok"
             } else {
                 "scan:.."
@@ -973,11 +1128,14 @@ fn draw_ui(
     } else {
         Style::default().fg(Color::Green)
     };
-    let footer = Paragraph::new(footer_text).style(footer_style).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(msg::panel_footer(lang)),
-    );
+    let footer = Paragraph::new(footer_text)
+        .wrap(Wrap { trim: true })
+        .style(footer_style)
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            "{} | {}",
+            msg::panel_footer(lang),
+            msg::project_configure_shortcut(lang)
+        )));
     frame.render_widget(footer, vertical[3]);
 
     if let Some(detail) = error_popup {
@@ -1044,9 +1202,9 @@ mod tests {
     use ratatui::widgets::ListItem;
 
     use super::{
-        Phase, SortMode, TargetState, UiCommand, clean_target_status, dispatch_clean_execution,
-        draw_ui, format_scanning_label, handle_error_popup_key, handle_event, handle_key,
-        should_suspend_terminal_for_sudo, visible_target_list,
+        Phase, SortMode, TargetState, UiCommand, block_incomplete_discovery, clean_target_status,
+        dispatch_clean_execution, draw_ui, format_scanning_label, handle_error_popup_key,
+        handle_event, handle_key, should_suspend_terminal_for_sudo, visible_target_list,
     };
     use crate::ui::resolve_scroll;
 
@@ -1578,7 +1736,12 @@ mod tests {
     #[test]
     fn i_inverts_selection() {
         let mut rows = build_rows();
+        let mut incomplete = rows[1].clone();
+        incomplete.0.name = Cow::Borrowed("C");
+        rows.push(incomplete);
         rows[0].1.selected = true;
+        rows[2].1.selected = true;
+        rows[2].1.scan_errors = 1;
         let mut idx = 0_usize;
         let mut phase = Phase::ReadyToClean;
         let mut status = String::new();
@@ -1598,6 +1761,66 @@ mod tests {
         assert!(matches!(cmd, UiCommand::None));
         assert!(!rows[0].1.selected, "0 should now be deselected");
         assert!(rows[1].1.selected, "1 should now be selected");
+        assert!(
+            rows[2].1.selected,
+            "incomplete rows should remain unchanged"
+        );
+    }
+
+    #[test]
+    fn select_all_toggle_ignores_incomplete_rows_when_deselecting() {
+        let mut rows = build_rows();
+        let mut incomplete = rows[1].clone();
+        incomplete.0.name = Cow::Borrowed("C");
+        incomplete.1.scan_errors = 1;
+        rows.push(incomplete);
+        rows[0].1.selected = true;
+        rows[1].1.selected = true;
+        rows[2].1.selected = false;
+        let mut idx = 0_usize;
+        let mut phase = Phase::ReadyToClean;
+        let mut status = String::new();
+
+        handle_key(
+            &mut rows,
+            &mut idx,
+            &mut phase,
+            &mut status,
+            KeyCode::Char('a'),
+            Language::English,
+            false,
+            &mut SortMode::BytesDesc,
+            &mut None,
+        );
+
+        assert!(!rows[0].1.selected);
+        assert!(!rows[1].1.selected);
+        assert!(!rows[2].1.selected);
+    }
+
+    #[test]
+    fn incomplete_project_discovery_blocks_clean_confirmation() {
+        let mut status = String::new();
+        let command = block_incomplete_discovery(
+            UiCommand::Confirm(Vec::new(), false),
+            2,
+            Language::English,
+            &mut status,
+        );
+        assert!(matches!(command, UiCommand::None));
+        assert!(status.contains("2 error(s)"));
+    }
+
+    #[test]
+    fn complete_project_discovery_keeps_clean_confirmation() {
+        let mut status = String::new();
+        let command = block_incomplete_discovery(
+            UiCommand::Confirm(Vec::new(), false),
+            0,
+            Language::English,
+            &mut status,
+        );
+        assert!(matches!(command, UiCommand::Confirm(_, false)));
     }
 
     #[test]

@@ -20,6 +20,7 @@ enum Page {
     #[default]
     Disk,
     Cleanup,
+    Projects,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +81,9 @@ fn configure_desktop_style(ctx: &egui::Context) {
 }
 
 struct DesktopApp {
+    project_config: target_config::TargetConfig,
+    project_root_input: String,
+    project_root_status: String,
     path: String,
     tree: Option<DiskNode>,
     current: Vec<usize>,
@@ -116,6 +120,9 @@ struct DesktopApp {
 impl Default for DesktopApp {
     fn default() -> Self {
         Self {
+            project_config: target_config::load_config(),
+            project_root_input: String::new(),
+            project_root_status: String::new(),
             path: dirs::home_dir().unwrap_or_default().display().to_string(),
             tree: None,
             current: Vec::new(),
@@ -155,6 +162,77 @@ impl Default for DesktopApp {
 }
 
 impl DesktopApp {
+    fn draw_project_roots(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Raízes de projetos");
+        ui.label("Escolha onde ficam seus projetos. Sem raízes, os artefatos de projetos não entram no relatório. Nada é adicionado automaticamente.");
+        let cfg = self.project_config.clone();
+        for root in &cfg.project_scan.roots {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(root);
+                if ui
+                    .add_enabled(self.rx.is_none(), egui::Button::new("Analisar pasta"))
+                    .clicked()
+                {
+                    self.path = root.clone();
+                    self.page = Page::Disk;
+                    self.start_scan();
+                }
+                if ui.button("Remover da configuração").clicked() {
+                    self.save_project_root(root, false);
+                }
+            });
+        }
+        if cfg.project_scan.roots.is_empty() {
+            ui.colored_label(
+                Color32::YELLOW,
+                "Projetos: não varridos — nenhuma raiz configurada.",
+            );
+        }
+        ui.separator();
+        ui.label("Pasta de projetos");
+        ui.text_edit_singleline(&mut self.project_root_input);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Escolher pasta…").clicked()
+                && let Some(path) = rfd::FileDialog::new().pick_folder()
+            {
+                self.project_root_input = path.display().to_string();
+            }
+            if ui.button("Adicionar raiz").clicked() {
+                self.save_project_root(&self.project_root_input.clone(), true);
+            }
+        });
+        if let Some(home) = dirs::home_dir() {
+            for path in target_config::suggested_project_roots(&home) {
+                let root = path.display().to_string();
+                if !cfg.project_scan.roots.contains(&root)
+                    && ui.button(format!("Adicionar sugestão: {root}")).clicked()
+                {
+                    self.save_project_root(&root, true);
+                }
+            }
+        }
+        ui.label("Adicionar/remover raízes apenas altera a configuração. A análise da pasta é somente leitura; use acari project scan para revisar artefatos de projetos.");
+        ui.label(&self.project_root_status);
+    }
+
+    fn save_project_root(&mut self, root: &str, add: bool) {
+        let result = (|| -> anyhow::Result<()> {
+            let mut cfg = target_config::load_config();
+            if add {
+                cfg.add_project_root(root)?;
+            } else {
+                cfg.remove_project_root(root);
+            }
+            target_config::save_config(&cfg)?;
+            self.project_config = cfg;
+            Ok(())
+        })();
+        self.project_root_status = match result {
+            Ok(()) => "Configuração salva. Nenhum arquivo removido.".into(),
+            Err(error) => format!("Não foi possível salvar: {error}"),
+        };
+    }
+
     fn start_scan(&mut self) {
         let root = PathBuf::from(self.path.trim());
         let io_priority = target_config::load_config().scan.io_priority;
@@ -593,6 +671,15 @@ impl eframe::App for DesktopApp {
                 {
                     self.page = Page::Cleanup;
                 }
+                if ui
+                    .selectable_label(self.page == Page::Projects, "Projetos / raízes")
+                    .clicked()
+                {
+                    self.page = Page::Projects;
+                }
+                if self.project_config.project_scan.roots.is_empty() {
+                    ui.colored_label(Color32::YELLOW, "Projetos não varridos — configure raízes");
+                }
             });
             ui.add_space(8.0);
             if self.page == Page::Disk {
@@ -666,6 +753,10 @@ impl eframe::App for DesktopApp {
         }
 
         egui::CentralPanel::default().frame(egui::Frame::central_panel(&ctx.style()).inner_margin(18)).show(ctx, |ui| {
+            if self.page == Page::Projects {
+                egui::ScrollArea::vertical().show(ui, |ui| self.draw_project_roots(ui));
+                return;
+            }
             if self.page == Page::Cleanup {
                 ui.heading("Limpeza de alvos conhecidos");
                 ui.label("Revise estimativas e escopos antes de remover dados. A análise de disco permanece somente leitura.");
@@ -1628,6 +1719,40 @@ fn color_for(name: &str) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::target_config;
+    use eframe::egui;
+    #[test]
+    fn project_roots_page_renders_empty_and_configured_states_without_starting_work() {
+        let context = egui::Context::default();
+        #[cfg(target_os = "macos")]
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        #[cfg(not(target_os = "macos"))]
+        let root = tempfile::tempdir().unwrap();
+        let mut app = super::DesktopApp {
+            project_config: target_config::TargetConfig::default(),
+            page: super::Page::Projects,
+            ..Default::default()
+        };
+        for configured in [false, true] {
+            if configured {
+                app.project_config
+                    .add_project_root(root.path().to_str().unwrap())
+                    .unwrap();
+            }
+            let output = context.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.draw_project_roots(ui));
+            });
+            assert!(!output.shapes.is_empty());
+            assert!(app.rx.is_none());
+            assert!(app.target_rx.is_none());
+            assert!(app.clean_rx.is_none());
+        }
+        app.save_project_root("/", true);
+        assert!(app.project_root_status.contains("Não foi possível salvar"));
+        // The valid root added above remains, but the rejected system root does not.
+        assert_eq!(app.project_config.project_scan.roots.len(), 1);
+    }
+
     #[test]
     fn desktop_style_and_chart_rendering_work_at_small_and_large_sizes() {
         let context = eframe::egui::Context::default();

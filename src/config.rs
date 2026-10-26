@@ -116,6 +116,11 @@ pub enum TargetAction {
 
 #[derive(Debug, Subcommand)]
 pub enum ProjectAction {
+    /// Show setup guidance/suggestions, or explicitly register the given directories
+    Setup {
+        /// Existing project directories to register (nothing is added when omitted)
+        paths: Vec<String>,
+    },
     /// Add a project root
     AddRoot {
         /// Project root path
