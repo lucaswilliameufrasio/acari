@@ -5,7 +5,7 @@ name = "openrouter"
 model = "openai/gpt-5.6-luna"
 
 [review]
-max_diff_bytes = 180000
+max_diff_bytes = 1200000
 chunk_bytes = 45000
 ignore = ["**/Cargo.lock"]
 language = "pt-BR"
