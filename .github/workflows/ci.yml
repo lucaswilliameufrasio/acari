@@ -49,22 +49,41 @@ jobs:
         shell: bash
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust 1.98 with lint components
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+      - name: Install Rust 1.99 with lint components
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
           components: rustfmt, clippy
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Install Linux fontconfig development files
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev
 
       - name: Lint (rustfmt)
         run: cargo fmt --all --check
 
       - name: Lint (installer script syntax)
         run: sh -n scripts/install.sh
+
+      - name: Test release tool archive validation
+        run: python -m unittest discover -s scripts -p test_build_release_tool.py
+
+      - name: Test analyzer run identity projection
+        run: python -m unittest discover -s scripts -p test_cururu_analysis_status.py
+
+      - name: Test analyzer status collection
+        run: python -m unittest discover -s scripts -p test_collect_cururu_analysis.py
+
+      - name: Test PR head resolution
+        if: runner.os == 'Linux'
+        run: python -m unittest discover -s scripts -p test_resolve_cururu_head.py
 
       - name: Lint (clippy)
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
@@ -89,20 +108,20 @@ jobs:
         shell: bash
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust 1.98
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+      - name: Install Rust 1.99
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.151
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build
         run: cargo build --locked --all-targets
@@ -142,15 +161,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust 1.98
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+      - name: Install Rust 1.99
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build rustdoc
         run: cargo doc --locked --no-deps
@@ -158,18 +177,38 @@ jobs:
   license-check:
     name: License compliance
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request || contains(github.event.pull_request.changed_files, 'Cargo.toml') || contains(github.event.pull_request.changed_files, 'Cargo.lock') || contains(github.event.pull_request.changed_files, 'about.toml') || contains(github.event.pull_request.changed_files, 'about.hbs') }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Install Rust 1.98
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust 1.99
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.98.0
-      - name: Install cargo-about
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-about@0.9.1
+          toolchain: 1.99.1
+      - name: Build cargo-about with audited dependencies
+        run: |
+          python scripts/build-release-tool.py cargo-about --root "$RUNNER_TEMP/acari-tools"
+          echo "$RUNNER_TEMP/acari-tools/bin" >> "$GITHUB_PATH"
       - name: Validate third-party licenses
         run: |
           cargo about generate about.hbs -o "$RUNNER_TEMP/THIRD-PARTY-LICENSES.md"
           diff -u THIRD-PARTY-LICENSES.md "$RUNNER_TEMP/THIRD-PARTY-LICENSES.md"
+
+  release-tool-build:
+    name: Build release tools
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+      - name: Build audited tools
+        shell: bash
+        run: |
+          python scripts/build-release-tool.py cargo-about --root "$RUNNER_TEMP/acari-tools"
+          python scripts/build-release-tool.py cargo-dist --root "$RUNNER_TEMP/acari-tools"
+          "$RUNNER_TEMP/acari-tools/bin/cargo-about" --version
+          "$RUNNER_TEMP/acari-tools/bin/dist" --version
+          "$RUNNER_TEMP/acari-tools/bin/dist" plan --no-local-paths --output-format=json > "$RUNNER_TEMP/dist-plan.json"
