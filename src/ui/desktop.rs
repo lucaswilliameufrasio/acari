@@ -55,7 +55,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
 }
 
 fn configure_desktop_style(ctx: &egui::Context) {
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style.spacing.item_spacing = Vec2::new(12.0, 10.0);
     style.spacing.button_padding = Vec2::new(12.0, 7.0);
     style.spacing.interact_size = Vec2::new(32.0, 32.0);
@@ -77,7 +77,7 @@ fn configure_desktop_style(ctx: &egui::Context) {
     style.visuals.override_text_color = Some(Color32::from_rgb(228, 233, 231));
     style.visuals.selection.bg_fill = Color32::from_rgb(38, 91, 83);
     style.visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(144, 219, 195));
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 struct DesktopApp {
@@ -643,18 +643,28 @@ impl DesktopApp {
 }
 
 impl eframe::App for DesktopApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_scan(ctx);
         self.poll_target_events(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw_ui(ui);
+    }
+}
+
+impl DesktopApp {
+    fn draw_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
         if !self.confirm_clean
             && self.page == Page::Disk
-            && !ctx.wants_keyboard_input()
-            && ctx.input(|input| input.key_pressed(egui::Key::Escape))
+            && !ctx.egui_wants_keyboard_input()
+            && ui.input(|input| input.key_pressed(egui::Key::Escape))
         {
             self.current.pop();
             self.selected = None;
         }
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+        egui::Panel::top("toolbar").show(ui, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.heading("Acarí");
@@ -718,7 +728,7 @@ impl eframe::App for DesktopApp {
         });
 
         if self.page == Page::Cleanup {
-            egui::TopBottomPanel::bottom("cleanup-selection-summary").show(ctx, |ui| {
+            egui::Panel::bottom("cleanup-selection-summary").show(ui, |ui| {
                 ui.add_space(8.0);
                 let (count, bytes) = self
                     .targets
@@ -752,7 +762,7 @@ impl eframe::App for DesktopApp {
             });
         }
 
-        egui::CentralPanel::default().frame(egui::Frame::central_panel(&ctx.style()).inner_margin(18)).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).inner_margin(18)).show(ui, |ui| {
             if self.page == Page::Projects {
                 egui::ScrollArea::vertical().show(ui, |ui| self.draw_project_roots(ui));
                 return;
@@ -891,13 +901,15 @@ impl eframe::App for DesktopApp {
                 });
                 if self.confirm_clean {
                     let mut confirm = false;
-                    let modal = egui::Modal::new(egui::Id::new("cleanup-confirmation"))
-                        .show(ctx, |ui| {
-                            ui.set_width(460.0_f32.min(ctx.available_rect().width() - 64.0).max(240.0));
+                    let available_width = ui.available_width();
+                    let available_height = ui.available_height();
+                    let modal = egui::Modal::new(ui.make_persistent_id("cleanup-confirmation"))
+                        .show(&ctx, |ui| {
+                            ui.set_width(460.0_f32.min(available_width - 64.0).max(240.0));
                             ui.heading(if self.dry_run { "Revisar simulação" } else { "Confirmar limpeza" });
                             ui.separator();
                             egui::ScrollArea::vertical().id_salt("confirmation-review")
-                                .max_height((ctx.available_rect().height() - 200.0).max(120.0)).show(ui, |ui| {
+                                .max_height((available_height - 200.0).max(120.0)).show(ui, |ui| {
                             let count = self.targets.iter().filter(|(_, _, _, selected)| *selected).count();
                             ui.label(format!("{} {} alvo(s) selecionado(s).", if self.dry_run { "Simular" } else { "Limpar" }, count));
                             egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
@@ -987,10 +999,10 @@ impl eframe::App for DesktopApp {
                 return;
             }
             let root = self.tree.as_ref().unwrap();
-            egui::SidePanel::right("selection-details")
-                .default_width(285.0)
+            egui::Panel::right("selection-details")
+                .default_size(285.0)
                 .resizable(true)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     ui.heading("Detalhes");
                     if let Some(path) = &self.selected {
                         if let Some(node) = self.tree.as_ref().and_then(|tree| find_node(tree, path)) {
@@ -1722,6 +1734,40 @@ mod tests {
     use crate::config::target_config;
     use eframe::egui;
     #[test]
+    fn desktop_pages_and_cleanup_modal_render_without_starting_work() {
+        let context = egui::Context::default();
+        super::configure_desktop_style(&context);
+        let mut app = super::DesktopApp {
+            project_config: target_config::TargetConfig::default(),
+            ..Default::default()
+        };
+        for (page, confirm_clean) in [
+            (super::Page::Disk, false),
+            (super::Page::Cleanup, false),
+            (super::Page::Cleanup, true),
+            (super::Page::Projects, false),
+        ] {
+            app.page = page;
+            app.confirm_clean = confirm_clean;
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::Vec2::new(760.0, 520.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.draw_ui(ui),
+            );
+            assert!(!output.shapes.is_empty());
+            output.textures_delta.clear();
+            assert!(app.rx.is_none());
+            assert!(app.target_rx.is_none());
+            assert!(app.clean_rx.is_none());
+        }
+    }
+
+    #[test]
     fn project_roots_page_renders_empty_and_configured_states_without_starting_work() {
         let context = egui::Context::default();
         #[cfg(target_os = "macos")]
@@ -1739,10 +1785,11 @@ mod tests {
                     .add_project_root(root.path().to_str().unwrap())
                     .unwrap();
             }
-            let output = context.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| app.draw_project_roots(ui));
+            let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| app.draw_project_roots(ui));
             });
             assert!(!output.shapes.is_empty());
+            output.textures_delta.clear();
             assert!(app.rx.is_none());
             assert!(app.target_rx.is_none());
             assert!(app.clean_rx.is_none());
@@ -1757,7 +1804,7 @@ mod tests {
     fn desktop_style_and_chart_rendering_work_at_small_and_large_sizes() {
         let context = eframe::egui::Context::default();
         super::configure_desktop_style(&context);
-        assert!(context.style().spacing.interact_size.y >= 32.0);
+        assert!(context.global_style().spacing.interact_size.y >= 32.0);
         let child = DiskNode {
             name: "Um nome muito longo para caber no bloco do gráfico".repeat(3),
             path: PathBuf::from("root/item"),
@@ -1775,7 +1822,7 @@ mod tests {
                 super::ChartStyle::Bars,
                 super::ChartStyle::Sunburst,
             ] {
-                let output = context.run(
+                let mut output = context.run_ui(
                     eframe::egui::RawInput {
                         screen_rect: Some(eframe::egui::Rect::from_min_size(
                             eframe::egui::Pos2::ZERO,
@@ -1783,8 +1830,8 @@ mod tests {
                         )),
                         ..Default::default()
                     },
-                    |ctx| {
-                        eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    |ui| {
+                        eframe::egui::CentralPanel::default().show(ui, |ui| {
                             let rect = ui.available_rect_before_wrap();
                             let mut navigate = None;
                             let mut selection = Some(child.path.clone());
@@ -1823,6 +1870,7 @@ mod tests {
                     },
                 );
                 assert!(!output.shapes.is_empty());
+                output.textures_delta.clear();
             }
         }
     }

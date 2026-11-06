@@ -9,6 +9,10 @@
 ## Changelog generation (git-cliff)
 
 The changelog is auto-generated from git history using [git-cliff](https://git-cliff.org).
+The prepare-release workflow builds git-cliff 2.14.2 from its verified archive,
+after applying a checked, version-specific manifest change that removes the
+optional profiler, with the checked-in lockfile and `--no-default-features`; its remaining
+dependency warnings and limitations are documented in `docs/dependency-upgrade-audit.md`.
 
 Commits must follow [Conventional Commits](https://www.conventionalcommits.org/) format:
 
@@ -132,7 +136,22 @@ curl -fsSL https://github.com/lucaswilliameufrasio/acari/releases/download/v0.2.
 - Repository: https://github.com/axodotdev/cargo-dist
 - Documentation: https://opensource.axo.dev/cargo-dist/
 - Current config: `dist-workspace.toml`
-- Installed version: 0.32.0
+- Configured version: 0.34.0, built from its verified crates.io archive and the audited lockfile in `tools/locks/`.
+
+### Release tool dependencies
+
+CI and release build `cargo-dist` and `cargo-about` from versioned crates.io
+archives. `scripts/build-release-tool.py` verifies the archive SHA-256, replaces
+its bundled lockfile with the corresponding checked-in `tools/locks/` file,
+and builds with `cargo install --locked`. Rust 1.99.1 is pinned in the jobs.
+This fixes the dependency graph, not the compiler or final binary byte-for-byte.
+
+Before updating either tool, verify the new archive checksum against crates.io,
+update its lockfile and the versions in the script and workflows, audit both
+tool lockfiles with `cargo audit --file tools/locks/<lockfile>`, regenerate the
+license inventory with that exact `cargo-about` build, and run the release-tool
+matrix. Do not substitute the upstream prebuilt tool: its dependency graph may
+differ from the one audited here.
 
 ## Customization
 

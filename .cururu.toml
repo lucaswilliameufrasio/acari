@@ -40,7 +40,7 @@ show_usage = true
 
 [analysis]
 enabled = true
-manifest = "artifacts/analysis.json"
+manifest = ".cururu-evidence/analysis.json"
 max_findings = 100
 require_current_head = true
 check_runs = true

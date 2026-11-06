@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Chores
+
+- Add an opt-in GPUI read-only disk analysis preview; the existing desktop remains the default.
+- Upgrade Rust dependencies, including eframe, ratatui, rfd, jwalk, dirs and toml, and migrate the desktop UI to the current egui API.
+- Update the CI Rust toolchain and CI/release action references; refresh third-party license notices.
+- Build cargo-dist 0.34 and cargo-about 0.9.3 from verified archives with audited, pinned dependency lockfiles.
+
 ## [0.10.0] - 2026-10-26
 
 ### Bug Fixes
