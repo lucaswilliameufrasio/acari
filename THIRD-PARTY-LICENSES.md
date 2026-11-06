@@ -2994,7 +2994,7 @@ Software.
 - [serde_spanned 1.1.2]( https://github.com/toml-rs/toml )
 - [toml 1.2.0+spec-1.1.0]( https://github.com/toml-rs/toml )
 - [toml_datetime 1.1.2+spec-1.1.0]( https://github.com/toml-rs/toml )
-- [toml_edit 0.25.17+spec-1.1.0]( https://github.com/toml-rs/toml )
+- [toml_edit 0.25.18+spec-1.1.0]( https://github.com/toml-rs/toml )
 - [toml_parser 1.1.5+spec-1.1.0]( https://github.com/toml-rs/toml )
 - [toml_writer 1.2.0+spec-1.1.0]( https://github.com/toml-rs/toml )
 
@@ -7133,7 +7133,7 @@ SOFTWARE.
 ## MIT License
 
 ### Used by:
-- [acari 0.10.0]( https://github.com/lucaswilliameufrasio/acari )
+- [acari 0.11.0]( https://github.com/lucaswilliameufrasio/acari )
 
 ````text
 MIT License
@@ -7346,7 +7346,7 @@ DEALINGS IN THE SOFTWARE.
 ## MIT License
 
 ### Used by:
-- [winnow 1.0.4]( https://github.com/winnow-rs/winnow )
+- [winnow 1.0.5]( https://github.com/winnow-rs/winnow )
 
 ````text
 Permission is hereby granted, free of charge, to any person obtaining

@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 ### Other
 
 - Upgrade dependencies and harden release tooling
+
+### Features
+
+- Add an opt-in GPUI read-only disk analysis preview; keep the existing desktop as the default.
 ## [0.10.0] - 2026-10-26
 
 ### Bug Fixes
