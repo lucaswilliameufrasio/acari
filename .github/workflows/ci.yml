@@ -60,6 +60,12 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
+      - name: Install Linux fontconfig development files
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev
+
       - name: Lint (rustfmt)
         run: cargo fmt --all --check
 
