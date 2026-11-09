@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-11-09
+
+### Bug Fixes
+
+- Count hidden files and directories in scans
+- Use unique temp files for concurrent state writes
+- Read volume usage for a path on Windows
+- Address review findings in mcp, explore and alert samples
+
+### Documentation
+
+- Document acari guide and setup as the starting point
+- Document check, setup steps, alerts and the MCP server
+
+### Features
+
+- Add disk exploration and insight classification engine
+- Add acari guide to explain disk usage and suggest next steps
+- Add acari setup guided wizard
+- Add acari check with alert thresholds and saved guide report
+- Add acari mcp server for AI agents
+- Install the MCP server and low-disk hook into AI agents from setup
+- Schedule low-disk notifications and weekly report refresh
+
+### Refactor
+
+- Move insight location rules into their own module
+
+### Testing
+
+- Use a platform-absolute gitdir in the worktree explore test
 ## [0.11.0] - 2026-11-06
 
 ### Bug Fixes
@@ -9,13 +40,17 @@ All notable changes to this project will be documented in this file.
 - Increase review diff limit
 - Install fontconfig and restore generated licenses
 
+### Chores
+
+- Prepare for v0.11.0
+
+### Documentation
+
+- Complete v0.11.0 release notes and licenses
+
 ### Other
 
 - Upgrade dependencies and harden release tooling
-
-### Features
-
-- Add an opt-in GPUI read-only disk analysis preview; keep the existing desktop as the default.
 ## [0.10.0] - 2026-10-26
 
 ### Bug Fixes

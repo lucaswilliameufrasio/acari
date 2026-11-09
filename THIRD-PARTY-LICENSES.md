@@ -2991,10 +2991,10 @@ Software.
 - [clap_builder 4.6.7]( https://github.com/clap-rs/clap )
 - [clap_derive 4.6.7]( https://github.com/clap-rs/clap )
 - [clap_lex 1.1.1]( https://github.com/clap-rs/clap )
-- [serde_spanned 1.1.2]( https://github.com/toml-rs/toml )
-- [toml 1.2.0+spec-1.1.0]( https://github.com/toml-rs/toml )
-- [toml_datetime 1.1.2+spec-1.1.0]( https://github.com/toml-rs/toml )
-- [toml_edit 0.25.18+spec-1.1.0]( https://github.com/toml-rs/toml )
+- [serde_spanned 1.1.3]( https://github.com/toml-rs/toml )
+- [toml 1.2.1+spec-1.1.0]( https://github.com/toml-rs/toml )
+- [toml_datetime 1.1.3+spec-1.1.0]( https://github.com/toml-rs/toml )
+- [toml_edit 0.25.19+spec-1.1.0]( https://github.com/toml-rs/toml )
 - [toml_parser 1.1.5+spec-1.1.0]( https://github.com/toml-rs/toml )
 - [toml_writer 1.2.0+spec-1.1.0]( https://github.com/toml-rs/toml )
 
@@ -4501,7 +4501,7 @@ limitations under the License.
 - [equivalent 1.0.3]( https://github.com/indexmap-rs/equivalent )
 - [errno 0.3.14]( https://github.com/lambda-fairy/rust-errno )
 - [euclid 0.22.14]( https://github.com/servo/euclid )
-- [flate2 1.1.10]( https://github.com/rust-lang/flate2-rs )
+- [flate2 1.1.11]( https://github.com/rust-lang/flate2-rs )
 - [gethostname 1.1.0]( https://codeberg.org/swsnr/gethostname.rs.git )
 - [hashbrown 0.17.1]( https://github.com/rust-lang/hashbrown )
 - [heck 0.5.0]( https://github.com/withoutboats/heck )
@@ -4534,13 +4534,13 @@ limitations under the License.
 - [signal-hook-registry 1.4.8]( https://github.com/vorner/signal-hook )
 - [signal-hook 0.3.18]( https://github.com/vorner/signal-hook )
 - [simd_cesu8 1.2.0]( https://github.com/seancroach/simd_cesu8 )
-- [smallvec 1.16.4]( https://github.com/servo/rust-smallvec )
+- [smallvec 1.16.5]( https://github.com/servo/rust-smallvec )
 - [smol_str 0.2.2]( https://github.com/rust-analyzer/smol_str )
 - [unicode-properties 0.1.5]( https://github.com/unicode-rs/unicode-properties )
 - [unicode-segmentation 1.13.3]( https://github.com/unicode-rs/unicode-segmentation )
 - [unicode-truncate 2.0.1]( https://github.com/Aetf/unicode-truncate )
 - [unicode-width 0.2.3]( https://github.com/unicode-rs/unicode-width )
-- [uuid 1.29.0]( https://github.com/uuid-rs/uuid )
+- [uuid 1.29.2]( https://github.com/uuid-rs/uuid )
 - [wasi 0.11.1+wasi-snapshot-preview1]( https://github.com/bytecodealliance/wasi )
 - [wasip2 1.0.4+wasi-0.2.12]( https://github.com/bytecodealliance/wasi-rs )
 - [wasm-bindgen-futures 0.4.80]( https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/futures )
@@ -6185,7 +6185,7 @@ limitations under the License.
 - [ident_case 1.0.1]( https://github.com/TedDriggs/ident_case )
 - [image 0.25.10]( https://github.com/image-rs/image )
 - [indoc 2.0.8]( https://github.com/dtolnay/indoc )
-- [itoa 1.0.18]( https://github.com/dtolnay/itoa )
+- [itoa 1.0.19]( https://github.com/dtolnay/itoa )
 - [jni-macros 0.22.4]( https://github.com/jni-rs/jni-rs )
 - [jni-sys-macros 0.4.1]( https://github.com/jni-rs/jni-sys )
 - [jni 0.22.4]( https://github.com/jni-rs/jni-rs )
@@ -6219,7 +6219,7 @@ limitations under the License.
 - [serde_json 1.0.154]( https://github.com/serde-rs/json )
 - [simdutf8 0.1.5]( https://github.com/rusticstuff/simdutf8 )
 - [syn 2.0.119]( https://github.com/dtolnay/syn )
-- [syn 3.0.9]( https://github.com/dtolnay/syn )
+- [syn 3.0.10]( https://github.com/dtolnay/syn )
 - [thiserror-impl 1.0.69]( https://github.com/dtolnay/thiserror )
 - [thiserror-impl 2.0.21]( https://github.com/dtolnay/thiserror )
 - [thiserror 1.0.69]( https://github.com/dtolnay/thiserror )
@@ -7133,7 +7133,7 @@ SOFTWARE.
 ## MIT License
 
 ### Used by:
-- [acari 0.11.0]( https://github.com/lucaswilliameufrasio/acari )
+- [acari 0.12.0]( https://github.com/lucaswilliameufrasio/acari )
 
 ````text
 MIT License
