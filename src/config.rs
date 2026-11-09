@@ -1,7 +1,12 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(author, version, about = "acari: cache scanner for macOS and Linux")]
+#[command(
+    author,
+    version,
+    about = "acari: find out what is filling your disk and clean it safely",
+    after_help = "Start here:\n  acari guide    explain where your disk space went, with next steps\n  acari setup    guided configuration (project folders and more)\n  acari          interactive cleaner for known caches"
+)]
 pub struct Cli {
     /// Limit scan to specific target names (can be used multiple times)
     #[arg(short, long = "target")]
@@ -77,6 +82,15 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Guided configuration; re-run any time to adjust (e.g. `acari setup projects`)
+    Setup {
+        /// Run only these steps (default: all)
+        #[arg(value_enum)]
+        steps: Vec<crate::application::setup::SetupStep>,
+        /// Accept every default without asking
+        #[arg(long)]
+        yes: bool,
+    },
     /// Manage custom targets
     Target {
         #[command(subcommand)]
@@ -96,7 +110,6 @@ pub enum Commands {
         clear: bool,
     },
     /// Show a disk usage overview
-    /// Show disk usage overview
     Df {
         /// Split the used space into acari junk, project junk and the rest
         /// (runs a full scan; may take a while)

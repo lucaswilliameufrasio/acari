@@ -359,6 +359,12 @@ async fn main() -> Result<()> {
 
     if let Some(cmd) = &cli.command {
         match cmd {
+            Commands::Setup { steps, yes } => {
+                use acari::application::setup::{TerminalPrompter, run_setup};
+                let mut prompter = TerminalPrompter::new(*yes);
+                run_setup(steps, &mut prompter, lang)?;
+                return Ok(());
+            }
             Commands::Guide {
                 paths,
                 min_size,
@@ -452,6 +458,7 @@ async fn main() -> Result<()> {
                     if paths.is_empty() {
                         println!("{}", msg::project_setup_help(lang));
                         print_project_roots(lang, &cfg);
+                        println!("{}", msg::project_suggestions_note(lang));
                         if let Some(home) = dirs::home_dir() {
                             for path in target_config::suggested_project_roots(&home) {
                                 println!(
