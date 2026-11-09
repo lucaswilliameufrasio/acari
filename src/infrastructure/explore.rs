@@ -345,7 +345,12 @@ mod tests {
         write(&root.join("proj/target/debug/big.rlib"), 400_000);
         write(&root.join("notproj/target/x"), 10);
         write(&root.join("wt/.git"), 0);
-        fs::write(root.join("wt/.git"), "gitdir: /repo/.git/worktrees/wt\n").unwrap();
+        let gitdir = root.join("repo/.git/worktrees/wt");
+        fs::write(
+            root.join("wt/.git"),
+            format!("gitdir: {}\n", gitdir.display()),
+        )
+        .unwrap();
         write(&root.join("sub/.git"), 0);
         fs::write(root.join("sub/.git"), "gitdir: ../.git/modules/sub\n").unwrap();
 
@@ -365,7 +370,7 @@ mod tests {
             data.worktrees,
             vec![Worktree {
                 path: root.join("wt"),
-                main_repo: Some(PathBuf::from("/repo")),
+                main_repo: Some(root.join("repo")),
             }]
         );
     }
