@@ -10,20 +10,24 @@ use anyhow::Result;
 use crate::config::target_config::{self, TargetConfig};
 use crate::domain::insights::display_path;
 use crate::i18n::Language;
+use crate::infrastructure::agents;
 
 /// Steps the wizard knows. Running `acari setup <step>` runs only that one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum SetupStep {
     /// Folders where your code lives (enables `acari project`)
     Projects,
+    /// MCP server and low-disk hook for AI agents (Claude Code, Codex, opencode)
+    Agents,
 }
 
 impl SetupStep {
-    pub const ALL: &'static [SetupStep] = &[SetupStep::Projects];
+    pub const ALL: &'static [SetupStep] = &[SetupStep::Projects, SetupStep::Agents];
 
     fn title(self, lang: Language) -> &'static str {
         match self {
             SetupStep::Projects => tr(lang, "Pastas de projetos", "Project folders"),
+            SetupStep::Agents => tr(lang, "Agentes de IA", "AI agents"),
         }
     }
 }
@@ -33,23 +37,33 @@ pub trait Prompter {
     /// Ask a question; `None` means "no interactive answer available".
     fn ask(&mut self, question: &str) -> Option<String>;
     fn say(&mut self, line: &str);
+    /// `--yes`: accept defaults even for changes outside acari's own config.
+    fn assume_yes(&self) -> bool {
+        false
+    }
 }
 
 /// Terminal prompter. Without a TTY on stdin every question takes its
 /// default, so `acari setup` stays scriptable.
 pub struct TerminalPrompter {
     interactive: bool,
+    assume_yes: bool,
 }
 
 impl TerminalPrompter {
     pub fn new(assume_yes: bool) -> Self {
         Self {
             interactive: !assume_yes && std::io::stdin().is_terminal(),
+            assume_yes,
         }
     }
 }
 
 impl Prompter for TerminalPrompter {
+    fn assume_yes(&self) -> bool {
+        self.assume_yes
+    }
+
     fn ask(&mut self, question: &str) -> Option<String> {
         if !self.interactive {
             return None;
@@ -100,7 +114,10 @@ pub struct SetupContext<'a> {
     pub home: PathBuf,
     pub lang: Language,
     pub prompter: &'a mut dyn Prompter,
+    /// acari's own config changed and must be saved.
     pub changed: bool,
+    /// Other programs' files were changed (agents, timers).
+    pub external_changed: bool,
 }
 
 /// Run the given steps (all when empty) and save the config when it changed.
@@ -116,6 +133,7 @@ pub fn run_setup(
         lang,
         prompter,
         changed: false,
+        external_changed: false,
     };
     run_steps(&mut ctx, steps)?;
     if ctx.changed {
@@ -131,7 +149,7 @@ pub fn run_setup(
             ),
         };
         ctx.prompter.say(&line);
-    } else {
+    } else if !ctx.external_changed {
         ctx.prompter
             .say(tr(lang, "Nada mudou.", "Nothing changed."));
     }
@@ -163,10 +181,146 @@ pub fn run_steps(ctx: &mut SetupContext<'_>, steps: &[SetupStep]) -> Result<()> 
             .say(&format!("[{}/{}] {}", i + 1, steps.len(), step.title(lang)));
         match step {
             SetupStep::Projects => step_projects(ctx)?,
+            SetupStep::Agents => step_agents(ctx),
         }
     }
     ctx.prompter.say("");
     Ok(())
+}
+
+/// Like `confirm`, but for changes to other programs' files: without an
+/// interactive answer it only proceeds under `--yes`.
+fn confirm_external(p: &mut dyn Prompter, question: &str, lang: Language) -> bool {
+    let suffix = tr(lang, "[S/n]", "[Y/n]");
+    match p.ask(&format!("{question} {suffix}")) {
+        Some(answer) => parse_yes_no(Some(&answer), true),
+        None => p.assume_yes(),
+    }
+}
+
+/// The acari binary agents should launch: the one on PATH when present
+/// (survives upgrades), otherwise the running executable.
+pub fn acari_executable() -> PathBuf {
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join("acari");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .unwrap_or_else(|_| PathBuf::from("acari"))
+}
+
+fn apply_changes(ctx: &mut SetupContext<'_>, changes: &[agents::Change]) -> bool {
+    let mut ok = true;
+    if !changes.is_empty() {
+        ctx.external_changed = true;
+    }
+    for change in changes {
+        ctx.prompter
+            .say(&format!("      {}", change.describe(&ctx.home)));
+        if let Err(e) = change.apply() {
+            ctx.prompter.say(&format!("      ! {e}"));
+            ok = false;
+        }
+    }
+    ok
+}
+
+fn step_agents(ctx: &mut SetupContext<'_>) {
+    let lang = ctx.lang;
+    ctx.prompter.say(tr(
+        lang,
+        "  MCP: o agente consulta o disco e limpa com segurança (sempre simula antes).\n  Hook: no início de cada sessão o agente é avisado se o disco estiver apertado (silencioso quando está tudo bem).",
+        "  MCP: the agent can inspect the disk and clean safely (always dry-runs first).\n  Hook: at the start of each session the agent is told when the disk is low (silent when all is fine).",
+    ));
+    let found = agents::detect(&ctx.home);
+    if found.is_empty() {
+        ctx.prompter.say(tr(
+            lang,
+            "  Nenhum agente encontrado (Claude Code, Codex, opencode). Rode `acari setup agents` depois de instalar um.",
+            "  No agent found (Claude Code, Codex, opencode). Run `acari setup agents` after installing one.",
+        ));
+        return;
+    }
+    let names: Vec<&str> = found.iter().map(|a| a.name()).collect();
+    ctx.prompter.say(&format!(
+        "  {} {}",
+        tr(lang, "Encontrei:", "Found:"),
+        names.join(", ")
+    ));
+    let exe = acari_executable();
+    if exe.components().any(|c| c.as_os_str() == "target") {
+        ctx.prompter.say(tr(
+            lang,
+            "  Aviso: este é um build de desenvolvimento (target/); os agentes vão apontar para ele. Instale o acari e rode de novo para usar o binário instalado.",
+            "  Warning: this is a development build (target/); agents will point to it. Install acari and re-run to use the installed binary.",
+        ));
+    }
+
+    for agent in found {
+        let home = ctx.home.clone();
+        let current = agents::status(agent, &home);
+        ctx.prompter.say(&format!("  {}", agent.name()));
+
+        // MCP server.
+        let question = match (current.mcp, lang) {
+            (true, Language::Portuguese) => "    MCP instalado. Manter (e atualizar o caminho)?",
+            (true, Language::English) => "    MCP installed. Keep (and refresh the path)?",
+            (false, Language::Portuguese) => "    Instalar o MCP?",
+            (false, Language::English) => "    Install the MCP server?",
+        };
+        let want = confirm_external(ctx.prompter, question, lang);
+        let plan = match (want, current.mcp) {
+            (true, _) => agents::plan_mcp_install(agent, &home, &exe),
+            (false, true) => agents::plan_mcp_remove(agent, &home),
+            (false, false) => Ok(Vec::new()),
+        };
+        match plan {
+            Ok(changes) => {
+                apply_changes(ctx, &changes);
+            }
+            Err(e) => ctx.prompter.say(&format!("      ! {e}")),
+        }
+
+        // Session-start hook.
+        if !agent.supports_hook() {
+            ctx.prompter.say(tr(
+                lang,
+                "    Hook: não suportado por este agente (o MCP cobre).",
+                "    Hook: not supported by this agent (the MCP server covers it).",
+            ));
+            continue;
+        }
+        let question = match (current.hook, lang) {
+            (true, Language::Portuguese) => "    Hook de disco cheio instalado. Manter?",
+            (true, Language::English) => "    Low-disk hook installed. Keep?",
+            (false, Language::Portuguese) => "    Instalar o hook de disco cheio?",
+            (false, Language::English) => "    Install the low-disk hook?",
+        };
+        let want = confirm_external(ctx.prompter, question, lang);
+        let plan = match (want, current.hook) {
+            (true, _) => agents::plan_hook_install(agent, &home, &exe),
+            (false, true) => agents::plan_hook_remove(agent, &home),
+            (false, false) => Ok(Vec::new()),
+        };
+        match plan {
+            Ok(changes) => {
+                let applied = apply_changes(ctx, &changes);
+                if applied && want && !current.hook && agent == agents::Agent::Codex {
+                    ctx.prompter.say(tr(
+                        lang,
+                        "      O Codex vai pedir para confiar no hook na próxima sessão.",
+                        "      Codex will ask you to trust the hook in its next session.",
+                    ));
+                }
+            }
+            Err(e) => ctx.prompter.say(&format!("      ! {e}")),
+        }
+    }
 }
 
 fn step_projects(ctx: &mut SetupContext<'_>) -> Result<()> {
@@ -292,6 +446,7 @@ mod tests {
             lang: Language::English,
             prompter,
             changed: false,
+            external_changed: false,
         }
     }
 
@@ -340,6 +495,16 @@ mod tests {
         assert!(roots.iter().any(|r| r.ends_with("code")));
         assert!(roots.iter().any(|r| r.ends_with("work")));
         assert!(!roots.iter().any(|r| r.ends_with("projects")));
+    }
+
+    #[test]
+    fn agents_step_changes_nothing_without_an_answer_or_yes() {
+        let home = fixture_home();
+        let mut p = Scripted::new(&[]);
+        let mut c = ctx(home.path(), &mut p);
+        run_steps(&mut c, &[SetupStep::Agents]).unwrap();
+        assert!(!c.external_changed);
+        assert!(!home.path().join(".claude/settings.json").exists());
     }
 
     #[test]

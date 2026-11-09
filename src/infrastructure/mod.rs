@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod cleaner;
 pub mod df;
 pub mod disk_scan;
