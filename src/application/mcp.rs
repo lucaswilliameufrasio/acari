@@ -86,10 +86,16 @@ impl Server {
     }
 
     fn handle_message(&self, message: Value) -> Option<Value> {
-        let id = message.get("id").cloned();
-        let method = message.get("method").and_then(Value::as_str)?;
+        // Notifications (no id) never get a response, valid or not.
+        let id = message.get("id").cloned()?;
+        let Some(method) = message.get("method").and_then(Value::as_str) else {
+            return Some(error_response(
+                id,
+                -32600,
+                "invalid request: missing method",
+            ));
+        };
         let params = message.get("params").cloned().unwrap_or(Value::Null);
-        let id = id?; // notifications (no id) never get a response
         let result = match method {
             "initialize" => Ok(initialize_result(&params)),
             "ping" => Ok(json!({})),
@@ -224,9 +230,11 @@ impl Server {
                     _ => {}
                 }
             }
-            let _ = handle.await;
-            out
-        })
+            handle
+                .await
+                .map_err(|e| format!("scan worker failed: {e}"))?;
+            Ok(out)
+        })?
     }
 
     fn scan_targets(&self, args: &Value) -> Result<Value, String> {
@@ -668,6 +676,14 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope","arguments":{}}}"#,
         );
         assert_eq!(r["result"]["isError"], true);
+    }
+
+    #[test]
+    fn requests_without_method_get_an_invalid_request_error() {
+        let server = Server::new(Language::English);
+        let r = call(&server, r#"{"jsonrpc":"2.0","id":9}"#);
+        assert_eq!(r["error"]["code"], -32600);
+        assert!(server.handle_line(r#"{"jsonrpc":"2.0"}"#).is_none());
     }
 
     #[test]

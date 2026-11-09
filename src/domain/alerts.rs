@@ -143,8 +143,10 @@ pub fn evaluate(
 
 /// Keep the sample list bounded: drop anything older than two days.
 pub fn push_sample(history: &mut Vec<Sample>, sample: Sample) {
-    history.retain(|s| sample.at >= s.at && sample.at - s.at <= 2 * DAY_SECS);
     history.push(sample);
+    // Relative to the newest sample, so an out-of-order one drops nothing.
+    let newest = history.iter().map(|s| s.at).max().unwrap_or(sample.at);
+    history.retain(|s| newest - s.at <= 2 * DAY_SECS);
 }
 
 #[cfg(test)]
@@ -206,6 +208,22 @@ mod tests {
                 hours: 20
             }]
         );
+    }
+
+    #[test]
+    fn out_of_order_sample_keeps_newer_ones() {
+        let mut h = vec![Sample {
+            at: 10 * DAY_SECS,
+            free: 1,
+        }];
+        push_sample(
+            &mut h,
+            Sample {
+                at: 10 * DAY_SECS - 60,
+                free: 2,
+            },
+        );
+        assert_eq!(h.len(), 2);
     }
 
     #[test]

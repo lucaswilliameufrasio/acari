@@ -76,11 +76,18 @@ pub fn explore(
             .expect("build explore pool"),
     );
 
+    // Canonicalise and sort shallowest first so a parent given after its
+    // child still wins and the child is not walked twice.
+    let mut canonical: Vec<PathBuf> = Vec::new();
     for root in roots {
-        let Ok(root) = root.canonicalize() else {
-            data.errors = data.errors.saturating_add(1);
-            continue;
-        };
+        match root.canonicalize() {
+            Ok(root) => canonical.push(root),
+            Err(_) => data.errors = data.errors.saturating_add(1),
+        }
+    }
+    canonical.sort_by_key(|r| r.components().count());
+
+    for root in canonical {
         if !root.is_dir() || data.roots.iter().any(|r| root.starts_with(r)) {
             continue;
         }
@@ -383,6 +390,8 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         write(&root.join("inner/f.bin"), 1000);
         let data = explore(&[root.clone(), root.join("inner")], opts(), |_| {});
+        assert_eq!(data.roots, vec![root.clone()]);
+        let data = explore(&[root.join("inner"), root.clone()], opts(), |_| {});
         assert_eq!(data.roots, vec![root]);
     }
 }
