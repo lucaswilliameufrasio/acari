@@ -4,6 +4,7 @@ pub mod disk_scan;
 pub mod distro;
 pub mod du;
 pub mod exec;
+pub mod explore;
 pub mod history;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod privileged;
