@@ -1,6 +1,8 @@
 pub mod aggregate;
+pub mod alerts;
 pub mod custom_targets;
 pub mod format;
+pub mod insights;
 pub mod messages;
 pub mod models;
 pub mod project_scan;

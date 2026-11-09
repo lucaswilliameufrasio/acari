@@ -1,7 +1,12 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(author, version, about = "acari: cache scanner for macOS and Linux")]
+#[command(
+    author,
+    version,
+    about = "acari: find out what is filling your disk and clean it safely",
+    after_help = "Start here:\n  acari guide    explain where your disk space went, with next steps\n  acari setup    guided configuration (project folders and more)\n  acari          interactive cleaner for known caches"
+)]
 pub struct Cli {
     /// Limit scan to specific target names (can be used multiple times)
     #[arg(short, long = "target")]
@@ -54,6 +59,56 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Explain what is filling your disk and what to do about it (start here)
+    Guide {
+        /// Folders to explore (default: your home, plus the temp dir when it
+        /// is on the same disk)
+        paths: Vec<String>,
+        /// Smallest folder or file worth reporting (e.g. 500MB, 2GB)
+        #[arg(long = "min-size", default_value = "1GB")]
+        min_size: String,
+        /// Builds and worktrees untouched for this many days count as stale
+        #[arg(long, default_value_t = 30)]
+        stale_days: u64,
+        /// Show only one category (games, media, downloads, project-builds,
+        /// worktrees, dev-caches, toolchains, containers, vms, large-files,
+        /// temp, trash, other)
+        #[arg(long)]
+        category: Option<String>,
+        /// Show every item instead of the top 5 per category
+        #[arg(long)]
+        all: bool,
+        /// Emit the report as JSON
+        #[arg(long)]
+        json: bool,
+        /// Refresh the saved report quietly with low I/O priority (used by
+        /// the weekly background job)
+        #[arg(long)]
+        background: bool,
+    },
+    /// Quick disk health check (no scan); used by hooks and notifications
+    Check {
+        /// Agent hook mode: print context only when the disk is low
+        #[arg(long, conflicts_with_all = ["notify", "json"])]
+        hook: bool,
+        /// Show a desktop notification when the disk is low (deduplicated)
+        #[arg(long, conflicts_with = "json")]
+        notify: bool,
+        /// Emit the status as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the MCP server over stdio (for AI agents; `acari setup agents` installs it)
+    Mcp,
+    /// Guided configuration; re-run any time to adjust (e.g. `acari setup projects`)
+    Setup {
+        /// Run only these steps (default: all)
+        #[arg(value_enum)]
+        steps: Vec<crate::application::setup::SetupStep>,
+        /// Accept every default without asking
+        #[arg(long)]
+        yes: bool,
+    },
     /// Manage custom targets
     Target {
         #[command(subcommand)]
@@ -73,7 +128,6 @@ pub enum Commands {
         clear: bool,
     },
     /// Show a disk usage overview
-    /// Show disk usage overview
     Df {
         /// Split the used space into acari junk, project junk and the rest
         /// (runs a full scan; may take a while)

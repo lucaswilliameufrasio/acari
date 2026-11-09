@@ -35,6 +35,11 @@ fn statvfs(path: &str) -> Option<(u64, u64, u64)> {
 /// Windows equivalent of `statvfs`, via `GetDiskFreeSpaceExW`.
 #[cfg(windows)]
 fn disk_usage_windows() -> Option<(u64, u64, u64)> {
+    disk_usage_windows_at(&std::env::current_dir().ok()?)
+}
+
+#[cfg(windows)]
+fn disk_usage_windows_at(dir: &std::path::Path) -> Option<(u64, u64, u64)> {
     use std::os::windows::ffi::OsStrExt;
 
     #[link(name = "kernel32")]
@@ -47,7 +52,6 @@ fn disk_usage_windows() -> Option<(u64, u64, u64)> {
         ) -> i32;
     }
 
-    let dir = std::env::current_dir().ok()?;
     let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
 
     let mut free_available: u64 = 0;
@@ -66,6 +70,23 @@ fn disk_usage_windows() -> Option<(u64, u64, u64)> {
     }
     let used = total.saturating_sub(free_total);
     Some((total, used, free_available))
+}
+
+/// `(total, used, free)` bytes of the filesystem holding `path`.
+pub fn volume_usage(path: &std::path::Path) -> Option<(u64, u64, u64)> {
+    #[cfg(unix)]
+    {
+        statvfs(path.to_str()?)
+    }
+    #[cfg(windows)]
+    {
+        disk_usage_windows_at(path)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        None
+    }
 }
 
 pub fn disk_overview() -> DiskOverview {
@@ -112,6 +133,15 @@ pub fn disk_overview() -> DiskOverview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn volume_usage_reads_the_home_volume() {
+        let home = dirs::home_dir().expect("home dir");
+        let (total, used, free) = volume_usage(&home).expect("volume usage");
+        assert!(total > 0);
+        assert!(used <= total);
+        assert!(free <= total);
+    }
 
     #[test]
     fn overview_returns_zero_or_positive_on_any_platform() {

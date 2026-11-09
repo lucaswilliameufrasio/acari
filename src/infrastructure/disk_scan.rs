@@ -79,13 +79,13 @@ pub fn scan_tree_cancellable_with_priority(
     // jwalk must not compete for the process-wide Rayon pool: it can silently
     // stop producing entries under contention. Give this scan its own budget.
     let pool = build_walk_pool(io_priority);
-    let walker =
-        WalkDir::new(&root)
-            .follow_links(false)
-            .parallelism(Parallelism::RayonExistingPool {
-                pool,
-                busy_timeout: None,
-            });
+    let walker = WalkDir::new(&root)
+        .follow_links(false)
+        .skip_hidden(false)
+        .parallelism(Parallelism::RayonExistingPool {
+            pool,
+            busy_timeout: None,
+        });
 
     for result in walker {
         if cancel

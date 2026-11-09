@@ -311,6 +311,46 @@ fn run_du(path: Option<&str>, top: usize, min_size: &str, lang: Language) -> Res
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_guide_command(
+    paths: &[String],
+    min_size: &str,
+    stale_days: u64,
+    category: Option<&str>,
+    all: bool,
+    json: bool,
+    background: bool,
+    lang: Language,
+) -> Result<()> {
+    use acari::application::guide::{self, GuideOptions};
+    use acari::infrastructure::exec::parse_human_size;
+
+    let min_bytes = parse_human_size(min_size)
+        .with_context(|| format!("invalid --min-size value: {min_size}"))?;
+    let category = match category {
+        Some(raw) => Some(guide::parse_category(raw).with_context(|| {
+            format!(
+                "unknown category {raw:?}; use one of: {}",
+                guide::category_slugs().join(", ")
+            )
+        })?),
+        None => None,
+    };
+    let opts = GuideOptions {
+        paths: paths
+            .iter()
+            .map(|p| acari::domain::expand_tilde(p))
+            .collect(),
+        min_bytes,
+        stale_days,
+        category,
+        per_category: if all { 0 } else { 5 },
+        show_progress: !json,
+        background,
+    };
+    guide::run_guide(&opts, json, lang)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let lang = detect_language();
@@ -322,6 +362,53 @@ async fn main() -> Result<()> {
 
     if let Some(cmd) = &cli.command {
         match cmd {
+            Commands::Check { hook, notify, json } => {
+                use acari::application::check::{CheckMode, run_check};
+                let mode = if *hook {
+                    CheckMode::Hook
+                } else if *notify {
+                    CheckMode::Notify
+                } else if *json {
+                    CheckMode::Json
+                } else {
+                    CheckMode::Human
+                };
+                run_check(mode, lang)?;
+                return Ok(());
+            }
+            Commands::Mcp => {
+                // Blocking stdio loop; scans inside it re-enter the runtime.
+                tokio::task::spawn_blocking(move || acari::application::mcp::run_mcp(lang))
+                    .await??;
+                return Ok(());
+            }
+            Commands::Setup { steps, yes } => {
+                use acari::application::setup::{TerminalPrompter, run_setup};
+                let mut prompter = TerminalPrompter::new(*yes);
+                run_setup(steps, &mut prompter, lang)?;
+                return Ok(());
+            }
+            Commands::Guide {
+                paths,
+                min_size,
+                stale_days,
+                category,
+                all,
+                json,
+                background,
+            } => {
+                run_guide_command(
+                    paths,
+                    min_size,
+                    *stale_days,
+                    category.as_deref(),
+                    *all,
+                    *json,
+                    *background,
+                    lang,
+                )?;
+                return Ok(());
+            }
             Commands::History { clear } => {
                 run_history(*clear, lang);
                 return Ok(());
@@ -396,6 +483,7 @@ async fn main() -> Result<()> {
                     if paths.is_empty() {
                         println!("{}", msg::project_setup_help(lang));
                         print_project_roots(lang, &cfg);
+                        println!("{}", msg::project_suggestions_note(lang));
                         if let Some(home) = dirs::home_dir() {
                             for path in target_config::suggested_project_roots(&home) {
                                 println!(

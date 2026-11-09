@@ -21,8 +21,16 @@ pub mod msg {
 
     pub fn project_setup_help(lang: Language) -> &'static str {
         s(
-            "Projetos não são varridos sem raízes configuradas. Use acari project setup <pasta> ou acari project (TUI). Sugestões abaixo não são adicionadas automaticamente.",
-            "Projects are not scanned without configured roots. Use acari project setup <directory> or acari project (TUI). Suggestions below are not added automatically.",
+            "Projetos não são varridos sem pastas configuradas. Rode `acari setup projects` para escolher as pastas (ou acari project setup <pasta>).",
+            "Projects are not scanned without configured folders. Run `acari setup projects` to pick them (or acari project setup <directory>).",
+            lang,
+        )
+    }
+
+    pub fn project_suggestions_note(lang: Language) -> &'static str {
+        s(
+            "Sugestões abaixo não são adicionadas automaticamente:",
+            "Suggestions below are not added automatically:",
             lang,
         )
     }

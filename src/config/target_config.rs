@@ -51,6 +51,8 @@ pub struct TargetConfig {
     pub scan: ScanConfig,
     #[serde(default)]
     pub project_scan: ProjectScanConfig,
+    #[serde(default)]
+    pub alerts: crate::domain::alerts::AlertThresholds,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,6 +256,7 @@ pub fn suggested_project_roots(home: &std::path::Path) -> Vec<PathBuf> {
         "src",
         "git",
         "git-worktrees",
+        "worktrees",
     ] {
         if let Ok(path) = normalized_project_root(&home.join(name).display().to_string())
             && !roots.contains(&path)

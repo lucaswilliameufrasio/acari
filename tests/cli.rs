@@ -737,3 +737,114 @@ fn df_prints_overview() {
         .stdout(predicate::str::contains("Total:"))
         .stdout(predicate::str::contains("Free:"));
 }
+
+#[test]
+fn guide_json_explains_project_builds_in_given_path() {
+    let temp = safe_scan_tempdir();
+    let config = tempfile::tempdir().expect("config dir");
+    let project = temp.path().join("app");
+    fs::create_dir_all(project.join("node_modules/pkg")).expect("create dirs");
+    fs::write(project.join("package.json"), "{}").expect("write manifest");
+    fs::write(
+        project.join("node_modules/pkg/index.js"),
+        vec![b'x'; 2_000_000],
+    )
+    .expect("write module");
+
+    let output = cmd()
+        .env("ACARI_CONFIG_HOME", config.path())
+        .args(["guide", "--json", "--min-size", "1MB"])
+        .arg(temp.path())
+        .output()
+        .expect("run guide");
+    assert!(output.status.success(), "{output:?}");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let findings = json["findings"].as_array().expect("findings array");
+    assert!(
+        findings.iter().any(|f| f["category"] == "project_builds"
+            && f["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("node_modules"))),
+        "{json:#}"
+    );
+    assert!(json["next_steps"].as_array().is_some());
+}
+
+#[test]
+fn guide_rejects_unknown_category_with_the_valid_list() {
+    cmd()
+        .args(["guide", "--category", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("project-builds"));
+}
+
+#[test]
+fn check_hook_is_silent_when_healthy_and_speaks_when_low() {
+    let config = tempfile::tempdir().expect("config dir");
+    let data = tempfile::tempdir().expect("data dir");
+    let run = || {
+        cmd()
+            .env("ACARI_CONFIG_HOME", config.path())
+            .env("ACARI_DATA_HOME", data.path())
+            .args(["check", "--hook"])
+            .output()
+            .expect("run check")
+    };
+
+    fs::create_dir_all(config.path().join("acari")).expect("config dir");
+    let cfg = config.path().join("acari/config.toml");
+    fs::write(
+        &cfg,
+        "[alerts]\nmin_free_percent = 0.0\nmin_free_gb = 0\nfast_fill_gb = 0\n",
+    )
+    .expect("write config");
+    let quiet = run();
+    assert!(quiet.status.success());
+    assert!(quiet.stdout.is_empty(), "{quiet:?}");
+
+    fs::write(&cfg, "[alerts]\nmin_free_percent = 100.0\n").expect("write config");
+    let loud = run();
+    assert!(loud.status.success());
+    let text = String::from_utf8_lossy(&loud.stdout);
+    assert!(text.starts_with("acari: Disk:"), "{text}");
+}
+
+#[test]
+fn check_json_reports_status() {
+    let data = tempfile::tempdir().expect("data dir");
+    let output = cmd()
+        .env("ACARI_DATA_HOME", data.path())
+        .args(["check", "--json"])
+        .output()
+        .expect("run check");
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert!(json["status"]["total"].as_u64().unwrap() > 0);
+    assert!(data.path().join("disk-samples.json").exists());
+}
+
+#[test]
+fn mcp_server_answers_initialize_and_tools_list_over_stdio() {
+    let input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        "\n",
+    );
+    let output = cmd()
+        .arg("mcp")
+        .write_stdin(input)
+        .output()
+        .expect("run mcp");
+    assert!(output.status.success(), "{output:?}");
+    let lines: Vec<serde_json::Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("each stdout line is JSON-RPC"))
+        .collect();
+    assert_eq!(lines.len(), 2, "notifications get no response");
+    assert_eq!(lines[0]["result"]["serverInfo"]["name"], "acari");
+    assert!(lines[1]["result"]["tools"].as_array().unwrap().len() >= 8);
+}
