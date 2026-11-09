@@ -737,3 +737,44 @@ fn df_prints_overview() {
         .stdout(predicate::str::contains("Total:"))
         .stdout(predicate::str::contains("Free:"));
 }
+
+#[test]
+fn guide_json_explains_project_builds_in_given_path() {
+    let temp = safe_scan_tempdir();
+    let config = tempfile::tempdir().expect("config dir");
+    let project = temp.path().join("app");
+    fs::create_dir_all(project.join("node_modules/pkg")).expect("create dirs");
+    fs::write(project.join("package.json"), "{}").expect("write manifest");
+    fs::write(
+        project.join("node_modules/pkg/index.js"),
+        vec![b'x'; 2_000_000],
+    )
+    .expect("write module");
+
+    let output = cmd()
+        .env("ACARI_CONFIG_HOME", config.path())
+        .args(["guide", "--json", "--min-size", "1MB"])
+        .arg(temp.path())
+        .output()
+        .expect("run guide");
+    assert!(output.status.success(), "{output:?}");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let findings = json["findings"].as_array().expect("findings array");
+    assert!(
+        findings.iter().any(|f| f["category"] == "project_builds"
+            && f["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("node_modules"))),
+        "{json:#}"
+    );
+    assert!(json["next_steps"].as_array().is_some());
+}
+
+#[test]
+fn guide_rejects_unknown_category_with_the_valid_list() {
+    cmd()
+        .args(["guide", "--category", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("project-builds"));
+}

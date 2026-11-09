@@ -123,6 +123,13 @@ pub struct BuildDir {
     pub kind: BuildKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Worktree {
+    pub path: PathBuf,
+    /// Repository that owns the worktree (where `git worktree` must run).
+    pub main_repo: Option<PathBuf>,
+}
+
 /// Everything the explorer learned from walking the scan roots.
 #[derive(Debug, Default)]
 pub struct ExploreData {
@@ -133,7 +140,7 @@ pub struct ExploreData {
     pub build_dirs: Vec<BuildDir>,
     /// Linked git worktrees (directories whose `.git` is a file pointing to
     /// a main repository's `worktrees/` folder).
-    pub worktrees: Vec<PathBuf>,
+    pub worktrees: Vec<Worktree>,
     pub errors: u64,
 }
 
@@ -703,7 +710,7 @@ fn big_file_kind(path: &Path, lang: Language) -> (&'static str, Risk, String) {
             )
             .to_string(),
         ),
-        "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "xz" | "zst" | "bz2" => (
+        "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "xz" | "bz2" => (
             tr(lang, "arquivo compactado", "archive"),
             Risk::Review,
             tr(
@@ -803,7 +810,7 @@ pub fn build_findings(
         let Some(stat) = data.dirs.get(&loc.path) else {
             continue;
         };
-        if stat.bytes < opts.min_bytes || claimed.contains(&loc.path) {
+        if stat.bytes < opts.min_bytes || claimed.iter().any(|c| is_within(&loc.path, c)) {
             continue;
         }
         claimed.insert(loc.path.clone());
@@ -885,7 +892,8 @@ pub fn build_findings(
     }
 
     // 4. Linked git worktrees.
-    for tree in &data.worktrees {
+    for worktree in &data.worktrees {
+        let tree = &worktree.path;
         let Some(stat) = data.dirs.get(tree) else {
             continue;
         };
@@ -901,11 +909,14 @@ pub fn build_findings(
             label: display_path(tree, home),
             risk: Risk::Review,
             action: Action::Command {
-                command: format!(
-                    "git -C {} worktree remove {}",
-                    shell_quote(tree.parent().unwrap_or(tree)),
-                    shell_quote(tree)
-                ),
+                command: match &worktree.main_repo {
+                    Some(repo) => format!(
+                        "git -C {} worktree remove {}",
+                        shell_quote(repo),
+                        shell_quote(tree)
+                    ),
+                    None => format!("git -C {} status", shell_quote(tree)),
+                },
             },
             hint: tr(
                 lang,

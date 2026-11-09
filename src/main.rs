@@ -311,6 +311,43 @@ fn run_du(path: Option<&str>, top: usize, min_size: &str, lang: Language) -> Res
     Ok(())
 }
 
+fn run_guide_command(
+    paths: &[String],
+    min_size: &str,
+    stale_days: u64,
+    category: Option<&str>,
+    all: bool,
+    json: bool,
+    lang: Language,
+) -> Result<()> {
+    use acari::application::guide::{self, GuideOptions};
+    use acari::infrastructure::exec::parse_human_size;
+
+    let min_bytes = parse_human_size(min_size)
+        .with_context(|| format!("invalid --min-size value: {min_size}"))?;
+    let category = match category {
+        Some(raw) => Some(guide::parse_category(raw).with_context(|| {
+            format!(
+                "unknown category {raw:?}; use one of: {}",
+                guide::category_slugs().join(", ")
+            )
+        })?),
+        None => None,
+    };
+    let opts = GuideOptions {
+        paths: paths
+            .iter()
+            .map(|p| acari::domain::expand_tilde(p))
+            .collect(),
+        min_bytes,
+        stale_days,
+        category,
+        per_category: if all { 0 } else { 5 },
+        show_progress: !json,
+    };
+    guide::run_guide(&opts, json, lang)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let lang = detect_language();
@@ -322,6 +359,25 @@ async fn main() -> Result<()> {
 
     if let Some(cmd) = &cli.command {
         match cmd {
+            Commands::Guide {
+                paths,
+                min_size,
+                stale_days,
+                category,
+                all,
+                json,
+            } => {
+                run_guide_command(
+                    paths,
+                    min_size,
+                    *stale_days,
+                    category.as_deref(),
+                    *all,
+                    *json,
+                    lang,
+                )?;
+                return Ok(());
+            }
             Commands::History { clear } => {
                 run_history(*clear, lang);
                 return Ok(());

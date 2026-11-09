@@ -14,7 +14,7 @@ use jwalk::{Parallelism, WalkDir};
 use rayon::ThreadPoolBuilder;
 
 use crate::config::target_config::IoPriority;
-use crate::domain::insights::{BigFile, BuildDir, BuildKind, DirStat, ExploreData};
+use crate::domain::insights::{BigFile, BuildDir, BuildKind, DirStat, ExploreData, Worktree};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExploreOptions {
@@ -145,8 +145,13 @@ pub fn explore(
                 data.errors = data.errors.saturating_add(1);
                 continue;
             };
-            if entry.file_name == ".git" && is_linked_worktree_marker(&path) {
-                data.worktrees.push(entry.parent_path().to_path_buf());
+            if entry.file_name == ".git"
+                && let Some(main_repo) = linked_worktree_repo(&path)
+            {
+                data.worktrees.push(Worktree {
+                    path: entry.parent_path().to_path_buf(),
+                    main_repo,
+                });
             }
             if let Some(key) = hard_link_key(&meta)
                 && !seen_inodes.insert(key)
@@ -231,16 +236,33 @@ fn aggregate(
 
 /// A `.git` *file* whose `gitdir:` points into another repository's
 /// `worktrees/` folder marks a linked worktree (submodules point into
-/// `modules/` instead).
-fn is_linked_worktree_marker(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|content| {
-            content
-                .lines()
-                .find_map(|line| line.strip_prefix("gitdir:").map(|v| v.trim().to_string()))
-        })
-        .is_some_and(|gitdir| gitdir.contains("/worktrees/") || gitdir.contains("\\worktrees\\"))
+/// `modules/` instead). Returns `Some(main_repo)` for worktrees, where the
+/// inner option is the owning repository when it can be derived.
+fn linked_worktree_repo(dot_git: &Path) -> Option<Option<PathBuf>> {
+    let content = std::fs::read_to_string(dot_git).ok()?;
+    let gitdir = content
+        .lines()
+        .find_map(|line| line.strip_prefix("gitdir:"))?
+        .trim();
+    let gitdir = Path::new(gitdir);
+    let gitdir = if gitdir.is_relative() {
+        dot_git.parent()?.join(gitdir)
+    } else {
+        gitdir.to_path_buf()
+    };
+    // <common-dir>/worktrees/<name>
+    let worktrees = gitdir.parent()?;
+    if worktrees.file_name()? != "worktrees" {
+        return None;
+    }
+    let common = worktrees.parent();
+    Some(common.map(|common| {
+        if common.file_name().is_some_and(|n| n == ".git") {
+            common.parent().unwrap_or(common).to_path_buf()
+        } else {
+            common.to_path_buf()
+        }
+    }))
 }
 
 fn allocated_size(meta: &std::fs::Metadata) -> u64 {
@@ -332,7 +354,13 @@ mod tests {
         assert_eq!(data.build_dirs[0].path, root.join("proj/target"));
         assert_eq!(data.big_files.len(), 1);
         assert!(data.big_files[0].path.ends_with("big.rlib"));
-        assert_eq!(data.worktrees, vec![root.join("wt")]);
+        assert_eq!(
+            data.worktrees,
+            vec![Worktree {
+                path: root.join("wt"),
+                main_repo: Some(PathBuf::from("/repo")),
+            }]
+        );
     }
 
     #[cfg(unix)]

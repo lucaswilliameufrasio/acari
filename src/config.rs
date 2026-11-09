@@ -54,6 +54,29 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Explain what is filling your disk and what to do about it (start here)
+    Guide {
+        /// Folders to explore (default: your home, plus the temp dir when it
+        /// is on the same disk)
+        paths: Vec<String>,
+        /// Smallest folder or file worth reporting (e.g. 500MB, 2GB)
+        #[arg(long = "min-size", default_value = "1GB")]
+        min_size: String,
+        /// Builds and worktrees untouched for this many days count as stale
+        #[arg(long, default_value_t = 30)]
+        stale_days: u64,
+        /// Show only one category (games, media, downloads, project-builds,
+        /// worktrees, dev-caches, toolchains, containers, vms, large-files,
+        /// temp, trash, other)
+        #[arg(long)]
+        category: Option<String>,
+        /// Show every item instead of the top 5 per category
+        #[arg(long)]
+        all: bool,
+        /// Emit the report as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage custom targets
     Target {
         #[command(subcommand)]

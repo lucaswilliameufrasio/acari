@@ -68,6 +68,19 @@ fn disk_usage_windows() -> Option<(u64, u64, u64)> {
     Some((total, used, free_available))
 }
 
+/// `(total, used, free)` bytes of the filesystem holding `path`.
+pub fn volume_usage(path: &std::path::Path) -> Option<(u64, u64, u64)> {
+    #[cfg(unix)]
+    {
+        statvfs(path.to_str()?)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 pub fn disk_overview() -> DiskOverview {
     #[cfg(target_os = "macos")]
     let path = "/System/Volumes/Data";
