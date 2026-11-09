@@ -24,12 +24,12 @@ pub fn largest_dirs(root: &Path, top: usize, min_size: u64) -> Vec<DuEntry> {
     let mut own: HashMap<PathBuf, (u64, u64)> = HashMap::new();
     own.insert(root.to_path_buf(), (0, 0));
 
-    let walker =
-        WalkDir::new(root)
-            .follow_links(false)
-            .parallelism(Parallelism::RayonDefaultPool {
-                busy_timeout: Duration::from_secs(60),
-            });
+    let walker = WalkDir::new(root)
+        .follow_links(false)
+        .skip_hidden(false)
+        .parallelism(Parallelism::RayonDefaultPool {
+            busy_timeout: Duration::from_secs(60),
+        });
 
     for entry in walker {
         let entry = match entry {
@@ -134,6 +134,20 @@ mod tests {
         let entries = largest_dirs(&root, 1, 1);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, root);
+    }
+
+    #[test]
+    fn counts_hidden_files_and_directories() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().to_path_buf();
+        write(&root.join(".hidden").join("data.bin"), 3_000_000);
+        write(&root.join(".dotfile"), 1_000_000);
+
+        let entries = largest_dirs(&root, 20, 1);
+
+        assert_eq!(entries[0].path, root);
+        assert_eq!(entries[0].bytes, 4_000_000);
+        assert_eq!(entries[1].path, root.join(".hidden"));
     }
 
     #[test]

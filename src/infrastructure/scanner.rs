@@ -80,11 +80,13 @@ pub fn scan_target_cancellable(
     let walker = if excludes.is_empty() {
         WalkDir::new(&path)
             .follow_links(false)
+            .skip_hidden(false)
             .parallelism(dedicated_walk_parallelism(pool))
     } else {
         let ex = excludes.to_vec();
         WalkDir::new(&path)
             .follow_links(false)
+            .skip_hidden(false)
             .parallelism(dedicated_walk_parallelism(pool))
             .process_read_dir(move |_depth, _parent_path, _state, children: &mut Vec<_>| {
                 children.retain(|entry| {
@@ -232,6 +234,7 @@ fn estimate_simctl_erase(pool: &Arc<ThreadPool>) -> Option<(u64, u64)> {
     let mut files = 0_u64;
     let walker = WalkDir::new(&path)
         .follow_links(false)
+        .skip_hidden(false)
         .parallelism(dedicated_walk_parallelism(pool))
         .into_iter();
     for entry in walker {
@@ -377,6 +380,29 @@ mod tests {
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.bytes, 10);
         assert_eq!(result.scan_errors, 0);
+    }
+
+    #[test]
+    fn scans_hidden_files_and_directories() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let hidden = temp.path().join(".cache-dir").join(".lock");
+        fs::create_dir_all(hidden.parent().expect("parent")).expect("create hidden dir");
+        fs::write(&hidden, b"abc").expect("write hidden file");
+        fs::write(temp.path().join(".dotfile"), b"de").expect("write dotfile");
+
+        let target = CleanTarget {
+            name: Cow::Borrowed("Hidden Target"),
+            path: Cow::Owned(temp.path().to_string_lossy().into_owned()),
+            description: Cow::Borrowed("test"),
+            ..CleanTarget::default()
+        };
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let pool = test_pool();
+        let result = scan_target(&target, &tx, &[], &pool, false);
+
+        assert_eq!(result.files_scanned, 2);
+        assert_eq!(result.bytes, 5);
     }
 
     #[test]
