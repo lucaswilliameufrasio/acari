@@ -162,6 +162,51 @@ acari guide /var /opt                   # explore other folders
 acari guide --json                      # structured report for scripts/agents
 ```
 
+`acari setup` walks through four steps and can be re-run to change anything
+(or run a single step: `acari setup agents`):
+
+| Step | What it configures |
+|---|---|
+| `projects` | folders where your code lives, for `acari project` |
+| `agents` | the MCP server and a low-disk SessionStart hook in Claude Code, Codex and opencode (every change is shown first; agent files get a `.acari-bak`) |
+| `reminders` | an hourly desktop notification when the disk is low and a weekly background report refresh (systemd user timers or launchd agents) |
+| `alerts` | when the disk counts as low (`[alerts]` in config.toml) |
+
+### Disk health, hooks and notifications
+
+```bash
+acari check           # instant: free space vs thresholds + last report highlights
+acari check --hook    # agent hooks: prints context only when the disk is low
+acari check --notify  # desktop notification when low (deduplicated, 12h)
+acari check --json
+```
+
+`acari check` never scans: it reads the volume statistics and the report
+saved by the last `acari guide` (or the weekly background refresh).
+
+```toml
+# ~/.config/acari/config.toml
+[alerts]
+min_free_percent = 15   # warn below 15% free (critical below half)
+min_free_gb = 50        # ...or below 50 GB free
+fast_fill_gb = 50       # ...or when 50 GB disappear within 24 hours (0 = off)
+```
+
+### MCP server for AI agents
+
+`acari mcp` speaks the Model Context Protocol over stdio. `acari setup agents`
+registers it for you; manually it is just `acari mcp` as a stdio server.
+
+| Tool | |
+|---|---|
+| `disk_status` | instant health check (same as `acari check`) |
+| `disk_guide` | the guide report (saved when recent; `refresh` rescans) |
+| `largest_paths` | du-style drill-down into a folder |
+| `list_targets` / `scan_targets` | acari's cleanup targets and their sizes |
+| `clean_targets` | clean targets: **dry run by default**, dangerous targets need `allow_dangerous`, sudo targets are refused |
+| `delete_build_dir` | delete one build folder (e.g. `target/` next to `Cargo.toml`) inside home: **dry run by default** |
+| `cleanup_history` | recent cleanups |
+
 ### Usage
 
 Launch the TUI (interactive mode):
