@@ -778,3 +778,48 @@ fn guide_rejects_unknown_category_with_the_valid_list() {
         .failure()
         .stderr(predicate::str::contains("project-builds"));
 }
+
+#[test]
+fn check_hook_is_silent_when_healthy_and_speaks_when_low() {
+    let config = tempfile::tempdir().expect("config dir");
+    let data = tempfile::tempdir().expect("data dir");
+    let run = || {
+        cmd()
+            .env("ACARI_CONFIG_HOME", config.path())
+            .env("ACARI_DATA_HOME", data.path())
+            .args(["check", "--hook"])
+            .output()
+            .expect("run check")
+    };
+
+    fs::create_dir_all(config.path().join("acari")).expect("config dir");
+    let cfg = config.path().join("acari/config.toml");
+    fs::write(
+        &cfg,
+        "[alerts]\nmin_free_percent = 0.0\nmin_free_gb = 0\nfast_fill_gb = 0\n",
+    )
+    .expect("write config");
+    let quiet = run();
+    assert!(quiet.status.success());
+    assert!(quiet.stdout.is_empty(), "{quiet:?}");
+
+    fs::write(&cfg, "[alerts]\nmin_free_percent = 100.0\n").expect("write config");
+    let loud = run();
+    assert!(loud.status.success());
+    let text = String::from_utf8_lossy(&loud.stdout);
+    assert!(text.starts_with("acari: Disk:"), "{text}");
+}
+
+#[test]
+fn check_json_reports_status() {
+    let data = tempfile::tempdir().expect("data dir");
+    let output = cmd()
+        .env("ACARI_DATA_HOME", data.path())
+        .args(["check", "--json"])
+        .output()
+        .expect("run check");
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert!(json["status"]["total"].as_u64().unwrap() > 0);
+    assert!(data.path().join("disk-samples.json").exists());
+}

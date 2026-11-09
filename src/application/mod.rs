@@ -1,3 +1,4 @@
+pub mod check;
 pub mod cleaner;
 pub mod commands;
 pub mod guide;

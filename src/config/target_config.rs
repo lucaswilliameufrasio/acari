@@ -51,6 +51,8 @@ pub struct TargetConfig {
     pub scan: ScanConfig,
     #[serde(default)]
     pub project_scan: ProjectScanConfig,
+    #[serde(default)]
+    pub alerts: crate::domain::alerts::AlertThresholds,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

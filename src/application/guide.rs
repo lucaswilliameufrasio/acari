@@ -6,7 +6,7 @@ use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::application::commands::prepare_targets;
 use crate::config::target_config::{self, TargetConfig};
@@ -30,6 +30,8 @@ pub struct GuideOptions {
     /// Items shown per category in text output (0 = all).
     pub per_category: usize,
     pub show_progress: bool,
+    /// Low I/O priority, no output: only refresh the saved report.
+    pub background: bool,
 }
 
 impl Default for GuideOptions {
@@ -41,11 +43,12 @@ impl Default for GuideOptions {
             category: None,
             per_category: 5,
             show_progress: true,
+            background: false,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Volume {
     pub path: PathBuf,
     pub total: u64,
@@ -53,13 +56,13 @@ pub struct Volume {
     pub free: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootUsage {
     pub path: PathBuf,
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CategorySummary {
     pub category: Category,
     pub label: String,
@@ -67,7 +70,7 @@ pub struct CategorySummary {
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Totals {
     /// Everything the findings explain (nested findings counted once).
     pub explained: u64,
@@ -79,15 +82,18 @@ pub struct Totals {
     pub review: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NextStep {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuideReport {
+    /// When the report was produced (unix seconds).
+    #[serde(default)]
+    pub generated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub volume: Option<Volume>,
     pub roots: Vec<RootUsage>,
@@ -164,13 +170,18 @@ pub fn build_report(opts: &GuideOptions, cfg: &TargetConfig, lang: Language) -> 
         opts.paths.clone()
     };
 
-    let progress_enabled = opts.show_progress && std::io::stderr().is_terminal();
+    let progress_enabled =
+        opts.show_progress && !opts.background && std::io::stderr().is_terminal();
     let data = explore::explore(
         &roots,
         ExploreOptions {
             big_file_min: opts.min_bytes,
             keep_dir_min: (opts.min_bytes / 100).max(1_000_000),
-            io_priority: cfg.scan.io_priority,
+            io_priority: if opts.background {
+                crate::config::target_config::IoPriority::Low
+            } else {
+                cfg.scan.io_priority
+            },
         },
         |p: ExploreProgress| {
             if progress_enabled {
@@ -205,7 +216,7 @@ pub fn build_report(opts: &GuideOptions, cfg: &TargetConfig, lang: Language) -> 
 
 fn assemble(
     data: ExploreData,
-    mut findings: Vec<Finding>,
+    findings: Vec<Finding>,
     cfg: &TargetConfig,
     opts: &GuideOptions,
     home: &Path,
@@ -249,11 +260,25 @@ fn assemble(
     };
     let next_steps = next_steps(&findings, cfg, opts, outside_roots, home, lang);
 
-    if let Some(only) = opts.category {
-        findings.retain(|f| f.category == only);
+    let categories = summarize_categories(&findings, lang);
+
+    GuideReport {
+        generated_at: now_secs(),
+        volume,
+        roots,
+        outside_roots,
+        categories,
+        findings,
+        totals,
+        next_steps,
+        scan_errors: data.errors,
+        elapsed_secs: started.elapsed().as_secs_f64(),
     }
+}
+
+fn summarize_categories(findings: &[Finding], lang: Language) -> Vec<CategorySummary> {
     let mut by_cat: BTreeMap<Category, Vec<&Finding>> = BTreeMap::new();
-    for f in &findings {
+    for f in findings {
         by_cat.entry(f.category).or_default().push(f);
     }
     let mut categories: Vec<CategorySummary> = by_cat
@@ -266,18 +291,30 @@ fn assemble(
         })
         .collect();
     categories.sort_by_key(|c| std::cmp::Reverse(c.bytes));
+    categories
+}
 
-    GuideReport {
-        volume,
-        roots,
-        outside_roots,
-        categories,
-        findings,
-        totals,
-        next_steps,
-        scan_errors: data.errors,
-        elapsed_secs: started.elapsed().as_secs_f64(),
-    }
+/// Keep only one category's findings (totals and next steps stay global).
+pub fn only_category(mut report: GuideReport, category: Category, lang: Language) -> GuideReport {
+    report.findings.retain(|f| f.category == category);
+    report.categories = summarize_categories(&report.findings, lang);
+    report
+}
+
+/// File name of the last full report, inside the acari data dir.
+pub const SAVED_REPORT: &str = "report.json";
+
+pub fn save_report(report: &GuideReport) -> std::io::Result<()> {
+    crate::infrastructure::state::write_json(SAVED_REPORT, report)
+}
+
+pub fn load_saved_report() -> Option<GuideReport> {
+    crate::infrastructure::state::read_json(SAVED_REPORT)
+}
+
+/// Age of a report in whole days.
+pub fn report_age_days(report: &GuideReport) -> u64 {
+    now_secs().saturating_sub(report.generated_at) / 86_400
 }
 
 fn tr(lang: Language, pt: &'static str, en: &'static str) -> &'static str {
@@ -722,7 +759,19 @@ pub fn category_slugs() -> Vec<&'static str> {
 /// Entry point for the CLI.
 pub fn run_guide(opts: &GuideOptions, json: bool, lang: Language) -> anyhow::Result<()> {
     let cfg = target_config::load_config();
-    let report = build_report(opts, &cfg, lang);
+    let mut report = build_report(opts, &cfg, lang);
+    if opts.paths.is_empty() {
+        // Only full default-scope reports are reused by check, hooks and MCP.
+        if let Err(e) = save_report(&report) {
+            eprintln!("warning: could not save the report: {e}");
+        }
+    }
+    if opts.background {
+        return Ok(());
+    }
+    if let Some(category) = opts.category {
+        report = only_category(report, category, lang);
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {

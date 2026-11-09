@@ -311,6 +311,7 @@ fn run_du(path: Option<&str>, top: usize, min_size: &str, lang: Language) -> Res
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_guide_command(
     paths: &[String],
     min_size: &str,
@@ -318,6 +319,7 @@ fn run_guide_command(
     category: Option<&str>,
     all: bool,
     json: bool,
+    background: bool,
     lang: Language,
 ) -> Result<()> {
     use acari::application::guide::{self, GuideOptions};
@@ -344,6 +346,7 @@ fn run_guide_command(
         category,
         per_category: if all { 0 } else { 5 },
         show_progress: !json,
+        background,
     };
     guide::run_guide(&opts, json, lang)
 }
@@ -359,6 +362,20 @@ async fn main() -> Result<()> {
 
     if let Some(cmd) = &cli.command {
         match cmd {
+            Commands::Check { hook, notify, json } => {
+                use acari::application::check::{CheckMode, run_check};
+                let mode = if *hook {
+                    CheckMode::Hook
+                } else if *notify {
+                    CheckMode::Notify
+                } else if *json {
+                    CheckMode::Json
+                } else {
+                    CheckMode::Human
+                };
+                run_check(mode, lang)?;
+                return Ok(());
+            }
             Commands::Setup { steps, yes } => {
                 use acari::application::setup::{TerminalPrompter, run_setup};
                 let mut prompter = TerminalPrompter::new(*yes);
@@ -372,6 +389,7 @@ async fn main() -> Result<()> {
                 category,
                 all,
                 json,
+                background,
             } => {
                 run_guide_command(
                     paths,
@@ -380,6 +398,7 @@ async fn main() -> Result<()> {
                     category.as_deref(),
                     *all,
                     *json,
+                    *background,
                     lang,
                 )?;
                 return Ok(());

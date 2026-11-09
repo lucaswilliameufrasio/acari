@@ -81,6 +81,22 @@ pub enum Commands {
         /// Emit the report as JSON
         #[arg(long)]
         json: bool,
+        /// Refresh the saved report quietly with low I/O priority (used by
+        /// the weekly background job)
+        #[arg(long)]
+        background: bool,
+    },
+    /// Quick disk health check (no scan); used by hooks and notifications
+    Check {
+        /// Agent hook mode: print context only when the disk is low
+        #[arg(long, conflicts_with_all = ["notify", "json"])]
+        hook: bool,
+        /// Show a desktop notification when the disk is low (deduplicated)
+        #[arg(long, conflicts_with = "json")]
+        notify: bool,
+        /// Emit the status as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Guided configuration; re-run any time to adjust (e.g. `acari setup projects`)
     Setup {

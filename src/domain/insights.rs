@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::i18n::Language;
 
@@ -32,7 +32,7 @@ pub struct BigFile {
     pub modified: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BuildKind {
     Cargo,
@@ -164,7 +164,7 @@ pub struct KnownTarget {
     pub dangerous: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     Games,
@@ -204,7 +204,7 @@ impl Category {
 }
 
 /// How careful the user must be before reclaiming a finding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Risk {
     /// Regenerates on its own (caches, build outputs); costs only time.
@@ -225,7 +225,7 @@ impl Risk {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
     /// Clean with an acari built-in or custom target.
@@ -249,13 +249,13 @@ impl Action {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Detail {
     pub name: String,
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finding {
     pub path: PathBuf,
     /// Bytes attributed to this finding. For `Other` folders this is only the
@@ -270,7 +270,7 @@ pub struct Finding {
     /// Days since anything below this path was modified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle_days: Option<u64>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<Detail>,
 }
 
