@@ -139,6 +139,29 @@ Verify:
 acari --version
 ```
 
+### Start here
+
+```bash
+acari guide     # where did my disk go? findings by category, with next steps
+acari setup     # guided configuration; re-run any time (or: acari setup projects)
+```
+
+`acari guide` walks your home folder once (plus the temp dir when it shares
+the disk) and explains everything it finds, not only the caches acari can
+clean: game libraries, videos, downloads, Docker data, VMs and emulators,
+old toolchains, project builds (with how long they have been idle), git
+worktrees, bloated app databases and any other large folder. Each finding
+says how risky it is (regenerates / remove via app / review first), shows
+its biggest children and gives a copy-pastable command. Sizes are allocated
+bytes, hard links count once and other filesystems are never crossed.
+
+```bash
+acari guide --category project-builds   # every item of one category
+acari guide --min-size 500MB --all      # smaller findings, no truncation
+acari guide /var /opt                   # explore other folders
+acari guide --json                      # structured report for scripts/agents
+```
+
 ### Usage
 
 Launch the TUI (interactive mode):
