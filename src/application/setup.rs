@@ -19,15 +19,26 @@ pub enum SetupStep {
     Projects,
     /// MCP server and low-disk hook for AI agents (Claude Code, Codex, opencode)
     Agents,
+    /// Desktop notification when the disk is low and a weekly report refresh
+    Reminders,
+    /// When the disk counts as "low" (free space thresholds)
+    Alerts,
 }
 
 impl SetupStep {
-    pub const ALL: &'static [SetupStep] = &[SetupStep::Projects, SetupStep::Agents];
+    pub const ALL: &'static [SetupStep] = &[
+        SetupStep::Projects,
+        SetupStep::Agents,
+        SetupStep::Reminders,
+        SetupStep::Alerts,
+    ];
 
     fn title(self, lang: Language) -> &'static str {
         match self {
             SetupStep::Projects => tr(lang, "Pastas de projetos", "Project folders"),
             SetupStep::Agents => tr(lang, "Agentes de IA", "AI agents"),
+            SetupStep::Reminders => tr(lang, "Lembretes do sistema", "System reminders"),
+            SetupStep::Alerts => tr(lang, "Limites", "Thresholds"),
         }
     }
 }
@@ -182,6 +193,8 @@ pub fn run_steps(ctx: &mut SetupContext<'_>, steps: &[SetupStep]) -> Result<()> 
         match step {
             SetupStep::Projects => step_projects(ctx)?,
             SetupStep::Agents => step_agents(ctx),
+            SetupStep::Reminders => step_reminders(ctx),
+            SetupStep::Alerts => step_alerts(ctx),
         }
     }
     ctx.prompter.say("");
@@ -320,6 +333,123 @@ fn step_agents(ctx: &mut SetupContext<'_>) {
             }
             Err(e) => ctx.prompter.say(&format!("      ! {e}")),
         }
+    }
+}
+
+fn step_reminders(ctx: &mut SetupContext<'_>) {
+    use crate::infrastructure::schedule::{self, Job};
+
+    let lang = ctx.lang;
+    if !schedule::supported() {
+        ctx.prompter.say(tr(
+            lang,
+            "  Este sistema não tem systemd (usuário) nem launchd; lembretes indisponíveis.",
+            "  This system has neither systemd (user) nor launchd; reminders unavailable.",
+        ));
+        return;
+    }
+    if !schedule::notifier_available() {
+        ctx.prompter.say(tr(
+            lang,
+            "  Aviso: `notify-send` não encontrado (pacote libnotify); a checagem roda, mas a notificação não aparece.",
+            "  Warning: `notify-send` not found (libnotify package); checks run but no notification shows up.",
+        ));
+    }
+    let exe = acari_executable();
+    let home = ctx.home.clone();
+    for job in [Job::Check, Job::Report] {
+        let installed = schedule::is_installed(&home, job);
+        let question = match (job, installed, lang) {
+            (Job::Check, false, Language::Portuguese) => {
+                "  Avisar com notificação quando o disco passar do limite (checa de hora em hora, sem varrer)?"
+            }
+            (Job::Check, false, Language::English) => {
+                "  Notify me when the disk crosses the threshold (hourly check, no scan)?"
+            }
+            (Job::Check, true, Language::Portuguese) => {
+                "  Notificação de disco cheio ativa. Manter?"
+            }
+            (Job::Check, true, Language::English) => "  Low-disk notification active. Keep?",
+            (Job::Report, false, Language::Portuguese) => {
+                "  Atualizar o relatório toda semana em segundo plano (prioridade baixa)? Deixa `acari check`, hooks e MCP instantâneos."
+            }
+            (Job::Report, false, Language::English) => {
+                "  Refresh the report weekly in the background (low priority)? Keeps `acari check`, hooks and MCP instant."
+            }
+            (Job::Report, true, Language::Portuguese) => "  Relatório semanal ativo. Manter?",
+            (Job::Report, true, Language::English) => "  Weekly report active. Keep?",
+        };
+        let want = confirm_external(ctx.prompter, question, lang);
+        let changes = match (want, installed) {
+            (true, _) => schedule::plan_install(&home, job, &exe),
+            (false, true) => schedule::plan_remove(&home, job),
+            (false, false) => Vec::new(),
+        };
+        apply_changes(ctx, &changes);
+    }
+}
+
+fn ask_number(p: &mut dyn Prompter, question: &str, current: f64) -> Option<f64> {
+    let answer = p.ask(&format!("{question} [{current}]"))?;
+    let answer = answer.trim().trim_end_matches('%').replace(',', ".");
+    if answer.is_empty() {
+        return None;
+    }
+    answer.parse::<f64>().ok().filter(|v| *v >= 0.0)
+}
+
+fn step_alerts(ctx: &mut SetupContext<'_>) {
+    let lang = ctx.lang;
+    let t = ctx.cfg.alerts;
+    ctx.prompter.say(&match lang {
+        Language::Portuguese => format!(
+            "  O disco conta como \"apertado\" abaixo de {}% livre ou {} GB livres, ou se perder {} GB em 24h. Usado por `acari check`, hooks e notificações.",
+            t.min_free_percent, t.min_free_gb, t.fast_fill_gb
+        ),
+        Language::English => format!(
+            "  The disk counts as \"low\" below {}% free or {} GB free, or when it loses {} GB in 24h. Used by `acari check`, hooks and notifications.",
+            t.min_free_percent, t.min_free_gb, t.fast_fill_gb
+        ),
+    });
+    if let Some(v) = ask_number(
+        ctx.prompter,
+        tr(
+            lang,
+            "  Avisar abaixo de quantos % livres?",
+            "  Warn below how many % free?",
+        ),
+        t.min_free_percent,
+    ) && v <= 100.0
+        && (v - t.min_free_percent).abs() > f64::EPSILON
+    {
+        ctx.cfg.alerts.min_free_percent = v;
+        ctx.changed = true;
+    }
+    if let Some(v) = ask_number(
+        ctx.prompter,
+        tr(
+            lang,
+            "  E abaixo de quantos GB livres?",
+            "  And below how many GB free?",
+        ),
+        t.min_free_gb as f64,
+    ) && v as u64 != t.min_free_gb
+    {
+        ctx.cfg.alerts.min_free_gb = v as u64;
+        ctx.changed = true;
+    }
+    if let Some(v) = ask_number(
+        ctx.prompter,
+        tr(
+            lang,
+            "  Avisar se o disco perder quantos GB em 24h? (0 desliga)",
+            "  Warn when the disk loses how many GB in 24h? (0 disables)",
+        ),
+        t.fast_fill_gb as f64,
+    ) && v as u64 != t.fast_fill_gb
+    {
+        ctx.cfg.alerts.fast_fill_gb = v as u64;
+        ctx.changed = true;
     }
 }
 
@@ -505,6 +635,18 @@ mod tests {
         run_steps(&mut c, &[SetupStep::Agents]).unwrap();
         assert!(!c.external_changed);
         assert!(!home.path().join(".claude/settings.json").exists());
+    }
+
+    #[test]
+    fn alerts_step_updates_thresholds_and_keeps_defaults_on_enter() {
+        let home = fixture_home();
+        let mut p = Scripted::new(&[Some("10%"), Some(""), Some("0")]);
+        let mut c = ctx(home.path(), &mut p);
+        run_steps(&mut c, &[SetupStep::Alerts]).unwrap();
+        assert!(c.changed);
+        assert_eq!(c.cfg.alerts.min_free_percent, 10.0);
+        assert_eq!(c.cfg.alerts.min_free_gb, 50);
+        assert_eq!(c.cfg.alerts.fast_fill_gb, 0);
     }
 
     #[test]

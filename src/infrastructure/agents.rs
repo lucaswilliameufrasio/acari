@@ -7,7 +7,6 @@
 //! CLI is used instead of editing its files behind its back.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{Map, Value, json};
 
@@ -150,71 +149,7 @@ fn group_is_acari(group: &Value) -> bool {
         })
 }
 
-/// One planned modification.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Change {
-    /// Rewrite a file with new content (a backup is kept).
-    WriteFile {
-        path: PathBuf,
-        content: String,
-        /// Human summary of what changes, e.g. `+ hooks.SessionStart[acari]`.
-        summary: String,
-    },
-    /// Run an agent's own CLI.
-    Run { program: String, args: Vec<String> },
-    /// Cannot be automated: tell the user what to do.
-    Manual { instructions: String },
-}
-
-impl Change {
-    pub fn describe(&self, home: &Path) -> String {
-        match self {
-            Change::WriteFile { path, summary, .. } => {
-                let shown = crate::domain::insights::display_path(path, home);
-                format!("{shown}: {summary}")
-            }
-            Change::Run { program, args } => {
-                let quoted: Vec<String> = args
-                    .iter()
-                    .map(|a| crate::domain::insights::shell_quote(Path::new(a)))
-                    .collect();
-                format!("$ {program} {}", quoted.join(" "))
-            }
-            Change::Manual { instructions } => instructions.clone(),
-        }
-    }
-
-    pub fn apply(&self) -> Result<(), String> {
-        match self {
-            Change::WriteFile { path, content, .. } => {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-                if path.exists() {
-                    let backup = PathBuf::from(format!("{}.acari-bak", path.display()));
-                    std::fs::copy(path, &backup).map_err(|e| format!("backup failed: {e}"))?;
-                }
-                std::fs::write(path, content).map_err(|e| e.to_string())
-            }
-            Change::Run { program, args } => {
-                let out = Command::new(program)
-                    .args(args)
-                    .output()
-                    .map_err(|e| format!("{program}: {e}"))?;
-                if out.status.success() {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "{program} failed: {}{}",
-                        String::from_utf8_lossy(&out.stderr).trim(),
-                        String::from_utf8_lossy(&out.stdout).trim()
-                    ))
-                }
-            }
-            Change::Manual { .. } => Ok(()),
-        }
-    }
-}
+pub use super::changes::Change;
 
 fn exe_string(exe: &Path) -> String {
     exe.display().to_string()
@@ -260,6 +195,7 @@ pub fn plan_mcp_install(agent: Agent, home: &Path, exe: &Path) -> Result<Vec<Cha
             changes.push(Change::Run {
                 program: agent.binary().into(),
                 args,
+                allow_failure: false,
             });
             Ok(changes)
         }
@@ -307,6 +243,7 @@ pub fn plan_mcp_remove(agent: Agent, home: &Path) -> Result<Vec<Change>, String>
             Ok(vec![Change::Run {
                 program: agent.binary().into(),
                 args,
+                allow_failure: false,
             }])
         }
         Agent::ClaudeCode | Agent::Codex => Ok(vec![Change::Manual {
