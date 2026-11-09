@@ -823,3 +823,28 @@ fn check_json_reports_status() {
     assert!(json["status"]["total"].as_u64().unwrap() > 0);
     assert!(data.path().join("disk-samples.json").exists());
 }
+
+#[test]
+fn mcp_server_answers_initialize_and_tools_list_over_stdio() {
+    let input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        "\n",
+    );
+    let output = cmd()
+        .arg("mcp")
+        .write_stdin(input)
+        .output()
+        .expect("run mcp");
+    assert!(output.status.success(), "{output:?}");
+    let lines: Vec<serde_json::Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("each stdout line is JSON-RPC"))
+        .collect();
+    assert_eq!(lines.len(), 2, "notifications get no response");
+    assert_eq!(lines[0]["result"]["serverInfo"]["name"], "acari");
+    assert!(lines[1]["result"]["tools"].as_array().unwrap().len() >= 8);
+}

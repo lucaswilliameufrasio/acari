@@ -98,6 +98,8 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Run the MCP server over stdio (for AI agents; `acari setup agents` installs it)
+    Mcp,
     /// Guided configuration; re-run any time to adjust (e.g. `acari setup projects`)
     Setup {
         /// Run only these steps (default: all)

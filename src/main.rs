@@ -376,6 +376,12 @@ async fn main() -> Result<()> {
                 run_check(mode, lang)?;
                 return Ok(());
             }
+            Commands::Mcp => {
+                // Blocking stdio loop; scans inside it re-enter the runtime.
+                tokio::task::spawn_blocking(move || acari::application::mcp::run_mcp(lang))
+                    .await??;
+                return Ok(());
+            }
             Commands::Setup { steps, yes } => {
                 use acari::application::setup::{TerminalPrompter, run_setup};
                 let mut prompter = TerminalPrompter::new(*yes);
