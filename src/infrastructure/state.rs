@@ -38,7 +38,11 @@ pub fn write_json_at<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("tmp");
+    // Unique temp name: a hook and a timer may write the same file at once.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let tmp = path.with_extension(format!("{}-{nanos}.tmp", std::process::id()));
     let bytes = serde_json::to_vec(value).map_err(std::io::Error::other)?;
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
